@@ -129,9 +129,8 @@ async function fetchAudioWithRetry(text, retries = 2) {
   return null;
 }
 
-async function speak(text) {
+async function speakOne(text) {
   if (!text.trim()) return;
-  setStatus('MOWIE...', 'speaking');
   if (ttsConfigured) {
     try {
       const blob = await fetchAudioWithRetry(text);
@@ -145,7 +144,6 @@ async function speak(text) {
           audio.onerror = resolve;
           audio.play();
         });
-        setStatus('ONLINE', null);
         return;
       }
     } catch (e) {
@@ -153,7 +151,42 @@ async function speak(text) {
     }
   }
   await speakBrowser(text);
+}
+
+// Mowimy zdanie po zdaniu, w miare jak tekst splywa strumieniem - synteza
+// kolejnego zdania startuje od razu po dolaczeniu do kolejki, wiec pauzy
+// miedzy zdaniami sa minimalne zamiast czekac na cala odpowiedz naraz.
+let speechQueue = [];
+let speaking = false;
+
+function enqueueSpeech(text) {
+  if (!text.trim()) return;
+  speechQueue.push(text);
+  drainSpeechQueue();
+}
+
+async function drainSpeechQueue() {
+  if (speaking) return;
+  speaking = true;
+  setStatus('MOWIE...', 'speaking');
+  while (speechQueue.length) {
+    const next = speechQueue.shift();
+    await speakOne(next);
+  }
+  speaking = false;
   setStatus('ONLINE', null);
+}
+
+function extractSentences(buffer) {
+  const sentences = [];
+  const re = /[^.!?\n]*[.!?\n]+/g;
+  let match;
+  let lastIndex = 0;
+  while ((match = re.exec(buffer))) {
+    sentences.push(match[0]);
+    lastIndex = re.lastIndex;
+  }
+  return { sentences, remainder: buffer.slice(lastIndex) };
 }
 
 // --- Chat (streaming) ---
@@ -166,6 +199,7 @@ async function sendMessage(text) {
 
   const replyDiv = addMessage('', 'jarvis');
   let fullReply = '';
+  let speechBuffer = '';
 
   try {
     const res = await fetch('/api/chat', {
@@ -188,14 +222,19 @@ async function sendMessage(text) {
       fullReply += piece;
       replyDiv.textContent = fullReply;
       logEl.scrollTop = logEl.scrollHeight;
+
+      speechBuffer += piece;
+      const { sentences, remainder } = extractSentences(speechBuffer);
+      for (const s of sentences) enqueueSpeech(s);
+      speechBuffer = remainder;
     }
+    if (speechBuffer.trim()) enqueueSpeech(speechBuffer);
 
     if (!fullReply.trim()) {
       replyDiv.remove();
     } else {
       loadTodos();
       loadReminders();
-      await speak(fullReply);
     }
   } catch (err) {
     replyDiv.remove();
@@ -461,7 +500,7 @@ function startTimer() {
         new Notification('J.A.R.V.I.S.', { body: 'Czas minal, sir.' });
       }
       addMessage('Czas minal, sir.', 'jarvis');
-      speak('Czas minal, sir.');
+      enqueueSpeech('Czas minal, sir.');
       return;
     }
     timerDisplay.textContent = formatTime(remaining);

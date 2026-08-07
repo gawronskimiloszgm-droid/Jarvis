@@ -1,4 +1,5 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { nanoid } from 'nanoid';
@@ -9,6 +10,12 @@ const MEMORY_FILE = path.join(DATA_DIR, 'memory.json');
 
 const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [] };
 
+// Trzymamy stan w pamieci procesu i zapisujemy na dysk async/debounced, zamiast
+// synchronicznie odczytywac i zapisywac caly plik przy kazdym pojedynczym mutatorze
+// (na wolnym darmowym CPU kilka takich operacji na jedna wiadomosc realnie spowalniaja odpowiedz).
+let cache = null;
+let saveTimer = null;
+
 function ensureStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(MEMORY_FILE)) {
@@ -16,15 +23,23 @@ function ensureStore() {
   }
 }
 
-export function load() {
+function loadFromDisk() {
   ensureStore();
   const data = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
   return { ...EMPTY_STORE, ...data };
 }
 
+export function load() {
+  if (!cache) cache = loadFromDisk();
+  return cache;
+}
+
 export function save(data) {
-  ensureStore();
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2));
+  cache = data;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fsp.writeFile(MEMORY_FILE, JSON.stringify(cache, null, 2)).catch(() => {});
+  }, 150);
 }
 
 export function addFacts(newFacts) {
