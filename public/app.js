@@ -9,6 +9,26 @@ const ctx = canvas.getContext('2d');
 
 let ttsConfigured = false;
 
+// Darmowy hosting czasem gubi pojedyncze zapytanie przy usypianiu/budzeniu serwera -
+// ponawiamy raz lub dwa razy zanim uznamy to za realny blad.
+async function fetchJSON(url, options, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        if (res.ok && res.status === 204) return { ok: true, status: res.status, data: null };
+        throw new Error(`Serwer zwrocil nieoczekiwana odpowiedz (${res.status})`);
+      }
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data };
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+    }
+  }
+}
+
 function setStatus(text, mode) {
   statusEl.textContent = text;
   reactor.classList.remove('listening', 'thinking', 'speaking');
@@ -86,17 +106,28 @@ function speakBrowser(text) {
   });
 }
 
+async function fetchAudioWithRetry(text, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('audio')) return res.blob();
+    if (res.status === 204) return null;
+    if (attempt === retries) return null;
+    await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+  }
+  return null;
+}
+
 async function speak(text) {
   setStatus('MOWIE...', 'speaking');
   if (ttsConfigured) {
     try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok && res.status !== 204) {
-        const blob = await res.blob();
+      const blob = await fetchAudioWithRetry(text);
+      if (blob) {
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audio.onplay = () => { audioLevel = 0.7; };
@@ -110,7 +141,7 @@ async function speak(text) {
         return;
       }
     } catch (e) {
-      console.warn('Fish Audio TTS failed, falling back to browser voice', e);
+      console.warn('Serwerowy TTS zawiodl, uzywam glosu przegladarki', e);
     }
   }
   await speakBrowser(text);
@@ -124,13 +155,12 @@ async function sendMessage(text) {
   textInput.value = '';
   setStatus('PRZETWARZAM...', 'thinking');
   try {
-    const res = await fetch('/api/chat', {
+    const { ok, data } = await fetchJSON('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Blad serwera');
+    if (!ok) throw new Error(data.error || 'Blad serwera');
     typeMessage(data.reply, 'jarvis');
     await speak(data.reply);
   } catch (err) {
@@ -188,8 +218,7 @@ if (SpeechRecognition) {
 // --- Init ---
 async function init() {
   try {
-    const res = await fetch('/api/health');
-    const data = await res.json();
+    const { data } = await fetchJSON('/api/health');
     ttsConfigured = Boolean(data.ttsConfigured);
     setStatus('ONLINE', null);
     typeMessage('Witaj z powrotem. Wszystkie systemy sprawne i gotowe do pracy.', 'jarvis');
