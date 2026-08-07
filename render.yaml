@@ -14,3 +14,11 @@ services:
         value: pl-PL-MarekNeural
       - key: OWNER_TITLE
         value: sir
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:example@example.com
+      - key: CRON_SECRET
+        sync: false

@@ -1,4 +1,4 @@
-const CACHE = 'jarvis-shell-v1';
+const CACHE = 'jarvis-shell-v2';
 const SHELL = ['/', '/style.css', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -13,10 +13,43 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first: zawsze probuje pobrac swiezy plik, cache sluzy tylko jako
+// zapasowy dostep offline gdyby siec zawiodla (a nie odwrotnie).
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (event.request.url.includes('/api/')) return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((res) => {
+        const clone = res.clone();
+        caches.open(CACHE).then((c) => c.put(event.request, clone));
+        return res;
+      })
+      .catch(() => caches.match(event.request))
+  );
+});
+
+self.addEventListener('push', (event) => {
+  let payload = { title: 'J.A.R.V.I.S.', body: 'Masz nowe powiadomienie.' };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch (e) { /* noop */ }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icons/icon-192.svg',
+      badge: '/icons/icon-192.svg',
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clients) => {
+      if (clients.length > 0) return clients[0].focus();
+      return self.clients.openWindow('/');
+    })
   );
 });

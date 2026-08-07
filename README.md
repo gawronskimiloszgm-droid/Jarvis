@@ -39,25 +39,45 @@ Jesli z jakiegos powodu serwis Microsoftu bedzie niedostepny, appka automatyczni
    - (`TTS_VOICE` i `OWNER_TITLE` juz maja domyslne wartosci w `render.yaml`, zmien je tam jesli chcesz)
 4. Deploy. Render nada Ci publiczny adres typu `https://jarvis-xxxx.onrender.com`.
 
-**Uwaga o darmowym planie Render:** usypia serwis po ~15 min bezczynnosci, wiec pierwsze zapytanie po przerwie moze potrwac 30-50s (budzenie). To jedyny sensowny kompromis dla hostingu w 100% za darmo — jesli to przeszkadza, mozna przejsc na platny plan ($7/mc) albo dodac zewnetrzny "ping" co 10 minut.
+**Uwaga o darmowym planie Render:** usypia serwis po ~15 min bezczynnosci. Ponizej opisany jest darmowy sposob, zeby temu zapobiec.
 
-## 4. Instalacja jako aplikacja (PWA)
+## 4. Nigdy nie usypiaj serwera (keep-alive przez GitHub Actions)
+
+W repozytorium jest gotowy workflow `.github/workflows/keep-alive.yml`, ktory co 10 minut odpytuje appke i jednoczesnie sprawdza, czy sa jakies przypomnienia do wyslania. Zeby dzialal, dodaj w ustawieniach repozytorium na GitHubie (Settings -> Secrets and variables -> Actions -> New repository secret) dwa sekrety:
+
+- `JARVIS_URL` — adres Twojej appki, np. `https://jarvis-u4vw.onrender.com`
+- `CRON_SECRET` — ta sama wartosc, co `CRON_SECRET` w zmiennych srodowiskowych na Render
+
+Od tego momentu appka nigdy nie zasnie i przypomnienia beda wysylane na czas.
+
+## 5. Instalacja jako aplikacja (PWA)
 
 Po wejsciu na adres appki (lokalnie lub na Render):
 - **Telefon (Android/iOS):** w przegladarce -> menu -> "Dodaj do ekranu glownego" / "Zainstaluj aplikacje".
 - **Komputer (Chrome/Edge):** ikona instalacji w pasku adresu, lub menu -> "Zainstaluj J.A.R.V.I.S.".
 
-## 5. Co dziala w tej wersji (v1)
+## 6. Powiadomienia push
 
-- Czat tekstowy i glosowy (rozpoznawanie mowy w przegladarce, jezyk polski)
+Kliknij ikone 🔔 w naglowku appki i zgodz sie na powiadomienia w przegladarce. Od tego momentu Jarvis moze wysylac Ci powiadomienia nawet gdy appka jest zamknieta — np. gdy nadejdzie termin przypomnienia. Klucze VAPID potrzebne do tego generuje sie jednorazowo: `node scripts/generate-vapid-keys.js` (juz wygenerowane i wpisane w `.env`).
+
+## 7. Co dziala w tej wersji
+
+- Czat tekstowy i glosowy (rozpoznawanie mowy w przegladarce, jezyk polski), odpowiedzi strumieniowane na biezaco (slowo po slowie)
+- Aktywacja glosem — kliknij 👂 i powiedz "Jarvis, ..." zeby wydac polecenie bez dotykania ekranu
 - Odpowiedzi generowane przez Google Gemini (darmowy tier) z osobowoscia Jarvisa (uprzejmy, brytyjski, z poczuciem humoru, zwraca sie "sir")
 - Trwala pamiec: Jarvis sam zapisuje istotne fakty o Tobie (np. imie, preferencje) i pamieta je w kolejnych rozmowach
+- Lista zadan (zakladka ✅ Zadania) — dodawaj recznie albo poproś Jarvisa w czacie ("dodaj do zadan...")
+- Przypomnienia z konkretna data/godzina (zakladka 🔔 Przypomnienia) — dostajesz powiadomienie push dokladnie na czas
+- Timer (zakladka ⏱ Timer) z dzwiekiem i powiadomieniem po czasie
+- Prawdziwa pogoda na zywo (Open-Meteo, bez klucza) — po prostu zapytaj "jaka jest pogoda w..."
 - Animowany interfejs HUD (reaktor, pierscienie, fala dzwiekowa) reagujacy na stan (sluchanie/myslenie/mowienie)
-- Instalowalna aplikacja (PWA) na telefon i komputer
+- Instalowalna aplikacja (PWA) na telefon i komputer, dziala non-stop w chmurze dzieki keep-alive
 - Glos Jarvisa przez Microsoft Edge TTS — w pelni darmowy, bez klucza, bez limitu
 
-## 6. Znane ograniczenia v1 (do rozbudowy w kolejnych iteracjach)
+## 8. Znane ograniczenia (do rozbudowy w kolejnych iteracjach)
 
 - Pamiec przechowywana w prostym pliku JSON na serwerze — na darmowym Render dysk moze byc resetowany przy kazdym nowym deployu (nie przy zwyklym restarcie/usypianiu). Do trwalej pamieci "na zawsze" warto docelowo podpiac darmowa baze (np. Supabase).
 - Brak logowania/wielu uzytkownikow — appka zaklada, ze to Twoj prywatny asystent.
 - Darmowy tier Gemini ma realne limity zapytan na minute/dzien — przy normalnym uzyciu osobistym wystarcza, ale to nie jest "nieskonczone" API. Microsoft Edge TTS jest nieoficjalnym (reverse-engineered) uzyciem ich uslugi Read Aloud — dziala stabilnie i szeroko stosowane w projektach open-source, ale teoretycznie Microsoft moze je kiedys zablokowac (wtedy appka automatycznie przelacza sie na glos przegladarki).
+- Przypomnienia sprawdzane sa tylko co ~10 minut (przez GitHub Actions) — dokladnosc "co do minuty" nie jest gwarantowana, ale w praktyce wystarczajaca.
+- Aktywacja glosem ("Jarvis, ...") dziala najlepiej w Chrome/Edge; niektore przegladarki mobilne ograniczaja ciagle nasluchiwanie w tle.

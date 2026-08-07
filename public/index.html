@@ -18,7 +18,11 @@
         <span class="brand-dot"></span>
         J.A.R.V.I.S.
       </div>
-      <div id="status" class="status">INICJALIZACJA...</div>
+      <div class="topbar-right">
+        <button id="wakeBtn" class="icon-btn" title="Nasluchiwanie na slowo 'Jarvis'" aria-label="Przelacz tryb wake word">👂</button>
+        <button id="notifyBtn" class="icon-btn" title="Wlacz powiadomienia" aria-label="Wlacz powiadomienia">🔔</button>
+        <div id="status" class="status">INICJALIZACJA...</div>
+      </div>
     </header>
 
     <main class="core-view">
@@ -31,7 +35,45 @@
       </div>
     </main>
 
-    <section class="log" id="log" aria-live="polite"></section>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="chat">💬 Czat</button>
+      <button class="tab" data-tab="todos">✅ Zadania</button>
+      <button class="tab" data-tab="timer">⏱ Timer</button>
+      <button class="tab" data-tab="reminders">🔔 Przypomnienia</button>
+    </nav>
+
+    <section class="panel active" id="panel-chat">
+      <div class="log" id="log" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-todos">
+      <form class="inline-form" id="todoForm">
+        <input id="todoInput" class="text-input" type="text" placeholder="Nowe zadanie..." autocomplete="off" />
+        <button type="submit" class="send-btn">Dodaj</button>
+      </form>
+      <ul class="item-list" id="todoList"></ul>
+    </section>
+
+    <section class="panel" id="panel-timer">
+      <div class="timer-box">
+        <div class="timer-display" id="timerDisplay">00:00</div>
+        <div class="timer-controls">
+          <input id="timerMinutes" class="timer-input" type="number" min="0" max="180" value="5" aria-label="Minuty" />
+          <span>min</span>
+          <button id="timerStartBtn" class="send-btn">Start</button>
+          <button id="timerCancelBtn" class="send-btn secondary" hidden>Anuluj</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-reminders">
+      <form class="inline-form stacked" id="reminderForm">
+        <input id="reminderText" class="text-input" type="text" placeholder="Tresc przypomnienia..." autocomplete="off" />
+        <input id="reminderDate" class="text-input" type="datetime-local" />
+        <button type="submit" class="send-btn">Dodaj przypomnienie</button>
+      </form>
+      <ul class="item-list" id="reminderList"></ul>
+    </section>
 
     <footer class="controls">
       <button id="micBtn" class="mic-btn" title="Mow do Jarvisa" aria-label="Uzyj mikrofonu">

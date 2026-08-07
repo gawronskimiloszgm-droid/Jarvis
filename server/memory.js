@@ -1,21 +1,25 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { nanoid } from 'nanoid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const MEMORY_FILE = path.join(DATA_DIR, 'memory.json');
 
+const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [] };
+
 function ensureStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(MEMORY_FILE)) {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify({ facts: [], history: [] }, null, 2));
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(EMPTY_STORE, null, 2));
   }
 }
 
 export function load() {
   ensureStore();
-  return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+  const data = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+  return { ...EMPTY_STORE, ...data };
 }
 
 export function save(data) {
@@ -66,3 +70,83 @@ export function removeFact(index) {
   return data;
 }
 
+// --- Todos ---
+export function getTodos() {
+  return load().todos;
+}
+
+export function addTodo(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return load().todos;
+  const data = load();
+  data.todos.push({ id: nanoid(8), text: clean, done: false, createdAt: Date.now() });
+  save(data);
+  return data.todos;
+}
+
+export function setTodoDone(id, done) {
+  const data = load();
+  const todo = data.todos.find((t) => t.id === id);
+  if (todo) todo.done = Boolean(done);
+  save(data);
+  return data.todos;
+}
+
+export function removeTodo(id) {
+  const data = load();
+  data.todos = data.todos.filter((t) => t.id !== id);
+  save(data);
+  return data.todos;
+}
+
+// --- Reminders ---
+export function getReminders() {
+  return load().reminders;
+}
+
+export function addReminder(text, dueAt) {
+  const clean = String(text || '').trim();
+  if (!clean || !dueAt) return load().reminders;
+  const data = load();
+  data.reminders.push({ id: nanoid(8), text: clean, dueAt, sent: false, createdAt: Date.now() });
+  save(data);
+  return data.reminders;
+}
+
+export function removeReminder(id) {
+  const data = load();
+  data.reminders = data.reminders.filter((r) => r.id !== id);
+  save(data);
+  return data.reminders;
+}
+
+export function getDueUnsentReminders() {
+  const now = Date.now();
+  return load().reminders.filter((r) => !r.sent && new Date(r.dueAt).getTime() <= now);
+}
+
+export function markReminderSent(id) {
+  const data = load();
+  const reminder = data.reminders.find((r) => r.id === id);
+  if (reminder) reminder.sent = true;
+  save(data);
+}
+
+// --- Push subscriptions ---
+export function addPushSubscription(subscription) {
+  const data = load();
+  const exists = data.pushSubscriptions.some((s) => s.endpoint === subscription.endpoint);
+  if (!exists) data.pushSubscriptions.push(subscription);
+  save(data);
+  return data.pushSubscriptions;
+}
+
+export function removePushSubscription(endpoint) {
+  const data = load();
+  data.pushSubscriptions = data.pushSubscriptions.filter((s) => s.endpoint !== endpoint);
+  save(data);
+}
+
+export function getPushSubscriptions() {
+  return load().pushSubscriptions;
+}
