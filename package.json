@@ -1,0 +1,23 @@
+{
+  "name": "jarvis",
+  "version": "0.1.0",
+  "description": "Osobisty asystent AI w stylu J.A.R.V.I.S.",
+  "main": "server/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "list-voices": "node scripts/list-voices.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "msedge-tts": "^2.0.7",
+    "nanoid": "^3.3.7"
+  }
+}
