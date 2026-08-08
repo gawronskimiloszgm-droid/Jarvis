@@ -508,16 +508,37 @@ function recordUntilSilence({ maxMs = 8000, silenceMs = 1100, threshold = 20 } =
   });
 }
 
+let awaitingFollowUp = false;
+let awaitingFollowUpTimer = null;
+
 function handleWakeTranscript(transcript) {
   const clean = transcript.trim();
   if (!clean) return;
   toast(`Uslyszalem: "${clean}"`, 'info');
+
+  // Jesli chwile wczesniej powiedziano samo "Jarvis" i Jarvis czeka na
+  // dokonczenie polecenia, nie trzeba powtarzac slowa "Jarvis" ponownie.
+  if (awaitingFollowUp) {
+    awaitingFollowUp = false;
+    clearTimeout(awaitingFollowUpTimer);
+    sendMessage(clean);
+    return;
+  }
+
   const normalized = normalizePolish(clean);
   const match = normalized.match(WAKE_RE);
   if (match) {
     const commandStart = match.index + match[0].length - match[3].length;
     const command = clean.slice(commandStart).trim();
-    if (command) sendMessage(command);
+    if (command) {
+      sendMessage(command);
+    } else {
+      // Powiedziano samo "Jarvis" bez polecenia - potwierdz, ze slucham,
+      // zamiast cicho nic nie robic.
+      awaitingFollowUp = true;
+      enqueueSpeech('Slucham, sir.');
+      awaitingFollowUpTimer = setTimeout(() => { awaitingFollowUp = false; }, 8000);
+    }
   }
 }
 
