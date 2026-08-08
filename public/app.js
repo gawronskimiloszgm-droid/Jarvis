@@ -423,12 +423,168 @@ textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendMessage(textInput.value);
 });
 
+// --- Nagrywanie + transkrypcja przez Gemini (aplikacja desktopowa) ---
+// Elektronowy Chromium NIE ma dolaczonego klucza Google potrzebnego do
+// wbudowanego rozpoznawania mowy przegladarki (SpeechRecognition zawsze
+// konczy sie bledem "network" mimo dzialajacego internetu) - to znany
+// limit Electrona, nie blad naszego kodu. Dla aplikacji desktopowej
+// nagrywamy wiec audio samodzielnie i wysylamy je do transkrypcji przez
+// Gemini (ten sam model, ktory juz uzywamy do czatu).
+const isElectron = Boolean(window.jarvisDesktop);
+let electronMicStream = null;
+let electronAudioCtx = null;
+let electronAnalyser = null;
+
+async function ensureElectronMicStream() {
+  if (electronMicStream) return electronMicStream;
+  electronMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  electronAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = electronAudioCtx.createMediaStreamSource(electronMicStream);
+  electronAnalyser = electronAudioCtx.createAnalyser();
+  electronAnalyser.fftSize = 512;
+  source.connect(electronAnalyser);
+  return electronMicStream;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function transcribeBlob(blob) {
+  const dataUrl = await blobToDataUrl(blob);
+  const { ok, data } = await fetchJSON('/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: dataUrl, mimeType: 'audio/webm' }),
+  });
+  return ok ? (data.text || '').trim() : '';
+}
+
+// Nagrywa az do ~1.1s ciszy po wykryciu mowy (albo maks. dlugosci), potem
+// oddaje nagrany blob. Zwraca null jesli nic sensownego nie nagrano.
+function recordUntilSilence({ maxMs = 8000, silenceMs = 1100, threshold = 20 } = {}) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    const recorder = new MediaRecorder(electronMicStream, { mimeType: 'audio/webm' });
+    let started = false;
+    let silenceStart = null;
+    let rafId = null;
+    const startTime = Date.now();
+
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      cancelAnimationFrame(rafId);
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      resolve(blob.size > 4000 ? blob : null);
+    };
+
+    const data = new Uint8Array(electronAnalyser.frequencyBinCount);
+    function loop() {
+      electronAnalyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const elapsed = Date.now() - startTime;
+      if (avg > threshold) {
+        started = true;
+        silenceStart = null;
+      } else if (started) {
+        if (!silenceStart) silenceStart = Date.now();
+        if (Date.now() - silenceStart > silenceMs) {
+          recorder.stop();
+          return;
+        }
+      }
+      if (elapsed > maxMs) {
+        recorder.stop();
+        return;
+      }
+      rafId = requestAnimationFrame(loop);
+    }
+    recorder.start();
+    loop();
+  });
+}
+
+function handleWakeTranscript(transcript) {
+  const clean = transcript.trim();
+  if (!clean) return;
+  toast(`Uslyszalem: "${clean}"`, 'info');
+  const normalized = normalizePolish(clean);
+  const match = normalized.match(WAKE_RE);
+  if (match) {
+    const commandStart = match.index + match[0].length - match[3].length;
+    const command = clean.slice(commandStart).trim();
+    if (command) sendMessage(command);
+  }
+}
+
+let electronWakeLoopActive = false;
+
+async function startElectronWakeListening() {
+  try {
+    await ensureElectronMicStream();
+  } catch (e) {
+    toast('Brak dostepu do mikrofonu.');
+    wakeModeOn = false;
+    wakeBtn.classList.remove('active');
+    return;
+  }
+  if (!wakeStartToastShown) {
+    wakeStartToastShown = true;
+    toast('Nasluch mikrofonu aktywny.', 'info');
+  }
+  electronWakeLoopActive = true;
+  electronWakeLoop();
+}
+
+function stopElectronWakeListening() {
+  electronWakeLoopActive = false;
+}
+
+async function electronWakeLoop() {
+  while (electronWakeLoopActive && wakeModeOn) {
+    if (speaking) {
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    const blob = await recordUntilSilence();
+    if (blob) {
+      const text = await transcribeBlob(blob);
+      if (text) handleWakeTranscript(text);
+    }
+  }
+}
+
 // --- Voice input (push-to-talk) ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognizing = false;
 let recognizer = null;
 
-if (SpeechRecognition) {
+if (isElectron) {
+  micBtn.addEventListener('click', async () => {
+    if (wakeModeOn) toggleWakeMode();
+    micBtn.classList.add('active');
+    setStatus('SLUCHAM...', 'listening');
+    try {
+      await ensureElectronMicStream();
+      const blob = await recordUntilSilence();
+      if (blob) {
+        const text = await transcribeBlob(blob);
+        if (text) sendMessage(text);
+        else setStatus('ONLINE', null);
+      } else {
+        setStatus('ONLINE', null);
+      }
+    } catch (e) {
+      toast('Brak dostepu do mikrofonu.');
+      setStatus('ONLINE', null);
+    }
+    micBtn.classList.remove('active');
+  });
+} else if (SpeechRecognition) {
   recognizer = new SpeechRecognition();
   recognizer.lang = 'pl-PL';
   recognizer.interimResults = false;
@@ -489,14 +645,16 @@ function normalizePolish(text) {
 }
 
 function toggleWakeMode() {
-  if (!SpeechRecognition) return;
+  if (!SpeechRecognition && !isElectron) return;
   wakeModeOn = !wakeModeOn;
   wakeBtn.classList.toggle('active', wakeModeOn);
   if (wakeModeOn) {
-    startWakeListening();
+    if (isElectron) startElectronWakeListening();
+    else startWakeListening();
     setStatus('NASLUCHUJE "JARVIS"...', null);
   } else {
-    if (wakeRecognizer) wakeRecognizer.stop();
+    if (isElectron) stopElectronWakeListening();
+    else if (wakeRecognizer) wakeRecognizer.stop();
     setStatus('ONLINE', null);
   }
 }
@@ -504,7 +662,7 @@ function toggleWakeMode() {
 let wakeRecognizerRunning = false;
 
 function startWakeListening() {
-  if (!SpeechRecognition || !wakeModeOn || wakeRecognizerRunning) return;
+  if (isElectron || !SpeechRecognition || !wakeModeOn || wakeRecognizerRunning) return;
   wakeRecognizer = new SpeechRecognition();
   wakeRecognizer.lang = 'pl-PL';
   wakeRecognizer.interimResults = false;
@@ -521,16 +679,7 @@ function startWakeListening() {
   wakeRecognizer.onresult = (event) => {
     if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
     const last = event.results[event.results.length - 1];
-    const transcript = last[0].transcript.trim();
-    if (!transcript) return;
-    toast(`Uslyszalem: "${transcript}"`, 'info');
-    const normalized = normalizePolish(transcript);
-    const match = normalized.match(WAKE_RE);
-    if (match) {
-      const commandStart = match.index + match[0].length - match[3].length;
-      const command = transcript.slice(commandStart).trim();
-      if (command) sendMessage(command);
-    }
+    handleWakeTranscript(last[0].transcript);
   };
   wakeRecognizer.onerror = (event) => {
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
@@ -563,6 +712,7 @@ let firstGestureHandled = false;
 function retryWakeOnFirstGesture() {
   if (firstGestureHandled) return;
   firstGestureHandled = true;
+  if (isElectron) return; // desktop nie potrzebuje tej siatki bezpieczenstwa
   if (wakeModeOn && !wakeRecognizerRunning) startWakeListening();
 }
 ['click', 'keydown', 'touchstart'].forEach((evt) =>
@@ -570,7 +720,7 @@ function retryWakeOnFirstGesture() {
 );
 
 if (wakeBtn) {
-  if (!SpeechRecognition) {
+  if (!SpeechRecognition && !isElectron) {
     wakeBtn.disabled = true;
     wakeBtn.title = 'Rozpoznawanie mowy niedostepne w tej przegladarce';
   } else {
@@ -1068,7 +1218,7 @@ async function init() {
   loadReminders();
   loadFactsGauge();
 
-  if (SpeechRecognition && !wakeModeOn) toggleWakeMode();
+  if ((SpeechRecognition || isElectron) && !wakeModeOn) toggleWakeMode();
 }
 init();
 
