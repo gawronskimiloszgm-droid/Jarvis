@@ -55,6 +55,19 @@ async function loadFactsGauge() {
 }
 
 const IMG_MARKER_RE = /\[\[IMG:([^\]]+)\]\]/;
+const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/g;
+
+// Akcje na komputerze (otworz Spotify, zablokuj ekran, glosnosc...) dzialaja
+// TYLKO w aplikacji desktopowej (Electron wstrzykuje window.jarvisDesktop).
+// W zwyklej przegladarce ten most po prostu nie istnieje, wiec nic sie nie stanie.
+async function runDesktopAction(name) {
+  if (!window.jarvisDesktop) {
+    toast(`Akcja "${name}" dziala tylko w aplikacji desktopowej.`, 'info');
+    return;
+  }
+  const result = await window.jarvisDesktop.runAction(name);
+  if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
+}
 
 function renderReplyContent(div, text) {
   const match = text.match(IMG_MARKER_RE);
@@ -306,6 +319,7 @@ async function streamResponseInto(res, replyDiv) {
 
   let fullReply = '';
   let speechBuffer = '';
+  const handledActions = new Set();
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   while (true) {
@@ -316,7 +330,15 @@ async function streamResponseInto(res, replyDiv) {
     renderReplyContent(replyDiv, fullReply);
     logEl.scrollTop = logEl.scrollHeight;
 
-    speechBuffer += piece.replace(IMG_MARKER_RE, '');
+    for (const m of fullReply.matchAll(AKCJA_RE)) {
+      const name = m[1].trim();
+      if (!handledActions.has(name)) {
+        handledActions.add(name);
+        runDesktopAction(name);
+      }
+    }
+
+    speechBuffer += piece.replace(IMG_MARKER_RE, '').replace(AKCJA_RE, '');
     const { sentences, remainder } = extractSentences(speechBuffer);
     for (const s of sentences) enqueueSpeech(s);
     speechBuffer = remainder;

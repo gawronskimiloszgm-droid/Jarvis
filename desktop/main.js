@@ -1,6 +1,7 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { runAction } = require('./actions');
 
 const configPath = path.join(__dirname, 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -18,11 +19,14 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
   win.loadURL(JARVIS_URL);
 }
+
+ipcMain.handle('jarvis-action', (event, name) => runAction(name));
 
 app.whenReady().then(() => {
   // Zezwalaj automatycznie na kamere/mikrofon/powiadomienia dla wlasnej aplikacji

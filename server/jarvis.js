@@ -11,10 +11,18 @@ const OWNER_TITLE = process.env.OWNER_TITLE || 'sir';
 const ZAPAMIETAJ_RE = /\[ZAPAMIETAJ:\s*([^\]]+)\]/gi;
 const ZADANIE_RE = /\[ZADANIE:\s*([^\]]+)\]/gi;
 const PRZYPOMNIENIE_RE = /\[PRZYPOMNIENIE:\s*([^,\]]+),\s*([^\]]+)\]/gi;
+// AKCJA celowo NIE jest w TAG_STRIP_PATTERNS - musi dotrzec do klienta
+// (przegladarka/desktop) zywcem w strumieniu, zeby mogl ja tam wykonac.
+// Usuwana jest tylko z tekstu zapisywanego do historii/pamieci.
+const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/gi;
 const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE];
 
 function stripTags(text) {
   return TAG_STRIP_PATTERNS.reduce((acc, re) => acc.replace(re, ''), text);
+}
+
+function stripTagsForHistory(text) {
+  return stripTags(text).replace(AKCJA_RE, '');
 }
 
 function extractTag(text, re) {
@@ -67,7 +75,9 @@ Odpowiadaj w jezyku, w ktorym pisze uzytkownik.
 Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu odpowiedzi, GDY jest to zasadne. Znaczniki NIGDY nie sa pokazywane uzytkownikowi (zostana automatycznie usuniete), wiec uzywaj ich swobodnie, bez zaburzania naturalnosci wypowiedzi:
 - [ZAPAMIETAJ: fakt] - gdy pojawi sie informacja o uzytkowniku warta trwalego zapamietania (imie, preferencje, wazne daty)
 - [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
-- [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)`;
+- [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
+- [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na jego komputerze. Dziala TYLKO w aplikacji desktopowej (nie w przegladarce/telefonie) - jesli nie masz pewnosci czy uzytkownik jest na desktopie, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
+  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, otworz-eksplorator, zablokuj-ekran, glosniej, ciszej, wycisz`;
 
 async function buildSystemInstruction(userMessage) {
   const facts = memory.getFacts();
@@ -150,7 +160,7 @@ async function streamAndClean(chatSession, input, onChunk) {
   }
 
   persistTagsFrom(rawFull);
-  return stripTags(rawFull).replace(/\n{3,}/g, '\n\n').trim();
+  return stripTagsForHistory(rawFull).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export async function chatStream(userMessage, onChunk) {

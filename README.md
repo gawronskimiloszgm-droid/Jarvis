@@ -84,6 +84,17 @@ npm run build
 
 Plik `desktop/config.json` wskazuje na Twoj adres na Render — zmien go, jesli adres appki kiedys sie zmieni.
 
+### Sterowanie komputerem (tylko w appce desktopowej)
+
+W wersji desktopowej Jarvis moze wykonac ograniczona, z gory zdefiniowana liste bezpiecznych akcji na Twoim komputerze — po prostu poproś w rozmowie (glosowo lub tekstowo):
+
+- "Wlacz Spotify" / "Wlacz YouTube Music"
+- "Otworz przegladarke" / "Otworz eksplorator plikow"
+- "Zablokuj ekran"
+- "Zwieksz/zmniejsz glosnosc", "Wycisz"
+
+To dziala TYLKO w oknie desktopowym (Electron ma dostep do systemu), nie w przegladarce/PWA na telefonie — tam Jarvis powie, ze ta funkcja jest niedostepna. Celowo nie ma tu mozliwosci wykonania dowolnej komendy - lista akcji jest na sztywno zapisana w `desktop/actions.js`, wiec nawet gdyby ktos probowal "przekonac" Jarvisa przez rozmowe do zrobienia czegos innego, nie ma takiej opcji technicznie.
+
 ## 9. Co dziala w tej wersji
 
 - Czat tekstowy i glosowy (rozpoznawanie mowy w przegladarce, jezyk polski), odpowiedzi strumieniowane na biezaco (slowo po slowie)
