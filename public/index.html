@@ -17,6 +17,10 @@
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
+  <div class="visual-popup" id="visualPopup" hidden>
+    <img id="responseVisualImg" alt="Wizualizacja" />
+  </div>
+
   <div class="app">
     <header class="topbar">
       <div class="brand">
@@ -36,17 +40,13 @@
       <div class="reactor" id="reactor">
         <div class="tick-ring"></div>
         <div class="ring ring-outer"></div>
-        <div class="globe-wrap">
-          <div class="globe" id="globe">
-            <div class="globe-ring" style="transform: rotateY(0deg)"></div>
-            <div class="globe-ring" style="transform: rotateY(30deg)"></div>
-            <div class="globe-ring" style="transform: rotateY(60deg)"></div>
-            <div class="globe-ring" style="transform: rotateY(90deg)"></div>
-            <div class="globe-ring" style="transform: rotateY(120deg)"></div>
-            <div class="globe-ring" style="transform: rotateY(150deg)"></div>
-            <div class="globe-ring globe-equator" style="transform: rotateX(90deg)"></div>
-          </div>
-          <div class="globe-core"></div>
+        <div class="brain-wrap">
+          <svg class="brain-svg" id="brainSvg" viewBox="0 0 200 200">
+            <path class="brain-outline" d="M100,18 C58,14 22,42 18,82 C14,118 34,148 54,162 C42,172 48,186 66,186 C80,186 86,176 100,176 C114,176 120,186 134,186 C152,186 158,172 146,162 C166,148 186,118 182,82 C178,42 142,14 100,18 Z"/>
+            <path class="brain-fissure" d="M100,20 C96,50 104,80 98,110 C94,135 102,155 100,178"/>
+            <g id="brainNodes"></g>
+          </svg>
+          <div class="brain-label">J.A.R.V.I.S.</div>
         </div>
         <canvas id="wave" width="360" height="360"></canvas>
       </div>
@@ -90,10 +90,6 @@
         <div class="widget clock-widget">
           <div class="clock-time" id="clockTime">--:--:--</div>
           <div class="clock-date" id="clockDate"></div>
-        </div>
-        <div class="widget response-widget" id="responseWidget" hidden>
-          <div class="response-widget-label">OSTATNIA WIZUALIZACJA</div>
-          <img id="responseVisualImg" alt="Wizualizacja odpowiedzi" />
         </div>
       </div>
     </section>

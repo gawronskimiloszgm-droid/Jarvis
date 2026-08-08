@@ -140,6 +140,53 @@ function drawWave() {
 }
 drawWave();
 
+// --- Siec neuronowa (mozg) w reaktorze ---
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function buildBrainNetwork() {
+  const g = document.getElementById('brainNodes');
+  if (!g) return;
+  const cx = 100, cy = 98, rx = 68, ry = 72;
+  const count = 24;
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(Math.random()) * 0.85;
+    points.push({
+      x: cx + Math.cos(angle) * rx * r,
+      y: cy + Math.sin(angle) * ry * r,
+    });
+  }
+  points.forEach((p, i) => {
+    const neighbours = points
+      .map((q, j) => ({ j, d: (p.x - q.x) ** 2 + (p.y - q.y) ** 2 }))
+      .filter((d) => d.j !== i)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 2);
+    neighbours.forEach(({ j }) => {
+      const q = points[j];
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', p.x);
+      line.setAttribute('y1', p.y);
+      line.setAttribute('x2', q.x);
+      line.setAttribute('y2', q.y);
+      line.setAttribute('class', 'brain-line');
+      line.style.animationDelay = `${(Math.random() * 3).toFixed(2)}s`;
+      g.appendChild(line);
+    });
+  });
+  points.forEach((p) => {
+    const c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('cx', p.x);
+    c.setAttribute('cy', p.y);
+    c.setAttribute('r', (1.6 + Math.random() * 1.3).toFixed(2));
+    c.setAttribute('class', 'brain-node');
+    c.style.animationDelay = `${(Math.random() * 2.4).toFixed(2)}s`;
+    g.appendChild(c);
+  });
+}
+buildBrainNetwork();
+
 // --- Speech synthesis (browser fallback) ---
 function speakBrowser(text) {
   return new Promise((resolve) => {
@@ -291,10 +338,12 @@ async function streamResponseInto(res, replyDiv) {
 }
 
 // Dla dluzszych, tresciwych odpowiedzi generujemy w tle male zdjecie-ilustracje
-// dopasowane do tematu i pokazujemy je na panelu glownym - nie blokuje to
-// glosu (odpalane rownolegle, wynik pojawia sie gdy jest gotowy).
-const responseWidget = document.getElementById('responseWidget');
+// dopasowane do tematu i pokazujemy je na kilka sekund w niebieskiej ramce -
+// nie blokuje to glosu (odpalane rownolegle, wynik pojawia sie gdy jest gotowy).
+const visualPopup = document.getElementById('visualPopup');
 const responseVisualImg = document.getElementById('responseVisualImg');
+let visualPopupHideTimer = null;
+let visualPopupRemoveTimer = null;
 
 async function maybeShowResponseVisual(text) {
   const clean = text.trim();
@@ -306,8 +355,15 @@ async function maybeShowResponseVisual(text) {
       body: JSON.stringify({ prompt: clean.slice(0, 220) }),
     });
     if (!ok) return;
+    clearTimeout(visualPopupHideTimer);
+    clearTimeout(visualPopupRemoveTimer);
     responseVisualImg.src = data.url;
-    responseWidget.hidden = false;
+    visualPopup.hidden = false;
+    requestAnimationFrame(() => visualPopup.classList.add('show'));
+    visualPopupHideTimer = setTimeout(() => {
+      visualPopup.classList.remove('show');
+      visualPopupRemoveTimer = setTimeout(() => { visualPopup.hidden = true; }, 400);
+    }, 7000);
   } catch (e) { /* noop - to tylko dodatkowa ilustracja, nie krytyczna */ }
 }
 
@@ -405,12 +461,16 @@ function toggleWakeMode() {
   }
 }
 
+let wakeRecognizerRunning = false;
+
 function startWakeListening() {
-  if (!SpeechRecognition || !wakeModeOn) return;
+  if (!SpeechRecognition || !wakeModeOn || wakeRecognizerRunning) return;
   wakeRecognizer = new SpeechRecognition();
   wakeRecognizer.lang = 'pl-PL';
   wakeRecognizer.interimResults = false;
   wakeRecognizer.continuous = true;
+
+  wakeRecognizer.onstart = () => { wakeRecognizerRunning = true; };
 
   wakeRecognizer.onresult = (event) => {
     if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
@@ -422,14 +482,38 @@ function startWakeListening() {
       if (command) sendMessage(command);
     }
   };
-  wakeRecognizer.onerror = () => {};
-  wakeRecognizer.onend = () => {
-    if (wakeModeOn) {
-      try { wakeRecognizer.start(); } catch (e) { /* already running */ }
+  wakeRecognizer.onerror = (event) => {
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      wakeModeOn = false;
+      wakeBtn.classList.remove('active');
+      toast('Brak zgody na mikrofon - kliknij ikone 🎤 przy pasku adresu i zezwol, potem klikni 👂 ponownie.');
     }
   };
-  try { wakeRecognizer.start(); } catch (e) { /* noop */ }
+  wakeRecognizer.onend = () => {
+    wakeRecognizerRunning = false;
+    if (wakeModeOn) {
+      setTimeout(() => { if (wakeModeOn) startWakeListening(); }, 300);
+    }
+  };
+  try {
+    wakeRecognizer.start();
+  } catch (e) {
+    wakeRecognizerRunning = false;
+  }
 }
+
+// Niektore przegladarki nie pozwalaja uzyc mikrofonu, dopoki uzytkownik
+// choc raz nie kliknie/dotknie strony - ta siatka bezpieczenstwa probuje
+// ponownie wtedy, gdyby automatyczny start na wejsciu sie nie udal.
+let firstGestureHandled = false;
+function retryWakeOnFirstGesture() {
+  if (firstGestureHandled) return;
+  firstGestureHandled = true;
+  if (wakeModeOn && !wakeRecognizerRunning) startWakeListening();
+}
+['click', 'keydown', 'touchstart'].forEach((evt) =>
+  document.addEventListener(evt, retryWakeOnFirstGesture, { once: true })
+);
 
 if (wakeBtn) {
   if (!SpeechRecognition) {
