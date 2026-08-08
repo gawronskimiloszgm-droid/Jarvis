@@ -468,6 +468,7 @@ if (SpeechRecognition) {
 // --- Wake word ("Jarvis, ...") ---
 let wakeModeOn = false;
 let wakeRecognizer = null;
+let wakeStartToastShown = false;
 // Polski silnik rozpoznawania mowy czesto transkrybuje angielskie "Jarvis"
 // fonetycznie na rozne sposoby - lapiemy popularne warianty. Dopasowujemy na
 // znormalizowanym tekscie (bez polskich znakow diakrytycznych), ale komende
@@ -509,7 +510,13 @@ function startWakeListening() {
   wakeRecognizer.interimResults = false;
   wakeRecognizer.continuous = true;
 
-  wakeRecognizer.onstart = () => { wakeRecognizerRunning = true; };
+  wakeRecognizer.onstart = () => {
+    wakeRecognizerRunning = true;
+    if (!wakeStartToastShown) {
+      wakeStartToastShown = true;
+      toast('Nasluch mikrofonu aktywny.', 'info');
+    }
+  };
 
   wakeRecognizer.onresult = (event) => {
     if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
@@ -530,6 +537,10 @@ function startWakeListening() {
       wakeModeOn = false;
       wakeBtn.classList.remove('active');
       toast('Brak zgody na mikrofon - kliknij ikone 🎤 przy pasku adresu i zezwol, potem klikni 👂 ponownie.');
+    } else if (event.error !== 'no-speech') {
+      // 'no-speech' jest normalne w ciszy i pojawia sie czesto - nie pokazujemy go,
+      // zeby nie zasypac powiadomieniami. Kazdy inny blad jest warty pokazania.
+      toast(`Blad rozpoznawania mowy: ${event.error}`);
     }
   };
   wakeRecognizer.onend = () => {
