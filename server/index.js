@@ -52,6 +52,23 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.get('/api/greeting', async (req, res) => {
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Brak skonfigurowanego GEMINI_API_KEY na serwerze.' });
+  }
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  try {
+    await jarvis.greetStream((chunk) => res.write(chunk));
+    res.end();
+  } catch (err) {
+    console.error('Greeting error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Wystapil blad po stronie serwera.' });
+    else res.end();
+  }
+});
+
 // --- Memory (facts) ---
 app.get('/api/memory', (req, res) => {
   res.json({ facts: memory.getFacts() });

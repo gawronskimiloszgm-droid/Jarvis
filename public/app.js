@@ -129,39 +129,39 @@ async function fetchAudioWithRetry(text, retries = 2) {
   return null;
 }
 
-async function speakOne(text) {
-  if (!text.trim()) return;
-  if (ttsConfigured) {
-    try {
-      const blob = await fetchAudioWithRetry(text);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onplay = () => { audioLevel = 0.7; };
-        audio.ontimeupdate = () => { audioLevel = 0.5; };
-        await new Promise((resolve) => {
-          audio.onended = resolve;
-          audio.onerror = resolve;
-          audio.play();
-        });
-        return;
-      }
-    } catch (e) {
-      console.warn('Serwerowy TTS zawiodl, uzywam glosu przegladarki', e);
-    }
-  }
-  await speakBrowser(text);
+function playBlob(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onplay = () => { audioLevel = 0.7; };
+    audio.ontimeupdate = () => { audioLevel = 0.5; };
+    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.play().catch(resolve);
+  });
 }
 
-// Mowimy zdanie po zdaniu, w miare jak tekst splywa strumieniem - synteza
-// kolejnego zdania startuje od razu po dolaczeniu do kolejki, wiec pauzy
-// miedzy zdaniami sa minimalne zamiast czekac na cala odpowiedz naraz.
+async function prepareAudio(text) {
+  if (!ttsConfigured) return null;
+  try {
+    return await fetchAudioWithRetry(text);
+  } catch (e) {
+    console.warn('Serwerowy TTS zawiodl dla fragmentu, uzyje glosu przegladarki', e);
+    return null;
+  }
+}
+
+// Mowimy zdanie po zdaniu, w miare jak tekst splywa strumieniem. Synteza
+// kolejnego zdania startuje w tle od razu po dolaczeniu do kolejki (nie
+// czeka az poprzednie skonczy sie odtwarzac), wiec nie ma ciszy miedzy
+// zdaniami podczas gdy serwer generuje kolejny fragment audio.
 let speechQueue = [];
 let speaking = false;
 
 function enqueueSpeech(text) {
-  if (!text.trim()) return;
-  speechQueue.push(text);
+  const clean = text.trim();
+  if (!clean) return;
+  speechQueue.push({ text: clean, audioPromise: prepareAudio(clean) });
   drainSpeechQueue();
 }
 
@@ -170,26 +170,69 @@ async function drainSpeechQueue() {
   speaking = true;
   setStatus('MOWIE...', 'speaking');
   while (speechQueue.length) {
-    const next = speechQueue.shift();
-    await speakOne(next);
+    const item = speechQueue.shift();
+    const blob = await item.audioPromise;
+    if (blob) {
+      await playBlob(blob);
+    } else {
+      await speakBrowser(item.text);
+    }
   }
   speaking = false;
   setStatus('ONLINE', null);
 }
 
+// Dzieli na zdania po . ! ? (ale NIE w liczbach dziesietnych typu "19.5")
+// oraz po pustej linii (podwojny enter = nowy akapit). Pojedynczy enter
+// sam w sobie nie konczy zdania, zeby uniknac mikro-fragmentow.
+const SENTENCE_END_RE = /[^.!?]*(?:(?<!\d)[.!?]+(?!\d)|\n\s*\n)/g;
+const MIN_CHUNK_LENGTH = 3;
+
 function extractSentences(buffer) {
   const sentences = [];
-  const re = /[^.!?\n]*[.!?\n]+/g;
-  let match;
   let lastIndex = 0;
-  while ((match = re.exec(buffer))) {
-    sentences.push(match[0]);
-    lastIndex = re.lastIndex;
+  let pending = '';
+  SENTENCE_END_RE.lastIndex = 0;
+  let match;
+  while ((match = SENTENCE_END_RE.exec(buffer))) {
+    pending += match[0];
+    lastIndex = SENTENCE_END_RE.lastIndex;
+    if (pending.trim().length >= MIN_CHUNK_LENGTH) {
+      sentences.push(pending);
+      pending = '';
+    }
   }
-  return { sentences, remainder: buffer.slice(lastIndex) };
+  return { sentences, remainder: pending + buffer.slice(lastIndex) };
 }
 
 // --- Chat (streaming) ---
+async function streamResponseInto(res, replyDiv) {
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Blad serwera (${res.status})`);
+  }
+
+  let fullReply = '';
+  let speechBuffer = '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const piece = decoder.decode(value, { stream: true });
+    fullReply += piece;
+    replyDiv.textContent = fullReply;
+    logEl.scrollTop = logEl.scrollHeight;
+
+    speechBuffer += piece;
+    const { sentences, remainder } = extractSentences(speechBuffer);
+    for (const s of sentences) enqueueSpeech(s);
+    speechBuffer = remainder;
+  }
+  if (speechBuffer.trim()) enqueueSpeech(speechBuffer);
+  return fullReply;
+}
+
 async function sendMessage(text) {
   if (!text.trim()) return;
   switchToChatTab();
@@ -198,38 +241,13 @@ async function sendMessage(text) {
   setStatus('PRZETWARZAM...', 'thinking');
 
   const replyDiv = addMessage('', 'jarvis');
-  let fullReply = '';
-  let speechBuffer = '';
-
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
     });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `Blad serwera (${res.status})`);
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const piece = decoder.decode(value, { stream: true });
-      fullReply += piece;
-      replyDiv.textContent = fullReply;
-      logEl.scrollTop = logEl.scrollHeight;
-
-      speechBuffer += piece;
-      const { sentences, remainder } = extractSentences(speechBuffer);
-      for (const s of sentences) enqueueSpeech(s);
-      speechBuffer = remainder;
-    }
-    if (speechBuffer.trim()) enqueueSpeech(speechBuffer);
-
+    const fullReply = await streamResponseInto(res, replyDiv);
     if (!fullReply.trim()) {
       replyDiv.remove();
     } else {
@@ -558,12 +576,22 @@ notifyBtn.addEventListener('click', enablePush);
 
 // --- Init ---
 async function init() {
+  setStatus('URUCHAMIAM SYSTEMY...', 'thinking');
   try {
     const { data } = await fetchJSON('/api/health');
     ttsConfigured = Boolean(data.ttsConfigured);
     pushConfigured = Boolean(data.pushConfigured);
-    setStatus('ONLINE', null);
-    addMessage('Witaj z powrotem. Wszystkie systemy sprawne i gotowe do pracy.', 'jarvis');
+
+    const replyDiv = addMessage('', 'jarvis');
+    setStatus('PRZETWARZAM...', 'thinking');
+    try {
+      const res = await fetch('/api/greeting');
+      const greeting = await streamResponseInto(res, replyDiv);
+      if (!greeting.trim()) replyDiv.remove();
+    } catch (e) {
+      replyDiv.textContent = 'Wszystkie systemy sprawne, sir.';
+    }
+    if (!speaking) setStatus('ONLINE', null);
   } catch (e) {
     setStatus('BRAK POLACZENIA', null);
     addMessage('Nie moge polaczyc sie z serwerem.', 'error');

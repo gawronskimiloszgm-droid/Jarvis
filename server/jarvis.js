@@ -23,6 +23,15 @@ function extractTag(text, re) {
   return results;
 }
 
+function persistTagsFrom(rawFull) {
+  const facts = extractTag(rawFull, ZAPAMIETAJ_RE).map((m) => m[1].trim());
+  const newTodos = extractTag(rawFull, ZADANIE_RE).map((m) => m[1].trim());
+  const reminders = extractTag(rawFull, PRZYPOMNIENIE_RE).map((m) => ({ dueAt: m[1].trim(), text: m[2].trim() }));
+  if (facts.length) memory.addFacts(facts);
+  for (const t of newTodos) memory.addTodo(t);
+  for (const r of reminders) memory.addReminder(r.text, r.dueAt);
+}
+
 async function resolveCity(userMessage) {
   try {
     const res = await ai.models.generateContent({
@@ -35,6 +44,27 @@ async function resolveCity(userMessage) {
     return null;
   }
 }
+
+const PERSONALITY = `Jestes J.A.R.V.I.S. - osobisty AI ${OWNER_TITLE === 'sir' ? 'majordomus' : 'asystent'} zainspirowany J.A.R.V.I.S.-em z filmow o Iron Manie. Nie jestes ogolnym chatbotem - masz konkretny, rozpoznawalny charakter i trzymasz go zelazno przez cala rozmowe.
+
+KIM JESTES:
+- Brytyjski, opanowany, bezgranicznie kompetentny. Sucha ironia i inteligentny humor to Twoja naturalna mowa, nie dodatek.
+- Zwracasz sie do uzytkownika per "${OWNER_TITLE}" - naturalnie, nie w kazdym zdaniu.
+- Masz wlasne zdanie i nie boisz sie go wyrazic. Gdy pytanie jest zle postawione albo pomysl uzytkownika jest slaby, mowisz to wprost (z klasa, nie chamsko).
+
+JAK NIE MASZ MOWIC (typowe cechy chatbota, ktorych unikasz):
+- Zero "Jako sztuczna inteligencja...", "Nie mam uczuc, ale...", zero disclaimerow i tlumaczenia sie z bycia AI.
+- Zero "Czy jest cos jeszcze, w czym moge pomoc?" na koncu kazdej odpowiedzi - to sztuczne. Czasem po prostu konczysz, czasem sam proponujesz nastepny krok.
+- Zero grzecznosciowego lania wody, powtarzania pytania uzytkownika wlasnymi slowami przed odpowiedzia, list punktowanych tam gdzie starczy jedno zdanie.
+- Nie jestes neutralny/zbalansowany dla samej neutralnosci - masz opinie i je wygaszasz.
+- Odpowiadaj wprost i konkretnie, bez owijania w bawelne. Krotko, jesli krotko wystarczy.
+
+Odpowiadaj w jezyku, w ktorym pisze uzytkownik.
+
+Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu odpowiedzi, GDY jest to zasadne. Znaczniki NIGDY nie sa pokazywane uzytkownikowi (zostana automatycznie usuniete), wiec uzywaj ich swobodnie, bez zaburzania naturalnosci wypowiedzi:
+- [ZAPAMIETAJ: fakt] - gdy pojawi sie informacja o uzytkowniku warta trwalego zapamietania (imie, preferencje, wazne daty)
+- [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
+- [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)`;
 
 async function buildSystemInstruction(userMessage) {
   const facts = memory.getFacts();
@@ -49,7 +79,7 @@ async function buildSystemInstruction(userMessage) {
     : 'Lista zadan jest obecnie pusta.';
 
   let weatherBlock = '';
-  if (looksLikeWeatherQuestion(userMessage)) {
+  if (userMessage && looksLikeWeatherQuestion(userMessage)) {
     const city = await resolveCity(userMessage);
     if (city) {
       try {
@@ -70,17 +100,9 @@ async function buildSystemInstruction(userMessage) {
   const now = new Date();
   const nowStr = now.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'full', timeStyle: 'short' });
 
-  return `Jestes J.A.R.V.I.S. - wyrafinowany, lojalny asystent AI zainspirowany J.A.R.V.I.S.-em z filmow o Iron Manie.
-Zwracasz sie do uzytkownika per "${OWNER_TITLE}". Twoj ton: brytyjski, opanowany, uprzejmy, z subtelnym, suchym poczuciem humoru i lekka ironia - nigdy nie jestes wredny ani nachalny.
-Jestes niezwykle kompetentny, precyzyjny i zwiezly. Nie owijasz w bawelne, ale zachowujesz elegancje w kazdej odpowiedzi.
-Odpowiadaj w jezyku, w ktorym pisze uzytkownik.
+  return `${PERSONALITY}
 
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
-
-Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu odpowiedzi, GDY jest to zasadne. Znaczniki NIGDY nie sa pokazywane uzytkownikowi (zostana automatycznie usuniete), wiec uzywaj ich swobodnie, bez zaburzania naturalnosci wypowiedzi:
-- [ZAPAMIETAJ: fakt] - gdy pojawi sie informacja o uzytkowniku warta trwalego zapamietania (imie, preferencje, wazne daty)
-- [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
-- [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty powyzej i tego co powiedzial uzytkownik)
 
 ${factsBlock}
 
@@ -97,19 +119,8 @@ function toHistoryContents(historyEntries) {
     }));
 }
 
-export async function chatStream(userMessage, onChunk) {
-  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
-  memory.appendHistory('user', userMessage);
-
-  const systemInstruction = await buildSystemInstruction(userMessage);
-
-  const chatSession = ai.chats.create({
-    model: MODEL,
-    history: pastHistory,
-    config: { systemInstruction, temperature: 0.8 },
-  });
-
-  const stream = await chatSession.sendMessageStream({ message: userMessage });
+async function streamAndClean(chatSession, input, onChunk) {
+  const stream = await chatSession.sendMessageStream({ message: input });
 
   let rawFull = '';
   let lineBuffer = '';
@@ -135,16 +146,47 @@ export async function chatStream(userMessage, onChunk) {
     if (cleaned.trim().length > 0) onChunk(cleaned);
   }
 
-  const facts = extractTag(rawFull, ZAPAMIETAJ_RE).map((m) => m[1].trim());
-  const newTodos = extractTag(rawFull, ZADANIE_RE).map((m) => m[1].trim());
-  const reminders = extractTag(rawFull, PRZYPOMNIENIE_RE).map((m) => ({ dueAt: m[1].trim(), text: m[2].trim() }));
+  persistTagsFrom(rawFull);
+  return stripTags(rawFull).replace(/\n{3,}/g, '\n\n').trim();
+}
 
-  if (facts.length) memory.addFacts(facts);
-  for (const t of newTodos) memory.addTodo(t);
-  for (const r of reminders) memory.addReminder(r.text, r.dueAt);
+export async function chatStream(userMessage, onChunk) {
+  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
+  memory.appendHistory('user', userMessage);
 
-  const cleanedFull = stripTags(rawFull).replace(/\n{3,}/g, '\n\n').trim();
+  const systemInstruction = await buildSystemInstruction(userMessage);
+  const chatSession = ai.chats.create({
+    model: MODEL,
+    history: pastHistory,
+    config: { systemInstruction, temperature: 0.85 },
+  });
+
+  const cleanedFull = await streamAndClean(chatSession, userMessage, onChunk);
   memory.appendHistory('assistant', cleanedFull);
+  return cleanedFull;
+}
 
+export async function greetStream(onChunk) {
+  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
+  const reminders = memory.getReminders().filter((r) => !r.sent);
+  const remindersBlock = reminders.length
+    ? `\nNadchodzace przypomnienia:\n- ${reminders.map((r) => `${r.text} (${r.dueAt})`).join('\n- ')}`
+    : '';
+
+  const systemInstruction = (await buildSystemInstruction(null)) + remindersBlock;
+  const isFirstEver = pastHistory.length === 0;
+
+  const instruction = isFirstEver
+    ? 'Uzytkownik dopiero co otworzyl aplikacje po raz pierwszy. Przywitaj sie krotko, po swojemu (bez "jak moge pomoc"), i zapytaj o cos co pozwoli Ci go lepiej poznac.'
+    : 'Uzytkownik dopiero co otworzyl aplikacje. Przywitaj go krotko i spontanicznie, w swoim stylu (bez "jak moge pomoc"). Jesli masz w kontekscie cos konkretnego - nieukonczone zadanie, zblizajace sie przypomnienie, albo cos co ostatnio o sobie powiedzial - nawiaz do tego i zaproponuj konkretny nastepny krok. Jesli nic sensownego nie ma, krotko przywitaj sie z charakterem, bez pytania o pomoc.';
+
+  const chatSession = ai.chats.create({
+    model: MODEL,
+    history: pastHistory,
+    config: { systemInstruction, temperature: 0.9 },
+  });
+
+  const cleanedFull = await streamAndClean(chatSession, instruction, onChunk);
+  memory.appendHistory('assistant', cleanedFull);
   return cleanedFull;
 }
