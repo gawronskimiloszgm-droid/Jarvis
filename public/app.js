@@ -27,6 +27,16 @@ function addMessage(text, cls) {
   return div;
 }
 
+const toastContainer = document.getElementById('toastContainer');
+
+function toast(text, kind = 'error') {
+  const el = document.createElement('div');
+  el.className = `toast ${kind === 'info' ? 'info' : ''}`;
+  el.textContent = text;
+  toastContainer.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
 const GAUGE_CIRCUMFERENCE = 163.36;
 
 function setGauge(name, value, max) {
@@ -93,9 +103,9 @@ tabButtons.forEach((btn) => {
     document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
   });
 });
-function switchToChatTab() {
-  tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === 'chat'));
-  panels.forEach((p) => p.classList.toggle('active', p.id === 'panel-chat'));
+function switchToDashboardTab() {
+  tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === 'dashboard'));
+  panels.forEach((p) => p.classList.toggle('active', p.id === 'panel-dashboard'));
 }
 
 // --- Waveform visual (idle particle ring) ---
@@ -265,12 +275,22 @@ async function streamResponseInto(res, replyDiv) {
     speechBuffer = remainder;
   }
   if (speechBuffer.trim()) enqueueSpeech(speechBuffer);
+
+  const imgMatch = fullReply.match(IMG_MARKER_RE);
+  if (imgMatch) {
+    const img = document.createElement('img');
+    img.src = `/api/image/${imgMatch[1]}`;
+    img.alt = 'Wygenerowany obraz';
+    imageGallery.prepend(img);
+    toast('Jarvis wygenerowal obraz - zobacz zakladke Obrazy.', 'info');
+  }
+
   return fullReply;
 }
 
 async function sendMessage(text) {
   if (!text.trim()) return;
-  switchToChatTab();
+  switchToDashboardTab();
   addMessage(text, 'user');
   textInput.value = '';
   setStatus('PRZETWARZAM...', 'thinking');
@@ -292,7 +312,7 @@ async function sendMessage(text) {
     }
   } catch (err) {
     replyDiv.remove();
-    addMessage(`Blad: ${err.message}`, 'error');
+    toast(`Blad: ${err.message}`);
     setStatus('ONLINE', null);
   }
 }
@@ -370,6 +390,7 @@ function startWakeListening() {
   wakeRecognizer.continuous = true;
 
   wakeRecognizer.onresult = (event) => {
+    if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
     const last = event.results[event.results.length - 1];
     const transcript = last[0].transcript.trim();
     const match = transcript.match(WAKE_RE);
@@ -544,7 +565,7 @@ cameraAskBtn.addEventListener('click', async () => {
   cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
   const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.8);
 
-  switchToChatTab();
+  switchToDashboardTab();
   addMessage(question ? `[kamera] ${question}` : '[kamera] Co widzisz?', 'user');
   setStatus('PRZETWARZAM...', 'thinking');
   const replyDiv = addMessage('', 'jarvis');
@@ -557,7 +578,7 @@ cameraAskBtn.addEventListener('click', async () => {
     await streamResponseInto(res, replyDiv);
   } catch (err) {
     replyDiv.remove();
-    addMessage(`Blad: ${err.message}`, 'error');
+    toast(`Blad: ${err.message}`);
     setStatus('ONLINE', null);
   }
 });
@@ -644,7 +665,7 @@ function startTimer() {
       if (Notification && Notification.permission === 'granted') {
         new Notification('J.A.R.V.I.S.', { body: 'Czas minal, sir.' });
       }
-      addMessage('Czas minal, sir.', 'jarvis');
+      toast('Czas minal, sir.', 'info');
       enqueueSpeech('Czas minal, sir.');
       return;
     }
@@ -675,7 +696,7 @@ function urlBase64ToUint8Array(base64String) {
 
 async function enablePush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    addMessage('Powiadomienia push nie sa wspierane w tej przegladarce.', 'error');
+    toast('Powiadomienia push nie sa wspierane w tej przegladarce.');
     return;
   }
   const permission = await Notification.requestPermission();
@@ -684,7 +705,7 @@ async function enablePush() {
   const reg = await navigator.serviceWorker.ready;
   const { data } = await fetchJSON('/api/push/vapid-public-key');
   if (!data.publicKey) {
-    addMessage('Serwer nie ma skonfigurowanych kluczy powiadomien.', 'error');
+    toast('Serwer nie ma skonfigurowanych kluczy powiadomien.');
     return;
   }
   const subscription = await reg.pushManager.subscribe({
@@ -700,6 +721,77 @@ async function enablePush() {
 }
 
 notifyBtn.addEventListener('click', enablePush);
+
+// --- Zegar ---
+const clockTime = document.getElementById('clockTime');
+const clockDate = document.getElementById('clockDate');
+
+function tickClock() {
+  const now = new Date();
+  clockTime.textContent = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  clockDate.textContent = now.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// --- Pogoda (widget na panelu glownym) ---
+const weatherIcon = document.getElementById('weatherIcon');
+const weatherTemp = document.getElementById('weatherTemp');
+const weatherDesc = document.getElementById('weatherDesc');
+const weatherPlace = document.getElementById('weatherPlace');
+
+const WMO_ICONS = {
+  0: '☀️', 1: '🌤', 2: '⛅', 3: '☁️',
+  45: '🌫', 48: '🌫',
+  51: '🌦', 53: '🌦', 55: '🌧',
+  61: '🌧', 63: '🌧', 65: '🌧',
+  66: '🌨', 67: '🌨',
+  71: '🌨', 73: '🌨', 75: '❄️', 77: '❄️',
+  80: '🌦', 81: '🌧', 82: '⛈',
+  85: '🌨', 86: '❄️',
+  95: '⛈', 96: '⛈', 99: '⛈',
+};
+const WMO_DESC = {
+  0: 'bezchmurnie', 1: 'przewaznie bezchmurnie', 2: 'czesciowe zachmurzenie', 3: 'pochmurno',
+  45: 'mgla', 48: 'mgla z szadzia',
+  51: 'mzawka', 53: 'mzawka', 55: 'mzawka',
+  61: 'deszcz', 63: 'deszcz', 65: 'silny deszcz',
+  66: 'marznacy deszcz', 67: 'marznacy deszcz',
+  71: 'snieg', 73: 'snieg', 75: 'silny snieg', 77: 'snieg',
+  80: 'przelotny deszcz', 81: 'przelotny deszcz', 82: 'ulewa',
+  85: 'przelotny snieg', 86: 'silny snieg',
+  95: 'burza', 96: 'burza z gradem', 99: 'silna burza',
+};
+
+async function fetchWeatherFor(lat, lon, placeLabel) {
+  try {
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`
+    );
+    const data = await res.json();
+    const code = data.current.weather_code;
+    weatherIcon.textContent = WMO_ICONS[code] || '🌐';
+    weatherTemp.textContent = `${Math.round(data.current.temperature_2m)}°`;
+    weatherDesc.textContent = WMO_DESC[code] || '';
+    weatherPlace.textContent = placeLabel;
+  } catch (e) {
+    weatherDesc.textContent = 'Pogoda niedostepna';
+  }
+}
+
+function initWeatherWidget() {
+  if (!navigator.geolocation) {
+    fetchWeatherFor(52.23, 21.01, 'WARSZAWA (domyslnie)');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => fetchWeatherFor(pos.coords.latitude, pos.coords.longitude, 'TWOJA LOKALIZACJA'),
+    () => fetchWeatherFor(52.23, 21.01, 'WARSZAWA (domyslnie)'),
+    { timeout: 8000 }
+  );
+}
+initWeatherWidget();
+setInterval(initWeatherWidget, 20 * 60 * 1000);
 
 // --- Sekwencja startowa ---
 const bootOverlay = document.getElementById('bootOverlay');
@@ -746,13 +838,15 @@ async function init() {
     if (!speaking) setStatus('ONLINE', null);
   } catch (e) {
     setStatus('BRAK POLACZENIA', null);
-    addMessage('Nie moge polaczyc sie z serwerem.', 'error');
+    toast('Nie moge polaczyc sie z serwerem.');
   }
   await bootPromise;
   hideBootOverlay();
   loadTodos();
   loadReminders();
   loadFactsGauge();
+
+  if (SpeechRecognition && !wakeModeOn) toggleWakeMode();
 }
 init();
 

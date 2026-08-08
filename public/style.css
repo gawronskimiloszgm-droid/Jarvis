@@ -166,44 +166,52 @@ html, body {
   height: 100%;
 }
 
-.helmet {
+.globe-wrap {
   position: absolute;
-  inset: 14%;
-  fill: none;
-  stroke: var(--cyan);
-  opacity: 0.85;
-  filter: drop-shadow(0 0 6px var(--cyan-glow));
+  inset: 12%;
+  perspective: 600px;
 }
 
-.helmet-outline {
-  stroke-width: 2.5;
-  opacity: 0.9;
+.globe {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: globe-spin 9s linear infinite;
 }
 
-.helmet-brow, .helmet-jaw {
-  stroke-width: 1.4;
-  stroke: var(--cyan-dim);
-  opacity: 0.8;
+.reactor.listening .globe { animation-duration: 3s; }
+.reactor.speaking .globe { animation-duration: 2s; }
+.reactor.thinking .globe { animation-duration: 1.4s; }
+
+.globe-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--cyan);
+  opacity: 0.5;
 }
 
-.helmet-eye {
-  fill: var(--cyan);
-  stroke: none;
-  filter: drop-shadow(0 0 5px var(--cyan));
-  animation: eye-pulse 2.6s ease-in-out infinite;
+.globe-equator {
+  opacity: 0.7;
+  border-color: var(--cyan);
 }
 
-.helmet-chinline {
-  stroke-width: 1.2;
-  stroke: var(--cyan-dim);
+.globe-core {
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #eafeff 0%, var(--cyan) 30%, #0a3a44 75%);
+  box-shadow: 0 0 24px 5px var(--cyan-glow), 0 0 55px 16px rgba(53, 230, 255, 0.22);
+  animation: breathe 3.2s ease-in-out infinite;
 }
 
-.reactor.listening .helmet-eye { animation-duration: 0.8s; }
-.reactor.speaking .helmet-eye { animation-duration: 0.5s; }
+.reactor.listening .globe-core { animation-duration: 0.9s; }
+.reactor.speaking .globe-core { animation-duration: 0.6s; }
 
-@keyframes eye-pulse {
-  0%, 100% { opacity: 0.65; }
-  50% { opacity: 1; }
+@keyframes globe-spin {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
 }
 
 .gauges {
@@ -258,6 +266,140 @@ html, body {
   font-size: 8px;
   letter-spacing: 1px;
   color: var(--text-dim);
+}
+
+.log-hidden {
+  display: none;
+}
+
+.toast-container {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+  width: 90%;
+  max-width: 460px;
+}
+
+.toast {
+  background: rgba(10, 20, 30, 0.92);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+  box-shadow: 0 0 16px rgba(255, 93, 93, 0.25);
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast.info {
+  border-color: var(--cyan-dim);
+  color: var(--text);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dash-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px;
+}
+
+.widget {
+  border: 1px solid var(--cyan-dim);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(53, 230, 255, 0.06), rgba(255, 255, 255, 0.02));
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.widget::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(100deg, rgba(53, 230, 255, 0.04) 0px, rgba(53, 230, 255, 0.04) 1px, transparent 1px, transparent 26px);
+  animation: widget-scan 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes widget-scan {
+  from { transform: translateX(-40px); }
+  to { transform: translateX(0); }
+}
+
+.weather-widget {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.weather-icon {
+  font-size: 40px;
+  filter: drop-shadow(0 0 10px var(--cyan-glow));
+  animation: weather-float 3.5s ease-in-out infinite;
+}
+
+@keyframes weather-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-6px) rotate(3deg); }
+}
+
+.weather-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.weather-temp {
+  font-size: 30px;
+  font-weight: 300;
+  color: var(--cyan);
+  text-shadow: 0 0 12px var(--cyan-glow);
+}
+
+.weather-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+.weather-place {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  align-self: flex-start;
+  letter-spacing: 1px;
+}
+
+.clock-widget {
+  text-align: center;
+}
+
+.clock-time {
+  font-size: 40px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: var(--cyan);
+  text-shadow: 0 0 14px var(--cyan-glow);
+  letter-spacing: 2px;
+}
+
+.clock-date {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
 .ring {
