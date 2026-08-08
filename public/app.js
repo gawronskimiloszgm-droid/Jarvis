@@ -468,7 +468,24 @@ if (SpeechRecognition) {
 // --- Wake word ("Jarvis, ...") ---
 let wakeModeOn = false;
 let wakeRecognizer = null;
-const WAKE_RE = /\b(hej\s+)?jarvis[,:]?\s*(.*)/i;
+// Polski silnik rozpoznawania mowy czesto transkrybuje angielskie "Jarvis"
+// fonetycznie na rozne sposoby - lapiemy popularne warianty. Dopasowujemy na
+// znormalizowanym tekscie (bez polskich znakow diakrytycznych), ale komende
+// wycinamy z oryginalnego transkryptu, zeby nie zgubic ogonkow w tresci.
+const WAKE_RE = /\b(hej\s+)?(jarvis|dzarwis|dzarwiz|czarwis|harwis|harvis|jarwis|zarwis|dzarvis)[,:]?\s*(.*)/i;
+
+function normalizePolish(text) {
+  return text
+    .toLowerCase()
+    .replace(/[żź]/g, 'z')
+    .replace(/ó/g, 'o')
+    .replace(/ą/g, 'a')
+    .replace(/ę/g, 'e')
+    .replace(/ł/g, 'l')
+    .replace(/ć/g, 'c')
+    .replace(/ń/g, 'n')
+    .replace(/ś/g, 's');
+}
 
 function toggleWakeMode() {
   if (!SpeechRecognition) return;
@@ -498,9 +515,13 @@ function startWakeListening() {
     if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
     const last = event.results[event.results.length - 1];
     const transcript = last[0].transcript.trim();
-    const match = transcript.match(WAKE_RE);
+    if (!transcript) return;
+    toast(`Uslyszalem: "${transcript}"`, 'info');
+    const normalized = normalizePolish(transcript);
+    const match = normalized.match(WAKE_RE);
     if (match) {
-      const command = match[2].trim();
+      const commandStart = match.index + match[0].length - match[3].length;
+      const command = transcript.slice(commandStart).trim();
       if (command) sendMessage(command);
     }
   };
