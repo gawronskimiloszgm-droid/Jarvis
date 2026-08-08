@@ -30,8 +30,11 @@
       </div>
     </header>
 
+    <div class="date-strip" id="dateStrip"></div>
+
     <main class="core-view">
       <div class="reactor" id="reactor">
+        <div class="tick-ring"></div>
         <div class="ring ring-outer"></div>
         <div class="globe-wrap">
           <div class="globe" id="globe">
@@ -61,6 +64,7 @@
           <div class="gauge-label"><span class="gauge-number">0</span><small>PRZYPOMN.</small></div>
         </div>
       </div>
+      <div class="status-cycle" id="statusCycle">SYSTEMY GOTOWE</div>
     </main>
 
     <nav class="tabs" id="tabs">
@@ -81,10 +85,15 @@
             <div class="weather-desc" id="weatherDesc">Lokalizuje pogode...</div>
           </div>
           <div class="weather-place" id="weatherPlace"></div>
+          <div class="forecast-row" id="forecastRow"></div>
         </div>
         <div class="widget clock-widget">
           <div class="clock-time" id="clockTime">--:--:--</div>
           <div class="clock-date" id="clockDate"></div>
+        </div>
+        <div class="widget response-widget" id="responseWidget" hidden>
+          <div class="response-widget-label">OSTATNIA WIZUALIZACJA</div>
+          <img id="responseVisualImg" alt="Wizualizacja odpowiedzi" />
         </div>
       </div>
     </section>

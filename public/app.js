@@ -283,9 +283,32 @@ async function streamResponseInto(res, replyDiv) {
     img.alt = 'Wygenerowany obraz';
     imageGallery.prepend(img);
     toast('Jarvis wygenerowal obraz - zobacz zakladke Obrazy.', 'info');
+  } else {
+    maybeShowResponseVisual(fullReply);
   }
 
   return fullReply;
+}
+
+// Dla dluzszych, tresciwych odpowiedzi generujemy w tle male zdjecie-ilustracje
+// dopasowane do tematu i pokazujemy je na panelu glownym - nie blokuje to
+// glosu (odpalane rownolegle, wynik pojawia sie gdy jest gotowy).
+const responseWidget = document.getElementById('responseWidget');
+const responseVisualImg = document.getElementById('responseVisualImg');
+
+async function maybeShowResponseVisual(text) {
+  const clean = text.trim();
+  if (clean.length < 40) return;
+  try {
+    const { ok, data } = await fetchJSON('/api/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: clean.slice(0, 220) }),
+    });
+    if (!ok) return;
+    responseVisualImg.src = data.url;
+    responseWidget.hidden = false;
+  } catch (e) { /* noop - to tylko dodatkowa ilustracja, nie krytyczna */ }
 }
 
 async function sendMessage(text) {
@@ -734,6 +757,48 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
+// --- Pasek dat ---
+function renderDateStrip() {
+  const el = document.getElementById('dateStrip');
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  el.innerHTML = '';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const chip = document.createElement('div');
+    chip.className = 'date-chip' + (d === now.getDate() ? ' today' : '');
+    chip.textContent = String(d).padStart(2, '0');
+    el.appendChild(chip);
+  }
+  requestAnimationFrame(() => {
+    el.querySelector('.today')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  });
+}
+renderDateStrip();
+
+// --- Cykliczny status (odswieza sie co kilka sekund) ---
+const statusCycleEl = document.getElementById('statusCycle');
+let cycleTick = 0;
+
+function tickStatusCycle() {
+  const facts = document.querySelector('.gauge[data-gauge="facts"] .gauge-number')?.textContent || '0';
+  const todos = document.querySelector('.gauge[data-gauge="todos"] .gauge-number')?.textContent || '0';
+  const reminders = document.querySelector('.gauge[data-gauge="reminders"] .gauge-number')?.textContent || '0';
+  const options = [
+    `PAMIEC: ${facts} ZAPAMIETANYCH FAKTOW`,
+    `ZADANIA: ${todos} OTWARTYCH`,
+    `PRZYPOMNIENIA: ${reminders} ZAPLANOWANYCH`,
+    wakeModeOn ? 'NASLUCH: AKTYWNY' : 'NASLUCH: WYLACZONY',
+    `POGODA: ${weatherTemp.textContent} ${weatherDesc.textContent.toUpperCase()}`,
+    'POLACZENIE: STABILNE',
+  ];
+  statusCycleEl.style.opacity = 0;
+  setTimeout(() => {
+    statusCycleEl.textContent = options[cycleTick % options.length];
+    statusCycleEl.style.opacity = 1;
+    cycleTick++;
+  }, 200);
+}
+
 // --- Pogoda (widget na panelu glownym) ---
 const weatherIcon = document.getElementById('weatherIcon');
 const weatherTemp = document.getElementById('weatherTemp');
@@ -763,10 +828,13 @@ const WMO_DESC = {
   95: 'burza', 96: 'burza z gradem', 99: 'silna burza',
 };
 
+const forecastRow = document.getElementById('forecastRow');
+const FC_DAY_LABELS = ['NIEDZ', 'PON', 'WT', 'SR', 'CZW', 'PT', 'SOB'];
+
 async function fetchWeatherFor(lat, lon, placeLabel) {
   try {
     const res = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max&forecast_days=4&timezone=auto`
     );
     const data = await res.json();
     const code = data.current.weather_code;
@@ -774,6 +842,19 @@ async function fetchWeatherFor(lat, lon, placeLabel) {
     weatherTemp.textContent = `${Math.round(data.current.temperature_2m)}°`;
     weatherDesc.textContent = WMO_DESC[code] || '';
     weatherPlace.textContent = placeLabel;
+
+    forecastRow.innerHTML = '';
+    const days = data.daily?.time || [];
+    days.forEach((dateStr, i) => {
+      if (i === 0) return;
+      const dow = FC_DAY_LABELS[new Date(dateStr).getDay()];
+      const dCode = data.daily.weather_code[i];
+      const max = Math.round(data.daily.temperature_2m_max[i]);
+      const chip = document.createElement('div');
+      chip.className = 'forecast-day';
+      chip.innerHTML = `<span class="fc-label">${dow}</span><span class="fc-icon">${WMO_ICONS[dCode] || '🌐'}</span><span class="fc-temp">${max}°</span>`;
+      forecastRow.appendChild(chip);
+    });
   } catch (e) {
     weatherDesc.textContent = 'Pogoda niedostepna';
   }
@@ -792,6 +873,9 @@ function initWeatherWidget() {
 }
 initWeatherWidget();
 setInterval(initWeatherWidget, 20 * 60 * 1000);
+
+tickStatusCycle();
+setInterval(tickStatusCycle, 4000);
 
 // --- Sekwencja startowa ---
 const bootOverlay = document.getElementById('bootOverlay');
