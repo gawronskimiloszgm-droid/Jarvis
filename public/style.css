@@ -445,6 +445,58 @@ html, body {
   letter-spacing: 1px;
 }
 
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.camera-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  justify-content: center;
+}
+
+.camera-video {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 12px;
+  border: 1px solid var(--cyan-dim);
+  background: #000;
+  box-shadow: 0 0 20px rgba(53, 230, 255, 0.15);
+}
+
+.camera-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.image-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.image-gallery img,
+.msg img {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 10px;
+  border: 1px solid var(--cyan-dim);
+  box-shadow: 0 0 16px rgba(53, 230, 255, 0.15);
+  display: block;
+}
+
+.msg img {
+  margin-top: 8px;
+}
+
 @media (max-width: 480px) {
   .reactor { width: 44vw; height: 44vw; }
 }

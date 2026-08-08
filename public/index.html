@@ -40,6 +40,8 @@
       <button class="tab" data-tab="todos">✅ Zadania</button>
       <button class="tab" data-tab="timer">⏱ Timer</button>
       <button class="tab" data-tab="reminders">🔔 Przypomnienia</button>
+      <button class="tab" data-tab="camera">📷 Kamera</button>
+      <button class="tab" data-tab="images">🎨 Obrazy</button>
     </nav>
 
     <section class="panel active" id="panel-chat">
@@ -73,6 +75,25 @@
         <button type="submit" class="send-btn">Dodaj przypomnienie</button>
       </form>
       <ul class="item-list" id="reminderList"></ul>
+    </section>
+
+    <section class="panel" id="panel-camera">
+      <div class="camera-box">
+        <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
+        <canvas id="cameraCanvas" hidden></canvas>
+        <div class="camera-controls">
+          <button id="cameraToggleBtn" class="send-btn">Wlacz kamere</button>
+          <button id="cameraAskBtn" class="send-btn" disabled>Zapytaj Jarvisa o to, co widzi</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-images">
+      <form class="inline-form" id="imageForm">
+        <input id="imagePrompt" class="text-input" type="text" placeholder="Co narysowac?" autocomplete="off" />
+        <button type="submit" class="send-btn">Generuj</button>
+      </form>
+      <div class="image-gallery" id="imageGallery"></div>
     </section>
 
     <footer class="controls">

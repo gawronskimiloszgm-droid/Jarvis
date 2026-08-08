@@ -11,12 +11,13 @@ import * as jarvis from './jarvis.js';
 import * as tts from './tts.js';
 import * as memory from './memory.js';
 import * as push from './push.js';
+import * as image from './image.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/health', (req, res) => {
@@ -142,6 +143,52 @@ app.get('/api/cron/tick', async (req, res) => {
     memory.markReminderSent(reminder.id);
   }
   res.json({ ok: true, sent: due.length });
+});
+
+// --- Image generation ---
+app.post('/api/image', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'Brak opisu obrazu.' });
+    const buffer = await image.generateImage(String(prompt));
+    const id = image.storeImage(buffer);
+    res.status(201).json({ id, url: `/api/image/${id}` });
+  } catch (err) {
+    console.error('Image generation error:', err);
+    res.status(500).json({ error: 'Nie udalo sie wygenerowac obrazu.' });
+  }
+});
+
+app.get('/api/image/:id', (req, res) => {
+  const entry = image.getImage(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Obraz nie znaleziony (mogl wygasnac).' });
+  res.set('Content-Type', entry.mimeType);
+  res.set('Cache-Control', 'public, max-age=1800');
+  res.send(entry.buffer);
+});
+
+// --- Vision (analiza obrazu z kamery) ---
+app.post('/api/vision', async (req, res) => {
+  const { image: imageDataUrl, mimeType, question } = req.body;
+  if (!imageDataUrl) return res.status(400).json({ error: 'Brak obrazu.' });
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Brak skonfigurowanego GEMINI_API_KEY na serwerze.' });
+  }
+
+  const base64Data = String(imageDataUrl).replace(/^data:[^;]+;base64,/, '');
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  try {
+    await jarvis.visionStream(base64Data, mimeType || 'image/jpeg', question, (chunk) => res.write(chunk));
+    res.end();
+  } catch (err) {
+    console.error('Vision error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Wystapil blad po stronie serwera.' });
+    else res.end();
+  }
 });
 
 // --- TTS ---

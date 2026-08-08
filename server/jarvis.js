@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import * as memory from './memory.js';
 import { looksLikeWeatherQuestion, getWeather } from './weather.js';
+import { looksLikeImageRequest, generateImage, storeImage } from './image.js';
+import { imagePart } from './vision.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest';
@@ -154,7 +156,23 @@ export async function chatStream(userMessage, onChunk) {
   const pastHistory = toHistoryContents(memory.getRecentHistory(20));
   memory.appendHistory('user', userMessage);
 
-  const systemInstruction = await buildSystemInstruction(userMessage);
+  let systemInstruction = await buildSystemInstruction(userMessage);
+
+  let imageId = null;
+  let imageNote = '';
+  if (looksLikeImageRequest(userMessage)) {
+    try {
+      const buf = await generateImage(userMessage);
+      imageId = storeImage(buf);
+      systemInstruction +=
+        '\n\nWlasnie automatycznie wygenerowano dla uzytkownika obraz na podstawie jego prosby. Skomentuj go krotko, w swoim stylu - NIE mow, ze nie potrafisz generowac obrazow, bo wlasnie to sie stalo.';
+    } catch {
+      imageNote = ' [generator obrazu chwilowo zawiodl]';
+      systemInstruction +=
+        '\n\nUzytkownik prosil o obraz, ale generator chwilowo zawiodl. Przeproś krotko, w swoim stylu, i zaproponuj sprobowac ponownie.';
+    }
+  }
+
   const chatSession = ai.chats.create({
     model: MODEL,
     history: pastHistory,
@@ -162,6 +180,29 @@ export async function chatStream(userMessage, onChunk) {
   });
 
   const cleanedFull = await streamAndClean(chatSession, userMessage, onChunk);
+
+  if (imageId) onChunk(`\n[[IMG:${imageId}]]`);
+
+  memory.appendHistory('assistant', cleanedFull + (imageId ? ' [wygenerowano obraz]' : imageNote));
+  return cleanedFull;
+}
+
+export async function visionStream(base64Data, mimeType, question, onChunk) {
+  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
+  const q = question && question.trim() ? question.trim() : 'Opisz krotko co widzisz.';
+  memory.appendHistory('user', `[obraz z kamery] ${q}`);
+
+  const systemInstruction =
+    (await buildSystemInstruction(null)) +
+    '\n\nUzytkownik wlasnie pokazal Ci obraz z kamery. Skomentuj/przeanalizuj go w swoim stylu, zwiezle.';
+
+  const chatSession = ai.chats.create({
+    model: MODEL,
+    history: pastHistory,
+    config: { systemInstruction, temperature: 0.8 },
+  });
+
+  const cleanedFull = await streamAndClean(chatSession, [imagePart(base64Data, mimeType), { text: q }], onChunk);
   memory.appendHistory('assistant', cleanedFull);
   return cleanedFull;
 }

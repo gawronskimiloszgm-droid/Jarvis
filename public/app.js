@@ -27,6 +27,24 @@ function addMessage(text, cls) {
   return div;
 }
 
+const IMG_MARKER_RE = /\[\[IMG:([^\]]+)\]\]/;
+
+function renderReplyContent(div, text) {
+  const match = text.match(IMG_MARKER_RE);
+  if (!match) {
+    div.textContent = text;
+    return;
+  }
+  div.innerHTML = '';
+  div.appendChild(document.createTextNode(text.slice(0, match.index)));
+  const img = document.createElement('img');
+  img.src = `/api/image/${match[1]}`;
+  img.alt = 'Wygenerowany obraz';
+  div.appendChild(img);
+  const after = text.slice(match.index + match[0].length);
+  if (after.trim()) div.appendChild(document.createTextNode(after));
+}
+
 // Darmowy hosting czasem gubi pojedyncze zapytanie przy usypianiu/budzeniu serwera -
 // ponawiamy raz lub dwa razy zanim uznamy to za realny blad.
 async function fetchJSON(url, options, retries = 2) {
@@ -221,10 +239,10 @@ async function streamResponseInto(res, replyDiv) {
     if (done) break;
     const piece = decoder.decode(value, { stream: true });
     fullReply += piece;
-    replyDiv.textContent = fullReply;
+    renderReplyContent(replyDiv, fullReply);
     logEl.scrollTop = logEl.scrollHeight;
 
-    speechBuffer += piece;
+    speechBuffer += piece.replace(IMG_MARKER_RE, '');
     const { sentences, remainder } = extractSentences(speechBuffer);
     for (const s of sentences) enqueueSpeech(s);
     speechBuffer = remainder;
@@ -466,6 +484,95 @@ reminderForm.addEventListener('submit', async (e) => {
   reminderText.value = '';
   reminderDate.value = '';
   renderReminders(data.reminders);
+});
+
+// --- Kamera ---
+const cameraVideo = document.getElementById('cameraVideo');
+const cameraCanvas = document.getElementById('cameraCanvas');
+const cameraToggleBtn = document.getElementById('cameraToggleBtn');
+const cameraAskBtn = document.getElementById('cameraAskBtn');
+let cameraStream = null;
+
+cameraToggleBtn.addEventListener('click', async () => {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+    cameraVideo.srcObject = null;
+    cameraToggleBtn.textContent = 'Wlacz kamere';
+    cameraAskBtn.disabled = true;
+    return;
+  }
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    cameraVideo.srcObject = cameraStream;
+    cameraToggleBtn.textContent = 'Wylacz kamere';
+    cameraAskBtn.disabled = false;
+  } catch (err) {
+    addMessage(`Nie udalo sie uzyskac dostepu do kamery: ${err.message}`, 'error');
+  }
+});
+
+cameraAskBtn.addEventListener('click', async () => {
+  if (!cameraStream) return;
+  const question = textInput.value.trim();
+  textInput.value = '';
+
+  const maxW = 640;
+  const scale = Math.min(1, maxW / cameraVideo.videoWidth);
+  cameraCanvas.width = cameraVideo.videoWidth * scale;
+  cameraCanvas.height = cameraVideo.videoHeight * scale;
+  cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+  const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.8);
+
+  switchToChatTab();
+  addMessage(question ? `[kamera] ${question}` : '[kamera] Co widzisz?', 'user');
+  setStatus('PRZETWARZAM...', 'thinking');
+  const replyDiv = addMessage('', 'jarvis');
+  try {
+    const res = await fetch('/api/vision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, mimeType: 'image/jpeg', question }),
+    });
+    await streamResponseInto(res, replyDiv);
+  } catch (err) {
+    replyDiv.remove();
+    addMessage(`Blad: ${err.message}`, 'error');
+    setStatus('ONLINE', null);
+  }
+});
+
+// --- Generowanie obrazow ---
+const imageForm = document.getElementById('imageForm');
+const imagePrompt = document.getElementById('imagePrompt');
+const imageGallery = document.getElementById('imageGallery');
+
+imageForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const prompt = imagePrompt.value.trim();
+  if (!prompt) return;
+  imagePrompt.value = '';
+
+  const placeholder = document.createElement('div');
+  placeholder.className = 'empty-hint';
+  placeholder.textContent = `Generuje: "${prompt}"...`;
+  imageGallery.prepend(placeholder);
+
+  try {
+    const { ok, data } = await fetchJSON('/api/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    placeholder.remove();
+    if (!ok) throw new Error(data.error || 'Blad generowania obrazu.');
+    const img = document.createElement('img');
+    img.src = data.url;
+    img.alt = prompt;
+    imageGallery.prepend(img);
+  } catch (err) {
+    placeholder.textContent = `Blad: ${err.message}`;
+  }
 });
 
 // --- Timer ---

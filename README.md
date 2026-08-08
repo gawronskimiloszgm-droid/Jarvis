@@ -60,7 +60,31 @@ Po wejsciu na adres appki (lokalnie lub na Render):
 
 Kliknij ikone 🔔 w naglowku appki i zgodz sie na powiadomienia w przegladarce. Od tego momentu Jarvis moze wysylac Ci powiadomienia nawet gdy appka jest zamknieta — np. gdy nadejdzie termin przypomnienia. Klucze VAPID potrzebne do tego generuje sie jednorazowo: `node scripts/generate-vapid-keys.js` (juz wygenerowane i wpisane w `.env`).
 
-## 7. Co dziala w tej wersji
+## 7. Kamera i generowanie obrazow
+
+- **Kamera** (zakladka 📷): wlacz kamere, opcjonalnie wpisz pytanie w polu tekstowym na dole, kliknij "Zapytaj Jarvisa o to, co widzi" — Jarvis analizuje aktualna klatke (Gemini vision, w ramach tego samego darmowego limitu co czat).
+- **Generowanie obrazow**: albo w zakladce 🎨 Obrazy, albo bezposrednio w czacie — napisz np. "narysuj smoka w stylu cyberpunk". Obrazy generuje https://pollinations.ai — w pelni darmowe, bez klucza API, bez limitu.
+- Generowanie obrazow przez sam Gemini/Imagen NIE dziala na darmowym kluczu API (zero przydzielonego limitu) — dlatego uzywamy Pollinations jako darmowej alternatywy.
+
+## 8. Aplikacja desktopowa (Windows/Mac/Linux, nie w przegladarce)
+
+W folderze `desktop/` jest osobna mini-aplikacja Electron, ktora otwiera Twojego wdrozonego Jarvisa jako prawdziwe okno programu (wlasna ikona, wlasne okno, bez paska adresu przegladarki) zamiast karty w przegladarce.
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+Zeby zbudowac instalator .exe (Windows) / .dmg (Mac) / .AppImage (Linux), ktory mozna zainstalowac jak normalny program:
+
+```bash
+npm run build
+```
+
+Plik `desktop/config.json` wskazuje na Twoj adres na Render — zmien go, jesli adres appki kiedys sie zmieni.
+
+## 9. Co dziala w tej wersji
 
 - Czat tekstowy i glosowy (rozpoznawanie mowy w przegladarce, jezyk polski), odpowiedzi strumieniowane na biezaco (slowo po slowie)
 - Aktywacja glosem — kliknij 👂 i powiedz "Jarvis, ..." zeby wydac polecenie bez dotykania ekranu
@@ -72,12 +96,18 @@ Kliknij ikone 🔔 w naglowku appki i zgodz sie na powiadomienia w przegladarce.
 - Prawdziwa pogoda na zywo (Open-Meteo, bez klucza) — po prostu zapytaj "jaka jest pogoda w..."
 - Animowany interfejs HUD (reaktor, pierscienie, fala dzwiekowa) reagujacy na stan (sluchanie/myslenie/mowienie)
 - Instalowalna aplikacja (PWA) na telefon i komputer, dziala non-stop w chmurze dzieki keep-alive
+- Aplikacja desktopowa (Electron) jako alternatywa dla PWA — prawdziwe okno programu
+- Kamera z analiza obrazu na zywo (Gemini vision)
+- Generowanie obrazow (Pollinations.ai) — w czacie albo w dedykowanej zakladce
 - Glos Jarvisa przez Microsoft Edge TTS — w pelni darmowy, bez klucza, bez limitu
 
-## 8. Znane ograniczenia (do rozbudowy w kolejnych iteracjach)
+## 10. Znane ograniczenia (do rozbudowy w kolejnych iteracjach)
 
 - Pamiec przechowywana w prostym pliku JSON na serwerze — na darmowym Render dysk moze byc resetowany przy kazdym nowym deployu (nie przy zwyklym restarcie/usypianiu). Do trwalej pamieci "na zawsze" warto docelowo podpiac darmowa baze (np. Supabase).
 - Brak logowania/wielu uzytkownikow — appka zaklada, ze to Twoj prywatny asystent.
 - Darmowy tier Gemini ma realne limity zapytan na minute/dzien — przy normalnym uzyciu osobistym wystarcza, ale to nie jest "nieskonczone" API. Microsoft Edge TTS jest nieoficjalnym (reverse-engineered) uzyciem ich uslugi Read Aloud — dziala stabilnie i szeroko stosowane w projektach open-source, ale teoretycznie Microsoft moze je kiedys zablokowac (wtedy appka automatycznie przelacza sie na glos przegladarki).
 - Przypomnienia sprawdzane sa tylko co ~10 minut (przez GitHub Actions) — dokladnosc "co do minuty" nie jest gwarantowana, ale w praktyce wystarczajaca.
 - Aktywacja glosem ("Jarvis, ...") dziala najlepiej w Chrome/Edge; niektore przegladarki mobilne ograniczaja ciagle nasluchiwanie w tle.
+- Generowanie obrazow zalezy od zewnetrznego darmowego serwisu Pollinations.ai — nie jest to oficjalna, gwarantowana usluga, wiec teoretycznie moze byc czasem wolniejsza albo niedostepna.
+- Kamera dziala tylko "na zadanie" (robisz zdjecie, Jarvis je analizuje) — nie ma ciaglej, zywej analizy wideo klatka po klatce (to byloby drogie w zapytaniach do AI).
+- Aplikacja desktopowa (Electron) to okno ladujace Twoj adres z Render — wymaga dzialajacego polaczenia internetowego, nie dziala w pelni offline.
