@@ -27,6 +27,23 @@ function addMessage(text, cls) {
   return div;
 }
 
+const GAUGE_CIRCUMFERENCE = 163.36;
+
+function setGauge(name, value, max) {
+  const el = document.querySelector(`.gauge[data-gauge="${name}"]`);
+  if (!el) return;
+  const pct = max > 0 ? Math.min(1, value / max) : 0;
+  el.querySelector('.gauge-value').style.strokeDashoffset = String(GAUGE_CIRCUMFERENCE * (1 - pct));
+  el.querySelector('.gauge-number').textContent = value;
+}
+
+async function loadFactsGauge() {
+  try {
+    const { data } = await fetchJSON('/api/memory');
+    setGauge('facts', data.facts.length, 20);
+  } catch (e) { /* noop */ }
+}
+
 const IMG_MARKER_RE = /\[\[IMG:([^\]]+)\]\]/;
 
 function renderReplyContent(div, text) {
@@ -271,6 +288,7 @@ async function sendMessage(text) {
     } else {
       loadTodos();
       loadReminders();
+      loadFactsGauge();
     }
   } catch (err) {
     replyDiv.remove();
@@ -384,6 +402,7 @@ const todoInput = document.getElementById('todoInput');
 const todoList = document.getElementById('todoList');
 
 function renderTodos(todos) {
+  setGauge('todos', todos.filter((t) => !t.done).length, 10);
   todoList.innerHTML = '';
   if (!todos.length) {
     todoList.innerHTML = '<li class="empty-hint">Brak zadan. Dodaj cos ponizej.</li>';
@@ -439,8 +458,9 @@ const reminderDate = document.getElementById('reminderDate');
 const reminderList = document.getElementById('reminderList');
 
 function renderReminders(reminders) {
-  reminderList.innerHTML = '';
   const pending = reminders.filter((r) => !r.sent);
+  setGauge('reminders', pending.length, 10);
+  reminderList.innerHTML = '';
   if (!pending.length) {
     reminderList.innerHTML = '<li class="empty-hint">Brak zaplanowanych przypomnien.</li>';
     return;
@@ -681,8 +701,33 @@ async function enablePush() {
 
 notifyBtn.addEventListener('click', enablePush);
 
+// --- Sekwencja startowa ---
+const bootOverlay = document.getElementById('bootOverlay');
+const bootLog = document.getElementById('bootLog');
+const BOOT_LINES = [
+  '> inicjalizacja rdzenia J.A.R.V.I.S...',
+  '> laczenie z modelem Gemini...',
+  '> wczytywanie pamieci uzytkownika...',
+  '> synchronizacja zadan i przypomnien...',
+  '> kalibracja syntezatora mowy...',
+  '> systemy gotowe.',
+];
+
+async function runBootSequence() {
+  for (const line of BOOT_LINES) {
+    bootLog.textContent += line + '\n';
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+function hideBootOverlay() {
+  bootOverlay.classList.add('hidden');
+  setTimeout(() => bootOverlay.remove(), 700);
+}
+
 // --- Init ---
 async function init() {
+  const bootPromise = runBootSequence();
   setStatus('URUCHAMIAM SYSTEMY...', 'thinking');
   try {
     const { data } = await fetchJSON('/api/health');
@@ -703,8 +748,11 @@ async function init() {
     setStatus('BRAK POLACZENIA', null);
     addMessage('Nie moge polaczyc sie z serwerem.', 'error');
   }
+  await bootPromise;
+  hideBootOverlay();
   loadTodos();
   loadReminders();
+  loadFactsGauge();
 }
 init();
 

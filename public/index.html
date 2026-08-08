@@ -12,6 +12,11 @@
 </head>
 <body>
   <div class="scanlines"></div>
+
+  <div class="boot-overlay" id="bootOverlay">
+    <pre class="boot-log" id="bootLog"></pre>
+  </div>
+
   <div class="app">
     <header class="topbar">
       <div class="brand">
@@ -27,11 +32,40 @@
 
     <main class="core-view">
       <div class="reactor" id="reactor">
+        <svg class="helmet" viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg">
+          <path class="helmet-outline" d="M100 8
+            C 60 8 34 34 30 74
+            C 27 100 30 128 40 156
+            C 46 172 56 186 70 196
+            L 78 176 L 88 200 L 100 182 L 112 200 L 122 176 L 130 196
+            C 144 186 154 172 160 156
+            C 170 128 173 100 170 74
+            C 166 34 140 8 100 8 Z" />
+          <path class="helmet-brow" d="M38 78 C 55 66 80 60 100 60 C 120 60 145 66 162 78" />
+          <path class="helmet-eye helmet-eye-left" d="M52 92 L86 88 L86 100 L54 104 Z" />
+          <path class="helmet-eye helmet-eye-right" d="M148 92 L114 88 L114 100 L146 104 Z" />
+          <path class="helmet-jaw" d="M46 130 C 65 122 85 118 100 118 C 115 118 135 122 154 130" />
+          <line class="helmet-chinline" x1="100" y1="140" x2="100" y2="170" />
+        </svg>
         <div class="ring ring-outer"></div>
         <div class="ring ring-mid"></div>
         <div class="ring ring-inner"></div>
         <div class="core"></div>
         <canvas id="wave" width="360" height="360"></canvas>
+      </div>
+      <div class="gauges" id="gauges">
+        <div class="gauge" data-gauge="facts">
+          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+          <div class="gauge-label"><span class="gauge-number">0</span><small>PAMIĘĆ</small></div>
+        </div>
+        <div class="gauge" data-gauge="todos">
+          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+          <div class="gauge-label"><span class="gauge-number">0</span><small>ZADANIA</small></div>
+        </div>
+        <div class="gauge" data-gauge="reminders">
+          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+          <div class="gauge-label"><span class="gauge-number">0</span><small>PRZYPOMN.</small></div>
+        </div>
       </div>
     </main>
 
