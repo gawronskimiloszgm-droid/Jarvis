@@ -508,77 +508,6 @@ function recordUntilSilence({ maxMs = 8000, silenceMs = 1100, threshold = 20 } =
   });
 }
 
-let awaitingFollowUp = false;
-let awaitingFollowUpTimer = null;
-
-function handleWakeTranscript(transcript) {
-  const clean = transcript.trim();
-  if (!clean) return;
-  toast(`Uslyszalem: "${clean}"`, 'info');
-
-  // Jesli chwile wczesniej powiedziano samo "Jarvis" i Jarvis czeka na
-  // dokonczenie polecenia, nie trzeba powtarzac slowa "Jarvis" ponownie.
-  if (awaitingFollowUp) {
-    awaitingFollowUp = false;
-    clearTimeout(awaitingFollowUpTimer);
-    sendMessage(clean);
-    return;
-  }
-
-  const normalized = normalizePolish(clean);
-  const match = normalized.match(WAKE_RE);
-  if (match) {
-    const commandStart = match.index + match[0].length - match[3].length;
-    const command = clean.slice(commandStart).trim();
-    if (command) {
-      sendMessage(command);
-    } else {
-      // Powiedziano samo "Jarvis" bez polecenia - potwierdz, ze slucham,
-      // zamiast cicho nic nie robic.
-      awaitingFollowUp = true;
-      enqueueSpeech('Slucham, sir.');
-      awaitingFollowUpTimer = setTimeout(() => { awaitingFollowUp = false; }, 8000);
-    }
-  }
-}
-
-let electronWakeLoopActive = false;
-
-async function startElectronWakeListening() {
-  try {
-    await ensureElectronMicStream();
-  } catch (e) {
-    toast('Brak dostepu do mikrofonu.');
-    wakeModeOn = false;
-    wakeBtn.classList.remove('active');
-    return;
-  }
-  if (!wakeStartToastShown) {
-    wakeStartToastShown = true;
-    toast('Nasluch mikrofonu aktywny.', 'info');
-  }
-  electronWakeLoopActive = true;
-  electronWakeLoop();
-}
-
-function stopElectronWakeListening() {
-  electronWakeLoopActive = false;
-}
-
-async function electronWakeLoop() {
-  while (electronWakeLoopActive && wakeModeOn) {
-    if (speaking) {
-      await new Promise((r) => setTimeout(r, 300));
-      continue;
-    }
-    const blob = await recordUntilSilence();
-    if (blob) {
-      const text = await transcribeBlob(blob);
-      if (text) handleWakeTranscript(text);
-    }
-  }
-}
-
 // --- Voice input (push-to-talk) ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognizing = false;
@@ -642,111 +571,167 @@ if (isElectron) {
   micBtn.title = 'Rozpoznawanie mowy niedostepne w tej przegladarce';
 }
 
-// --- Wake word ("Jarvis, ...") ---
-let wakeModeOn = false;
-let wakeRecognizer = null;
-let wakeStartToastShown = false;
-// Polski silnik rozpoznawania mowy czesto transkrybuje angielskie "Jarvis"
-// fonetycznie na rozne sposoby - lapiemy popularne warianty. Dopasowujemy na
-// znormalizowanym tekscie (bez polskich znakow diakrytycznych), ale komende
-// wycinamy z oryginalnego transkryptu, zeby nie zgubic ogonkow w tresci.
-const WAKE_RE = /\b(hej\s+)?(jarvis|dzarwis|dzarwiz|czarwis|harwis|harvis|jarwis|zarwis|dzarvis)[,:]?\s*(.*)/i;
+// --- Rozmowa na zywo (Gemini Live API) ---
+// Ciagly, dwukierunkowy strumien audio zamiast nagraj->transkrybuj->czat->mow.
+// To sam model rozumie mowe i mowi natywnie - bez posredniego tekstu, bez
+// dopasowywania slowa "Jarvis" (ktore bylo niewiarygodne). Kliknij, zeby
+// zaczac rozmowe, kliknij ponownie, zeby ja zakonczyc.
+let wakeModeOn = false; // true = trwa rozmowa na zywo
+let liveWs = null;
+let liveAudioCtx = null;
+let liveMicStream = null;
+let liveProcessor = null;
+let livePlaybackCtx = null;
+let liveNextPlayTime = 0;
+let liveActiveSources = [];
 
-function normalizePolish(text) {
-  return text
-    .toLowerCase()
-    .replace(/[żź]/g, 'z')
-    .replace(/ó/g, 'o')
-    .replace(/ą/g, 'a')
-    .replace(/ę/g, 'e')
-    .replace(/ł/g, 'l')
-    .replace(/ć/g, 'c')
-    .replace(/ń/g, 'n')
-    .replace(/ś/g, 's');
+function getLiveWsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/voice`;
+}
+
+function resampleTo16k(float32Array, inputRate) {
+  if (inputRate === 16000) return float32Array;
+  const ratio = inputRate / 16000;
+  const outLength = Math.floor(float32Array.length / ratio);
+  const result = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIdx = i * ratio;
+    const idxLow = Math.floor(srcIdx);
+    const idxHigh = Math.min(idxLow + 1, float32Array.length - 1);
+    const frac = srcIdx - idxLow;
+    result[i] = float32Array[idxLow] * (1 - frac) + float32Array[idxHigh] * frac;
+  }
+  return result;
+}
+
+function floatTo16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
+function stopLivePlayback() {
+  liveActiveSources.forEach((s) => { try { s.stop(); } catch (e) { /* noop */ } });
+  liveActiveSources = [];
+  if (livePlaybackCtx) liveNextPlayTime = livePlaybackCtx.currentTime;
+}
+
+function playLiveAudioChunk(arrayBuffer) {
+  if (!livePlaybackCtx) return;
+  const int16 = new Int16Array(arrayBuffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+  const audioBuffer = livePlaybackCtx.createBuffer(1, float32.length, 24000);
+  audioBuffer.copyToChannel(float32, 0);
+  const source = livePlaybackCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(livePlaybackCtx.destination);
+  const now = livePlaybackCtx.currentTime;
+  const startAt = Math.max(now, liveNextPlayTime);
+  source.start(startAt);
+  liveNextPlayTime = startAt + audioBuffer.duration;
+  liveActiveSources.push(source);
+  source.onended = () => { liveActiveSources = liveActiveSources.filter((s) => s !== source); };
+  audioLevel = 0.7;
+}
+
+async function startLiveConversation() {
+  wakeModeOn = true;
+  wakeBtn.classList.add('active');
+  setStatus('LACZE...', 'thinking');
+
+  try {
+    liveMicStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+  } catch (e) {
+    toast('Brak dostepu do mikrofonu.');
+    wakeModeOn = false;
+    wakeBtn.classList.remove('active');
+    setStatus('ONLINE', null);
+    return;
+  }
+
+  livePlaybackCtx = new (window.AudioContext || window.webkitAudioContext)();
+  liveNextPlayTime = 0;
+  liveWs = new WebSocket(getLiveWsUrl());
+  liveWs.binaryType = 'arraybuffer';
+
+  liveWs.onopen = () => {
+    liveAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = liveAudioCtx.createMediaStreamSource(liveMicStream);
+    liveProcessor = liveAudioCtx.createScriptProcessor(4096, 1, 1);
+    const silentGain = liveAudioCtx.createGain();
+    silentGain.gain.value = 0;
+    source.connect(liveProcessor);
+    liveProcessor.connect(silentGain);
+    silentGain.connect(liveAudioCtx.destination);
+
+    liveProcessor.onaudioprocess = (e) => {
+      if (!wakeModeOn || liveWs.readyState !== WebSocket.OPEN) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const resampled = resampleTo16k(input, liveAudioCtx.sampleRate);
+      liveWs.send(floatTo16BitPCM(resampled));
+      audioLevel = Math.max(audioLevel, 0.3);
+    };
+  };
+
+  liveWs.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      playLiveAudioChunk(event.data);
+      setStatus('MOWIE...', 'speaking');
+      return;
+    }
+    let msg;
+    try { msg = JSON.parse(event.data); } catch (e) { return; }
+    if (msg.type === 'ready') {
+      setStatus('ROZMOWA NA ZYWO...', 'listening');
+    } else if (msg.type === 'interrupted') {
+      stopLivePlayback();
+    } else if (msg.type === 'turnComplete') {
+      loadTodos();
+      loadReminders();
+      loadFactsGauge();
+      if (wakeModeOn) setStatus('ROZMOWA NA ZYWO...', 'listening');
+    } else if (msg.type === 'error') {
+      toast(`Blad rozmowy na zywo: ${msg.message}`);
+      stopLiveConversation();
+    } else if (msg.type === 'closed') {
+      stopLiveConversation();
+    }
+  };
+
+  liveWs.onerror = () => toast('Blad polaczenia glosowego.');
+  liveWs.onclose = () => { if (wakeModeOn) stopLiveConversation(); };
+}
+
+function stopLiveConversation() {
+  wakeModeOn = false;
+  wakeBtn.classList.remove('active');
+  stopLivePlayback();
+  if (liveProcessor) { liveProcessor.disconnect(); liveProcessor.onaudioprocess = null; liveProcessor = null; }
+  if (liveAudioCtx) { liveAudioCtx.close().catch(() => {}); liveAudioCtx = null; }
+  if (liveMicStream) { liveMicStream.getTracks().forEach((t) => t.stop()); liveMicStream = null; }
+  if (livePlaybackCtx) { livePlaybackCtx.close().catch(() => {}); livePlaybackCtx = null; }
+  if (liveWs) {
+    if (liveWs.readyState === WebSocket.OPEN) liveWs.send(JSON.stringify({ type: 'end' }));
+    liveWs.close();
+    liveWs = null;
+  }
+  setStatus('ONLINE', null);
 }
 
 function toggleWakeMode() {
-  if (!SpeechRecognition && !isElectron) return;
-  wakeModeOn = !wakeModeOn;
-  wakeBtn.classList.toggle('active', wakeModeOn);
-  if (wakeModeOn) {
-    if (isElectron) startElectronWakeListening();
-    else startWakeListening();
-    setStatus('NASLUCHUJE "JARVIS"...', null);
-  } else {
-    if (isElectron) stopElectronWakeListening();
-    else if (wakeRecognizer) wakeRecognizer.stop();
-    setStatus('ONLINE', null);
-  }
+  if (wakeModeOn) stopLiveConversation();
+  else startLiveConversation();
 }
-
-let wakeRecognizerRunning = false;
-
-function startWakeListening() {
-  if (isElectron || !SpeechRecognition || !wakeModeOn || wakeRecognizerRunning) return;
-  wakeRecognizer = new SpeechRecognition();
-  wakeRecognizer.lang = 'pl-PL';
-  wakeRecognizer.interimResults = false;
-  wakeRecognizer.continuous = true;
-
-  wakeRecognizer.onstart = () => {
-    wakeRecognizerRunning = true;
-    if (!wakeStartToastShown) {
-      wakeStartToastShown = true;
-      toast('Nasluch mikrofonu aktywny.', 'info');
-    }
-  };
-
-  wakeRecognizer.onresult = (event) => {
-    if (speaking) return; // nie reaguj na wlasny glos Jarvisa lecacy z glosnikow
-    const last = event.results[event.results.length - 1];
-    handleWakeTranscript(last[0].transcript);
-  };
-  wakeRecognizer.onerror = (event) => {
-    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      wakeModeOn = false;
-      wakeBtn.classList.remove('active');
-      toast('Brak zgody na mikrofon - kliknij ikone 🎤 przy pasku adresu i zezwol, potem klikni 👂 ponownie.');
-    } else if (event.error !== 'no-speech') {
-      // 'no-speech' jest normalne w ciszy i pojawia sie czesto - nie pokazujemy go,
-      // zeby nie zasypac powiadomieniami. Kazdy inny blad jest warty pokazania.
-      toast(`Blad rozpoznawania mowy: ${event.error}`);
-    }
-  };
-  wakeRecognizer.onend = () => {
-    wakeRecognizerRunning = false;
-    if (wakeModeOn) {
-      setTimeout(() => { if (wakeModeOn) startWakeListening(); }, 300);
-    }
-  };
-  try {
-    wakeRecognizer.start();
-  } catch (e) {
-    wakeRecognizerRunning = false;
-  }
-}
-
-// Niektore przegladarki nie pozwalaja uzyc mikrofonu, dopoki uzytkownik
-// choc raz nie kliknie/dotknie strony - ta siatka bezpieczenstwa probuje
-// ponownie wtedy, gdyby automatyczny start na wejsciu sie nie udal.
-let firstGestureHandled = false;
-function retryWakeOnFirstGesture() {
-  if (firstGestureHandled) return;
-  firstGestureHandled = true;
-  if (isElectron) return; // desktop nie potrzebuje tej siatki bezpieczenstwa
-  if (wakeModeOn && !wakeRecognizerRunning) startWakeListening();
-}
-['click', 'keydown', 'touchstart'].forEach((evt) =>
-  document.addEventListener(evt, retryWakeOnFirstGesture, { once: true })
-);
 
 if (wakeBtn) {
-  if (!SpeechRecognition && !isElectron) {
-    wakeBtn.disabled = true;
-    wakeBtn.title = 'Rozpoznawanie mowy niedostepne w tej przegladarce';
-  } else {
-    wakeBtn.addEventListener('click', toggleWakeMode);
-  }
+  wakeBtn.title = 'Rozmowa na zywo z Jarvisem';
+  wakeBtn.addEventListener('click', toggleWakeMode);
 }
 
 // --- To-do list ---
@@ -1096,7 +1081,7 @@ function tickStatusCycle() {
     `PAMIEC: ${facts} ZAPAMIETANYCH FAKTOW`,
     `ZADANIA: ${todos} OTWARTYCH`,
     `PRZYPOMNIENIA: ${reminders} ZAPLANOWANYCH`,
-    wakeModeOn ? 'NASLUCH: AKTYWNY' : 'NASLUCH: WYLACZONY',
+    wakeModeOn ? 'ROZMOWA NA ZYWO: AKTYWNA' : 'ROZMOWA NA ZYWO: WYLACZONA',
     `POGODA: ${weatherTemp.textContent} ${weatherDesc.textContent.toUpperCase()}`,
     'POLACZENIE: STABILNE',
   ];
@@ -1238,8 +1223,6 @@ async function init() {
   loadTodos();
   loadReminders();
   loadFactsGauge();
-
-  if ((SpeechRecognition || isElectron) && !wakeModeOn) toggleWakeMode();
 }
 init();
 

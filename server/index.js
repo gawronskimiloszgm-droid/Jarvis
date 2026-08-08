@@ -6,6 +6,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 
 import * as jarvis from './jarvis.js';
 import * as tts from './tts.js';
@@ -13,6 +15,7 @@ import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
 import { transcribeAudio } from './transcribe.js';
+import { attachVoiceRelay } from './voiceLive.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -224,7 +227,17 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
+const server = createServer(app);
+
+const wss = new WebSocketServer({ server, path: '/ws/voice' });
+wss.on('connection', (ws) => {
+  attachVoiceRelay(ws).catch((err) => {
+    console.error('Voice relay error:', err);
+    ws.close();
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`J.A.R.V.I.S. online at http://localhost:${PORT}`);
 });
