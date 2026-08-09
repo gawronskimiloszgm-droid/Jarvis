@@ -199,9 +199,9 @@ app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'Brak tekstu.' });
-    const audio = await tts.synthesize(text);
-    res.set('Content-Type', 'audio/mpeg');
-    res.send(audio);
+    const { buffer, contentType } = await tts.synthesize(text);
+    res.set('Content-Type', contentType);
+    res.send(buffer);
   } catch (err) {
     console.error('TTS error:', err);
     res.status(500).json({ error: 'Blad syntezy mowy.' });

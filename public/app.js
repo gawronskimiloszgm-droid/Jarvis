@@ -461,6 +461,7 @@ function playLiveAudioChunk(arrayBuffer) {
 }
 
 async function startLiveConversation() {
+  stopWakeListening();
   wakeModeOn = true;
   wakeBtn.classList.add('active');
   setStatus('LACZE...', 'thinking');
@@ -472,6 +473,7 @@ async function startLiveConversation() {
     wakeModeOn = false;
     wakeBtn.classList.remove('active');
     setStatus('ONLINE', null);
+    startWakeListening();
     return;
   }
 
@@ -542,6 +544,7 @@ function stopLiveConversation() {
     liveWs = null;
   }
   setStatus('ONLINE', null);
+  startWakeListening();
 }
 
 function toggleWakeMode() {
@@ -553,6 +556,77 @@ if (wakeBtn) {
   wakeBtn.title = 'Rozmowa na zywo z Jarvisem';
   wakeBtn.addEventListener('click', toggleWakeMode);
 }
+
+// --- Wake word "Jarvis" (tylko przegladarka/PWA - Electron nie ma dostepu
+// do silnika rozpoznawania mowy w swoim Chromium, wiec tam dziala tylko
+// przycisk ucha). Po wykryciu slowa startuje DOKLADNIE ta sama rozmowa na
+// zywo co przycisk - to tylko alternatywny wyzwalacz, nie osobna logika.
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let wakeRecognition = null;
+let autoWakeEnabled = Boolean(SpeechRecognitionCtor) && !window.jarvisDesktop;
+let wakeRestartTimer = null;
+
+function normalizePolish(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ł/g, 'l');
+}
+
+const WAKE_RE = /\b(d?zarwis|jarwis|jarvis)\b/;
+
+function stopWakeListening() {
+  if (wakeRestartTimer) { clearTimeout(wakeRestartTimer); wakeRestartTimer = null; }
+  if (wakeRecognition) {
+    const rec = wakeRecognition;
+    wakeRecognition = null;
+    rec.onend = null;
+    rec.onerror = null;
+    rec.onresult = null;
+    try { rec.stop(); } catch (e) { /* noop */ }
+  }
+}
+
+function startWakeListening() {
+  if (!autoWakeEnabled || wakeModeOn || wakeRecognition) return;
+
+  const rec = new SpeechRecognitionCtor();
+  wakeRecognition = rec;
+  rec.lang = 'pl-PL';
+  rec.continuous = true;
+  rec.interimResults = false;
+
+  rec.onresult = (e) => {
+    const last = e.results[e.results.length - 1];
+    if (!last || !last[0]) return;
+    if (WAKE_RE.test(normalizePolish(last[0].transcript || ''))) {
+      startLiveConversation();
+    }
+  };
+
+  rec.onerror = (e) => {
+    if (e.error === 'network' || e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      autoWakeEnabled = false;
+    }
+  };
+
+  rec.onend = () => {
+    if (wakeRecognition === rec) wakeRecognition = null;
+    if (autoWakeEnabled && !wakeModeOn) {
+      wakeRestartTimer = setTimeout(startWakeListening, 400);
+    }
+  };
+
+  try {
+    rec.start();
+  } catch (e) {
+    wakeRecognition = null;
+  }
+}
+
+startWakeListening();
+document.addEventListener('click', startWakeListening, { once: true });
 
 // --- To-do list ---
 const todoForm = document.getElementById('todoForm');

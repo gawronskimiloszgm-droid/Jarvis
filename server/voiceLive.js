@@ -18,12 +18,25 @@ function buildLiveSystemInstruction() {
   const todos = memory.getTodos().filter((t) => !t.done);
   const factsBlock = facts.length
     ? `Znane fakty o uzytkowniku:\n- ${facts.join('\n- ')}`
-    : 'Nie znasz jeszcze uzytkownika.';
-  const todosBlock = todos.length ? `Otwarte zadania:\n- ${todos.map((t) => t.text).join('\n- ')}` : 'Brak zadan.';
+    : 'Nie znasz jeszcze uzytkownika - kazdy nowy fakt o nim zapisuj przez narzedzie zapamietaj.';
+  const todosBlock = todos.length
+    ? `Otwarte zadania:\n- ${todos.map((t) => t.text).join('\n- ')}`
+    : 'Lista zadan jest obecnie pusta.';
+
+  const now = new Date();
+  const nowStr = now.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'full', timeStyle: 'short' });
 
   return `${PERSONALITY_CORE}
 
-To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Masz dostep do narzedzi (zapamietaj, dodaj_zadanie, sprawdz_pogode) - uzywaj ich w tle, nigdy nie mow na glos, ze "wywolujesz funkcje" czy "zapisuje to w systemie". Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
+To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
+
+Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktycznie zapisuja dane w systemie, a nie teoria. Wywoluj je w tle bez komentowania tego na glos ("wywoluje funkcje", "zapisuje w systemie" - tego nie mowisz), po prostu wykonaj akcje i potwierdz normalnym zdaniem:
+- zapamietaj: gdy uzytkownik powie o sobie cokolwiek wartego trwalego zapamietania (imie, preferencje, wazne daty, fakty) - ZAWSZE faktycznie wywolaj to narzedzie, nie tylko obiecuj, ze zapamietasz.
+- dodaj_zadanie: gdy uzytkownik poprosi o dodanie czegos do listy zadan/rzeczy do zrobienia - ZAWSZE wywolaj to narzedzie. Masz do tego pelny dostep - nigdy nie mow, ze nie potrafisz albo nie masz uprawnien do dodania zadania.
+- dodaj_przypomnienie: gdy uzytkownik poprosi o przypomnienie o czyms w konkretnym momencie - wylicz dokladna date i godzine w formacie ISO (RRRR-MM-DDTHH:MM) na podstawie aktualnej daty ponizej i tego, co powiedzial, i wywolaj to narzedzie.
+- sprawdz_pogode: gdy uzytkownik pyta o pogode dla konkretnego miasta.
+
+Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
 
 ${factsBlock}
 
@@ -44,6 +57,18 @@ const TOOLS = [
         parameters: { type: 'object', properties: { tresc: { type: 'string' } }, required: ['tresc'] },
       },
       {
+        name: 'dodaj_przypomnienie',
+        description: 'Dodaj przypomnienie o okreslonej tresci na konkretna date i godzine.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tresc: { type: 'string' },
+            kiedy: { type: 'string', description: 'Data i godzina w formacie ISO RRRR-MM-DDTHH:MM' },
+          },
+          required: ['tresc', 'kiedy'],
+        },
+      },
+      {
         name: 'sprawdz_pogode',
         description: 'Pobierz aktualna pogode na zywo dla podanego miasta.',
         parameters: { type: 'object', properties: { miasto: { type: 'string' } }, required: ['miasto'] },
@@ -59,6 +84,9 @@ async function executeTool(name, args) {
       return { ok: true };
     case 'dodaj_zadanie':
       memory.addTodo(args.tresc);
+      return { ok: true };
+    case 'dodaj_przypomnienie':
+      memory.addReminder(args.tresc, args.kiedy);
       return { ok: true };
     case 'sprawdz_pogode': {
       try {
