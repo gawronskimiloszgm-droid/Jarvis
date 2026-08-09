@@ -14,7 +14,6 @@ import * as tts from './tts.js';
 import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
-import { transcribeAudio } from './transcribe.js';
 import { attachVoiceRelay } from './voiceLive.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -192,24 +191,6 @@ app.post('/api/vision', async (req, res) => {
     console.error('Vision error:', err);
     if (!res.headersSent) res.status(500).json({ error: 'Wystapil blad po stronie serwera.' });
     else res.end();
-  }
-});
-
-// --- Transkrypcja audio (STT dla aplikacji desktopowej - Electron nie ma
-// dzialajacego wbudowanego rozpoznawania mowy przegladarki) ---
-app.post('/api/transcribe', async (req, res) => {
-  try {
-    const { audio, mimeType } = req.body;
-    if (!audio) return res.status(400).json({ error: 'Brak audio.' });
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'Brak skonfigurowanego GEMINI_API_KEY na serwerze.' });
-    }
-    const base64Data = String(audio).replace(/^data:[^;]+;base64,/, '');
-    const text = await transcribeAudio(base64Data, mimeType || 'audio/webm');
-    res.json({ text });
-  } catch (err) {
-    console.error('Transcribe error:', err);
-    res.status(500).json({ error: 'Blad transkrypcji.' });
   }
 });
 

@@ -1,7 +1,6 @@
 const logEl = document.getElementById('log');
 const statusEl = document.getElementById('status');
 const reactor = document.getElementById('reactor');
-const micBtn = document.getElementById('micBtn');
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
 const canvas = document.getElementById('wave');
@@ -352,41 +351,9 @@ async function streamResponseInto(res, replyDiv) {
     img.alt = 'Wygenerowany obraz';
     imageGallery.prepend(img);
     toast('Jarvis wygenerowal obraz - zobacz zakladke Obrazy.', 'info');
-  } else {
-    maybeShowResponseVisual(fullReply);
   }
 
   return fullReply;
-}
-
-// Dla dluzszych, tresciwych odpowiedzi generujemy w tle male zdjecie-ilustracje
-// dopasowane do tematu i pokazujemy je na kilka sekund w niebieskiej ramce -
-// nie blokuje to glosu (odpalane rownolegle, wynik pojawia sie gdy jest gotowy).
-const visualPopup = document.getElementById('visualPopup');
-const responseVisualImg = document.getElementById('responseVisualImg');
-let visualPopupHideTimer = null;
-let visualPopupRemoveTimer = null;
-
-async function maybeShowResponseVisual(text) {
-  const clean = text.trim();
-  if (clean.length < 40) return;
-  try {
-    const { ok, data } = await fetchJSON('/api/image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: clean.slice(0, 220) }),
-    });
-    if (!ok) return;
-    clearTimeout(visualPopupHideTimer);
-    clearTimeout(visualPopupRemoveTimer);
-    responseVisualImg.src = data.url;
-    visualPopup.hidden = false;
-    requestAnimationFrame(() => visualPopup.classList.add('show'));
-    visualPopupHideTimer = setTimeout(() => {
-      visualPopup.classList.remove('show');
-      visualPopupRemoveTimer = setTimeout(() => { visualPopup.hidden = true; }, 400);
-    }, 7000);
-  } catch (e) { /* noop - to tylko dodatkowa ilustracja, nie krytyczna */ }
 }
 
 async function sendMessage(text) {
@@ -423,153 +390,6 @@ textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendMessage(textInput.value);
 });
 
-// --- Nagrywanie + transkrypcja przez Gemini (aplikacja desktopowa) ---
-// Elektronowy Chromium NIE ma dolaczonego klucza Google potrzebnego do
-// wbudowanego rozpoznawania mowy przegladarki (SpeechRecognition zawsze
-// konczy sie bledem "network" mimo dzialajacego internetu) - to znany
-// limit Electrona, nie blad naszego kodu. Dla aplikacji desktopowej
-// nagrywamy wiec audio samodzielnie i wysylamy je do transkrypcji przez
-// Gemini (ten sam model, ktory juz uzywamy do czatu).
-const isElectron = Boolean(window.jarvisDesktop);
-let electronMicStream = null;
-let electronAudioCtx = null;
-let electronAnalyser = null;
-
-async function ensureElectronMicStream() {
-  if (electronMicStream) return electronMicStream;
-  electronMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  electronAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = electronAudioCtx.createMediaStreamSource(electronMicStream);
-  electronAnalyser = electronAudioCtx.createAnalyser();
-  electronAnalyser.fftSize = 512;
-  source.connect(electronAnalyser);
-  return electronMicStream;
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function transcribeBlob(blob) {
-  const dataUrl = await blobToDataUrl(blob);
-  const { ok, data } = await fetchJSON('/api/transcribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ audio: dataUrl, mimeType: 'audio/webm' }),
-  });
-  return ok ? (data.text || '').trim() : '';
-}
-
-// Nagrywa az do ~1.1s ciszy po wykryciu mowy (albo maks. dlugosci), potem
-// oddaje nagrany blob. Zwraca null jesli nic sensownego nie nagrano.
-function recordUntilSilence({ maxMs = 8000, silenceMs = 1100, threshold = 20 } = {}) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    const recorder = new MediaRecorder(electronMicStream, { mimeType: 'audio/webm' });
-    let started = false;
-    let silenceStart = null;
-    let rafId = null;
-    const startTime = Date.now();
-
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    recorder.onstop = () => {
-      cancelAnimationFrame(rafId);
-      const blob = new Blob(chunks, { type: 'audio/webm' });
-      resolve(blob.size > 4000 ? blob : null);
-    };
-
-    const data = new Uint8Array(electronAnalyser.frequencyBinCount);
-    function loop() {
-      electronAnalyser.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length;
-      const elapsed = Date.now() - startTime;
-      if (avg > threshold) {
-        started = true;
-        silenceStart = null;
-      } else if (started) {
-        if (!silenceStart) silenceStart = Date.now();
-        if (Date.now() - silenceStart > silenceMs) {
-          recorder.stop();
-          return;
-        }
-      }
-      if (elapsed > maxMs) {
-        recorder.stop();
-        return;
-      }
-      rafId = requestAnimationFrame(loop);
-    }
-    recorder.start();
-    loop();
-  });
-}
-
-// --- Voice input (push-to-talk) ---
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognizing = false;
-let recognizer = null;
-
-if (isElectron) {
-  micBtn.addEventListener('click', async () => {
-    if (wakeModeOn) toggleWakeMode();
-    micBtn.classList.add('active');
-    setStatus('SLUCHAM...', 'listening');
-    try {
-      await ensureElectronMicStream();
-      const blob = await recordUntilSilence();
-      if (blob) {
-        const text = await transcribeBlob(blob);
-        if (text) sendMessage(text);
-        else setStatus('ONLINE', null);
-      } else {
-        setStatus('ONLINE', null);
-      }
-    } catch (e) {
-      toast('Brak dostepu do mikrofonu.');
-      setStatus('ONLINE', null);
-    }
-    micBtn.classList.remove('active');
-  });
-} else if (SpeechRecognition) {
-  recognizer = new SpeechRecognition();
-  recognizer.lang = 'pl-PL';
-  recognizer.interimResults = false;
-  recognizer.maxAlternatives = 1;
-
-  recognizer.onstart = () => {
-    recognizing = true;
-    micBtn.classList.add('active');
-    setStatus('SLUCHAM...', 'listening');
-  };
-  recognizer.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    sendMessage(transcript);
-  };
-  recognizer.onerror = () => {
-    setStatus('ONLINE', null);
-  };
-  recognizer.onend = () => {
-    recognizing = false;
-    micBtn.classList.remove('active');
-    if (statusEl.textContent === 'SLUCHAM...') setStatus('ONLINE', null);
-  };
-
-  micBtn.addEventListener('click', () => {
-    if (wakeModeOn) toggleWakeMode();
-    if (recognizing) {
-      recognizer.stop();
-    } else {
-      recognizer.start();
-    }
-  });
-} else {
-  micBtn.disabled = true;
-  micBtn.title = 'Rozpoznawanie mowy niedostepne w tej przegladarce';
-}
 
 // --- Rozmowa na zywo (Gemini Live API) ---
 // Ciagly, dwukierunkowy strumien audio zamiast nagraj->transkrybuj->czat->mow.

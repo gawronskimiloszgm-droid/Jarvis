@@ -513,33 +513,6 @@ html, body {
   color: var(--cyan);
 }
 
-.visual-popup {
-  position: fixed;
-  top: 12%;
-  left: 50%;
-  z-index: 55;
-  transform: translateX(-50%) scale(0.92);
-  border: 2px solid var(--cyan);
-  border-radius: 16px;
-  padding: 6px;
-  background: rgba(2, 6, 12, 0.9);
-  box-shadow: 0 0 34px var(--cyan-glow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s ease, transform 0.4s ease;
-  max-width: min(80vw, 340px);
-}
-
-.visual-popup.show {
-  opacity: 1;
-  transform: translateX(-50%) scale(1);
-}
-
-.visual-popup img {
-  display: block;
-  width: 100%;
-  border-radius: 10px;
-}
 
 .ring {
   position: absolute;
@@ -803,7 +776,7 @@ html, body {
   padding: 12px 2px 18px;
 }
 
-.mic-btn, .send-btn {
+.send-btn {
   border: 1px solid var(--cyan-dim);
   background: rgba(53, 230, 255, 0.06);
   color: var(--cyan);
@@ -811,23 +784,7 @@ html, body {
   transition: all 0.15s ease;
 }
 
-.mic-btn {
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.mic-btn.active {
-  color: #001217;
-  background: var(--cyan);
-  box-shadow: 0 0 16px var(--cyan-glow);
-}
-
-.mic-btn:hover, .send-btn:hover {
+.send-btn:hover {
   border-color: var(--cyan);
   box-shadow: 0 0 10px rgba(53, 230, 255, 0.25);
 }

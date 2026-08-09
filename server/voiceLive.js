@@ -7,11 +7,11 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import * as memory from './memory.js';
 import { getWeather } from './weather.js';
+import { PERSONALITY_CORE } from './jarvis.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Charon';
-const OWNER_TITLE = process.env.OWNER_TITLE || 'sir';
 
 function buildLiveSystemInstruction() {
   const facts = memory.getFacts();
@@ -21,7 +21,9 @@ function buildLiveSystemInstruction() {
     : 'Nie znasz jeszcze uzytkownika.';
   const todosBlock = todos.length ? `Otwarte zadania:\n- ${todos.map((t) => t.text).join('\n- ')}` : 'Brak zadan.';
 
-  return `Jestes J.A.R.V.I.S. - osobisty AI ${OWNER_TITLE === 'sir' ? 'majordomus' : 'asystent'}. Brytyjski, opanowany, sucha ironia, bezposredni, zwiezly, wlasne zdanie. Zwracasz sie do uzytkownika per "${OWNER_TITLE}". NIE jestes postacia z filmu - zero wzmianek o kombinezonach, Tony Starku, Avengers. To rozmowa GLOSOWA na zywo - odpowiadaj krotkimi, naturalnie brzmiacymi zdaniami, jak w prawdziwej rozmowie, nie jak pisany tekst. Odpowiadaj w jezyku, w ktorym mowi uzytkownik (domyslnie polski).
+  return `${PERSONALITY_CORE}
+
+To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Masz dostep do narzedzi (zapamietaj, dodaj_zadanie, sprawdz_pogode) - uzywaj ich w tle, nigdy nie mow na glos, ze "wywolujesz funkcje" czy "zapisuje to w systemie".
 
 ${factsBlock}
 
