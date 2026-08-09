@@ -6,14 +6,14 @@
 
 import { GoogleGenAI, Modality } from '@google/genai';
 import * as memory from './memory.js';
-import { getWeather } from './weather.js';
+import { getWeather, getWeatherByCoords } from './weather.js';
 import { PERSONALITY_CORE } from './jarvis.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orus';
 
-function buildLiveSystemInstruction() {
+function buildLiveSystemInstruction(hasCoords) {
   const facts = memory.getFacts();
   const todos = memory.getTodos().filter((t) => !t.done);
   const factsBlock = facts.length
@@ -26,6 +26,10 @@ function buildLiveSystemInstruction() {
   const now = new Date();
   const nowStr = now.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'full', timeStyle: 'short' });
 
+  const weatherToolLine = hasCoords
+    ? '- sprawdz_pogode: gdy uzytkownik pyta o pogode. Jesli poda konkretne miasto, podaj je w parametrze miasto. Jesli pyta o pogode "tutaj"/"u mnie" bez podania miasta, wywolaj narzedzie BEZ parametru miasto - system ma dostep do lokalizacji GPS uzytkownika i sam ja uzyje.'
+    : '- sprawdz_pogode: gdy uzytkownik pyta o pogode dla konkretnego miasta.';
+
   return `${PERSONALITY_CORE}
 
 To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
@@ -34,7 +38,7 @@ Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktyczn
 - zapamietaj: gdy uzytkownik powie o sobie cokolwiek wartego trwalego zapamietania (imie, preferencje, wazne daty, fakty) - ZAWSZE faktycznie wywolaj to narzedzie, nie tylko obiecuj, ze zapamietasz.
 - dodaj_zadanie: gdy uzytkownik poprosi o dodanie czegos do listy zadan/rzeczy do zrobienia - ZAWSZE wywolaj to narzedzie. Masz do tego pelny dostep - nigdy nie mow, ze nie potrafisz albo nie masz uprawnien do dodania zadania.
 - dodaj_przypomnienie: gdy uzytkownik poprosi o przypomnienie o czyms w konkretnym momencie - wylicz dokladna date i godzine w formacie ISO (RRRR-MM-DDTHH:MM) na podstawie aktualnej daty ponizej i tego, co powiedzial, i wywolaj to narzedzie.
-- sprawdz_pogode: gdy uzytkownik pyta o pogode dla konkretnego miasta.
+${weatherToolLine}
 
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
 
@@ -70,14 +74,14 @@ const TOOLS = [
       },
       {
         name: 'sprawdz_pogode',
-        description: 'Pobierz aktualna pogode na zywo dla podanego miasta.',
-        parameters: { type: 'object', properties: { miasto: { type: 'string' } }, required: ['miasto'] },
+        description: 'Pobierz aktualna pogode na zywo. Podaj miasto, albo pomin ten parametr, by uzyc aktualnej lokalizacji GPS uzytkownika (jesli dostepna).',
+        parameters: { type: 'object', properties: { miasto: { type: 'string' } } },
       },
     ],
   },
 ];
 
-async function executeTool(name, args) {
+async function executeTool(name, args, coords) {
   switch (name) {
     case 'zapamietaj':
       memory.addFacts([args.fakt]);
@@ -90,7 +94,7 @@ async function executeTool(name, args) {
       return { ok: true };
     case 'sprawdz_pogode': {
       try {
-        const w = await getWeather(args.miasto);
+        const w = args.miasto ? await getWeather(args.miasto) : coords ? await getWeatherByCoords(coords.lat, coords.lon) : null;
         if (!w) return { error: 'nie znaleziono lokalizacji' };
         return { temperatura: w.temperature, warunki: w.condition, wilgotnosc: w.humidity, wiatr: w.windSpeed };
       } catch {
@@ -102,7 +106,7 @@ async function executeTool(name, args) {
   }
 }
 
-export async function attachVoiceRelay(clientWs) {
+export async function attachVoiceRelay(clientWs, coords) {
   let liveSession = null;
   let closed = false;
   let assistantTranscript = '';
@@ -117,7 +121,7 @@ export async function attachVoiceRelay(clientWs) {
       model: LIVE_MODEL,
       config: {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: buildLiveSystemInstruction(),
+        systemInstruction: buildLiveSystemInstruction(Boolean(coords)),
         tools: TOOLS,
         outputAudioTranscription: {},
         inputAudioTranscription: {},
@@ -135,7 +139,7 @@ export async function attachVoiceRelay(clientWs) {
 
           if (msg.toolCall) {
             for (const call of msg.toolCall.functionCalls || []) {
-              const result = await executeTool(call.name, call.args || {});
+              const result = await executeTool(call.name, call.args || {}, coords);
               liveSession.sendToolResponse({
                 functionResponses: [{ id: call.id, name: call.name, response: result }],
               });

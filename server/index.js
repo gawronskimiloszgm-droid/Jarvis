@@ -29,7 +29,7 @@ app.get('/api/health', (req, res) => {
 
 // --- Chat (streaming) ---
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
+  const { message, location } = req.body;
   if (!message || !String(message).trim()) {
     return res.status(400).json({ error: 'Brak wiadomosci.' });
   }
@@ -41,10 +41,15 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
 
+  const coords =
+    location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
+      ? { lat: location.lat, lon: location.lon }
+      : null;
+
   try {
     await jarvis.chatStream(String(message), (chunk) => {
       res.write(chunk);
-    });
+    }, coords);
     res.end();
   } catch (err) {
     console.error('Chat error:', err);
@@ -194,8 +199,12 @@ app.post('/api/tts', async (req, res) => {
 const server = createServer(app);
 
 const wss = new WebSocketServer({ server, path: '/ws/voice' });
-wss.on('connection', (ws) => {
-  attachVoiceRelay(ws).catch((err) => {
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const lat = parseFloat(url.searchParams.get('lat'));
+  const lon = parseFloat(url.searchParams.get('lon'));
+  const coords = Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+  attachVoiceRelay(ws, coords).catch((err) => {
     console.error('Voice relay error:', err);
     ws.close();
   });

@@ -21,6 +21,14 @@ export function extractCity(text) {
   return match ? match[1] : null;
 }
 
+async function fetchForecast(latitude, longitude) {
+  const forecastRes = await fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&timezone=auto`
+  );
+  const forecastData = await forecastRes.json();
+  return forecastData.current || null;
+}
+
 export async function getWeather(city) {
   const geoRes = await fetch(
     `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=pl&format=json`
@@ -29,16 +37,28 @@ export async function getWeather(city) {
   const place = geoData.results?.[0];
   if (!place) return null;
 
-  const forecastRes = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&timezone=auto`
-  );
-  const forecastData = await forecastRes.json();
-  const current = forecastData.current;
+  const current = await fetchForecast(place.latitude, place.longitude);
   if (!current) return null;
 
   return {
     city: place.name,
     country: place.country,
+    temperature: current.temperature_2m,
+    windSpeed: current.wind_speed_10m,
+    humidity: current.relative_humidity_2m,
+    condition: WMO_CODES[current.weather_code] || 'nieznane warunki',
+  };
+}
+
+// Pogoda wprost z GPS telefonu (aplikacja mobilna) - bez rozwiazywania nazwy
+// miasta, prosto wspolrzedne -> prognoza.
+export async function getWeatherByCoords(lat, lon) {
+  const current = await fetchForecast(lat, lon);
+  if (!current) return null;
+
+  return {
+    city: null,
+    country: null,
     temperature: current.temperature_2m,
     windSpeed: current.wind_speed_10m,
     humidity: current.relative_humidity_2m,

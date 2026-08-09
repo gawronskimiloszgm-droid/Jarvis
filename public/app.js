@@ -56,16 +56,26 @@ async function loadFactsGauge() {
 const IMG_MARKER_RE = /\[\[IMG:([^\]]+)\]\]/;
 const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/g;
 
-// Akcje na komputerze (otworz Spotify, zablokuj ekran, glosnosc...) dzialaja
-// TYLKO w aplikacji desktopowej (Electron wstrzykuje window.jarvisDesktop).
-// W zwyklej przegladarce ten most po prostu nie istnieje, wiec nic sie nie stanie.
+// Akcje na urzadzeniu (otworz Spotify, glosnosc, zablokuj ekran...) dzialaja
+// w aplikacji desktopowej (Electron wstrzykuje window.jarvisDesktop) i w
+// aplikacji mobilnej (Capacitor wstrzykuje window.Capacitor). W zwyklej
+// przegladarce zaden z tych mostow nie istnieje, wiec nic sie nie stanie.
+function isCapacitorNative() {
+  return Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+
 async function runDesktopAction(name) {
-  if (!window.jarvisDesktop) {
-    toast(`Akcja "${name}" dziala tylko w aplikacji desktopowej.`, 'info');
+  if (window.jarvisDesktop) {
+    const result = await window.jarvisDesktop.runAction(name);
+    if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
     return;
   }
-  const result = await window.jarvisDesktop.runAction(name);
-  if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
+  if (isCapacitorNative() && window.Capacitor.Plugins.DeviceControl) {
+    const result = await window.Capacitor.Plugins.DeviceControl.runAction({ name });
+    if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
+    return;
+  }
+  toast(`Akcja "${name}" dziala tylko w aplikacji desktopowej lub mobilnej.`, 'info');
 }
 
 function renderReplyContent(div, text) {
@@ -368,7 +378,7 @@ async function sendMessage(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, location: mobileLocation }),
     });
     const fullReply = await streamResponseInto(res, replyDiv);
     if (!fullReply.trim()) {
@@ -407,8 +417,30 @@ let liveActiveSources = [];
 
 function getLiveWsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/ws/voice`;
+  const base = `${proto}//${location.host}/ws/voice`;
+  if (mobileLocation) {
+    return `${base}?lat=${mobileLocation.lat}&lon=${mobileLocation.lon}`;
+  }
+  return base;
 }
+
+// Lokalizacja GPS - tylko w aplikacji mobilnej (Capacitor). Uzywana jako
+// domyslna lokalizacja dla pogody, gdy uzytkownik nie poda miasta.
+let mobileLocation = null;
+
+async function primeMobileLocation() {
+  if (!isCapacitorNative() || !window.Capacitor.Plugins.Geolocation) return;
+  try {
+    const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
+      enableHighAccuracy: false,
+      timeout: 8000,
+    });
+    mobileLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  } catch (e) {
+    /* brak zgody albo brak GPS - po prostu nie uzywamy lokalizacji */
+  }
+}
+primeMobileLocation();
 
 function resampleTo16k(float32Array, inputRate) {
   if (inputRate === 16000) return float32Array;

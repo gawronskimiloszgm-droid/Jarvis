@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import * as memory from './memory.js';
-import { looksLikeWeatherQuestion, getWeather } from './weather.js';
+import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weather.js';
 import { looksLikeImageRequest, generateImage, storeImage } from './image.js';
 import { imagePart } from './vision.js';
 
@@ -81,10 +81,11 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [ZAPAMIETAJ: fakt] - gdy pojawi sie informacja o uzytkowniku warta trwalego zapamietania (imie, preferencje, wazne daty)
 - [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
-- [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na jego komputerze. Dziala TYLKO w aplikacji desktopowej (nie w przegladarce/telefonie) - jesli nie masz pewnosci czy uzytkownik jest na desktopie, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
-  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, otworz-eksplorator, zablokuj-ekran, glosniej, ciszej, wycisz`;
+- [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
+  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz - dostepne wszedzie (desktop i telefon)
+  - otworz-eksplorator, zablokuj-ekran - dostepne TYLKO na desktopie`;
 
-async function buildSystemInstruction(userMessage) {
+async function buildSystemInstruction(userMessage, coords) {
   const facts = memory.getFacts();
   const todos = memory.getTodos().filter((t) => !t.done);
 
@@ -106,6 +107,17 @@ async function buildSystemInstruction(userMessage) {
           weatherBlock = `\nAKTUALNA POGODA (dane na zywo, uzyj ich w odpowiedzi): w ${weather.city} jest ${weather.temperature}°C, ${weather.condition}, wilgotnosc ${weather.humidity}%, wiatr ${weather.windSpeed} km/h.`;
         } else {
           weatherBlock = `\nNie znaleziono danych pogodowych dla "${city}" - poinformuj o tym uzytkownika.`;
+        }
+      } catch {
+        weatherBlock = '\nNie udalo sie pobrac danych pogodowych - poinformuj o tym uzytkownika.';
+      }
+    } else if (coords) {
+      try {
+        const weather = await getWeatherByCoords(coords.lat, coords.lon);
+        if (weather) {
+          weatherBlock = `\nAKTUALNA POGODA W LOKALIZACJI UZYTKOWNIKA (dane z GPS telefonu, na zywo, uzyj ich w odpowiedzi): ${weather.temperature}°C, ${weather.condition}, wilgotnosc ${weather.humidity}%, wiatr ${weather.windSpeed} km/h.`;
+        } else {
+          weatherBlock = '\nNie udalo sie pobrac pogody dla aktualnej lokalizacji uzytkownika.';
         }
       } catch {
         weatherBlock = '\nNie udalo sie pobrac danych pogodowych - poinformuj o tym uzytkownika.';
@@ -168,11 +180,11 @@ async function streamAndClean(chatSession, input, onChunk) {
   return stripTagsForHistory(rawFull).replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export async function chatStream(userMessage, onChunk) {
+export async function chatStream(userMessage, onChunk, coords) {
   const pastHistory = toHistoryContents(memory.getRecentHistory(20));
   memory.appendHistory('user', userMessage);
 
-  let systemInstruction = await buildSystemInstruction(userMessage);
+  let systemInstruction = await buildSystemInstruction(userMessage, coords);
 
   let imageId = null;
   let imageNote = '';

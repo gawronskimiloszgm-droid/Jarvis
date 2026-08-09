@@ -13,6 +13,11 @@
     "list-voices": "node scripts/list-voices.js"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/geolocation": "^6.1.0",
     "@google/genai": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
