@@ -628,6 +628,15 @@ function startWakeListening() {
 startWakeListening();
 document.addEventListener('click', startWakeListening, { once: true });
 
+// Aplikacja desktopowa (Electron) ma wlasny, offline wykrywacz slowa "Jarvis"
+// oparty o System.Speech Windows (patrz desktop/wakeword.ps1) - Chromium w
+// Elektronie nie ma dostepu do Web Speech API uzywanego powyzej.
+if (window.jarvisDesktop && window.jarvisDesktop.onWakeWord) {
+  window.jarvisDesktop.onWakeWord(() => {
+    if (!wakeModeOn) startLiveConversation();
+  });
+}
+
 // --- To-do list ---
 const todoForm = document.getElementById('todoForm');
 const todoInput = document.getElementById('todoInput');
@@ -1149,17 +1158,7 @@ async function init() {
     const { data } = await fetchJSON('/api/health');
     ttsConfigured = Boolean(data.ttsConfigured);
     pushConfigured = Boolean(data.pushConfigured);
-
-    const replyDiv = addMessage('', 'jarvis');
-    setStatus('PRZETWARZAM...', 'thinking');
-    try {
-      const res = await fetch('/api/greeting');
-      const greeting = await streamResponseInto(res, replyDiv);
-      if (!greeting.trim()) replyDiv.remove();
-    } catch (e) {
-      replyDiv.textContent = 'Wszystkie systemy sprawne, sir.';
-    }
-    if (!speaking) setStatus('ONLINE', null);
+    setStatus('ONLINE', null);
   } catch (e) {
     setStatus('BRAK POLACZENIA', null);
     toast('Nie moge polaczyc sie z serwerem.');

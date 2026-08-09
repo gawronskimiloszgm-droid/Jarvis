@@ -223,27 +223,3 @@ export async function visionStream(base64Data, mimeType, question, onChunk) {
   return cleanedFull;
 }
 
-export async function greetStream(onChunk) {
-  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
-  const reminders = memory.getReminders().filter((r) => !r.sent);
-  const remindersBlock = reminders.length
-    ? `\nNadchodzace przypomnienia:\n- ${reminders.map((r) => `${r.text} (${r.dueAt})`).join('\n- ')}`
-    : '';
-
-  const systemInstruction = (await buildSystemInstruction(null)) + remindersBlock;
-  const isFirstEver = pastHistory.length === 0;
-
-  const instruction = isFirstEver
-    ? 'Uzytkownik dopiero co otworzyl aplikacje po raz pierwszy. Przywitaj sie krotko, po swojemu (bez "jak moge pomoc"), i zapytaj o cos co pozwoli Ci go lepiej poznac.'
-    : 'Uzytkownik dopiero co otworzyl aplikacje. Przywitaj go krotko i spontanicznie, w swoim stylu (bez "jak moge pomoc"). Jesli masz w kontekscie cos konkretnego - nieukonczone zadanie, zblizajace sie przypomnienie, albo cos co ostatnio o sobie powiedzial - nawiaz do tego i zaproponuj konkretny nastepny krok. Jesli nic sensownego nie ma, krotko przywitaj sie z charakterem, bez pytania o pomoc.';
-
-  const chatSession = ai.chats.create({
-    model: MODEL,
-    history: pastHistory,
-    config: { systemInstruction, temperature: 0.9 },
-  });
-
-  const cleanedFull = await streamAndClean(chatSession, instruction, onChunk);
-  memory.appendHistory('assistant', cleanedFull);
-  return cleanedFull;
-}
