@@ -15,10 +15,16 @@ export function isConfigured() {
   return true;
 }
 
+// Zabezpieczenie: gdyby model mimo instrukcji wypisal pelna, kropkowana
+// nazwe, syntezator odczytalby ja litera po literze - zamieniamy na "Jarvis".
+function normalizeForSpeech(text) {
+  return text.replace(/J\.\s*A\.\s*R\.\s*V\.\s*I\.\s*S\.?/gi, 'Jarvis');
+}
+
 export async function synthesize(text) {
   const tts = new MsEdgeTTS();
   await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-  const { audioStream } = tts.toStream(text, PROSODY);
+  const { audioStream } = tts.toStream(normalizeForSpeech(text), PROSODY);
 
   const chunks = [];
   for await (const chunk of audioStream) {

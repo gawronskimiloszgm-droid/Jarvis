@@ -11,7 +11,7 @@ import { PERSONALITY_CORE } from './jarvis.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
-const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Charon';
+const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orus';
 
 function buildLiveSystemInstruction() {
   const facts = memory.getFacts();
@@ -23,7 +23,7 @@ function buildLiveSystemInstruction() {
 
   return `${PERSONALITY_CORE}
 
-To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Masz dostep do narzedzi (zapamietaj, dodaj_zadanie, sprawdz_pogode) - uzywaj ich w tle, nigdy nie mow na glos, ze "wywolujesz funkcje" czy "zapisuje to w systemie".
+To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Masz dostep do narzedzi (zapamietaj, dodaj_zadanie, sprawdz_pogode) - uzywaj ich w tle, nigdy nie mow na glos, ze "wywolujesz funkcje" czy "zapisuje to w systemie". Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
 
 ${factsBlock}
 
