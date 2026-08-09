@@ -14,6 +14,17 @@
   <div class="scanlines"></div>
 
   <div class="boot-overlay" id="bootOverlay">
+    <div class="boot-orb-wrap">
+      <svg class="boot-orb" viewBox="0 0 300 300">
+        <circle class="boot-orb-ring r1" cx="150" cy="150" r="128"/>
+        <circle class="boot-orb-ring r2" cx="150" cy="150" r="104"/>
+        <circle class="boot-orb-ring r3" cx="150" cy="150" r="80"/>
+        <g id="bootWaveBars"></g>
+      </svg>
+      <div class="boot-orb-content" id="bootOrbContent">
+        <div class="boot-orb-text" id="bootOrbText">JARVIS</div>
+      </div>
+    </div>
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
@@ -29,6 +40,11 @@
         <div id="status" class="status">INICJALIZACJA...</div>
       </div>
     </header>
+
+    <div class="hud-topstats">
+      <span class="hud-id">STP-<span id="hudId">000000000</span></span>
+      <span class="hud-unit">UNIT <span id="hudUnit">01</span></span>
+    </div>
 
     <div class="date-strip" id="dateStrip"></div>
 
@@ -63,83 +79,112 @@
       <div class="status-cycle" id="statusCycle">SYSTEMY GOTOWE</div>
     </main>
 
-    <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="dashboard">🏠 Panel</button>
-      <button class="tab" data-tab="todos">✅ Zadania</button>
-      <button class="tab" data-tab="timer">⏱ Timer</button>
-      <button class="tab" data-tab="reminders">🔔 Przypomnienia</button>
-      <button class="tab" data-tab="camera">📷 Kamera</button>
-      <button class="tab" data-tab="images">🎨 Obrazy</button>
-    </nav>
-
-    <section class="panel active" id="panel-dashboard">
-      <div class="dash-grid">
-        <div class="widget weather-widget" id="weatherWidget">
-          <div class="weather-icon" id="weatherIcon">🌐</div>
-          <div class="weather-main">
-            <div class="weather-temp" id="weatherTemp">--°</div>
-            <div class="weather-desc" id="weatherDesc">Lokalizuje pogode...</div>
-          </div>
-          <div class="weather-place" id="weatherPlace"></div>
-          <div class="forecast-row" id="forecastRow"></div>
-        </div>
-        <div class="widget clock-widget">
-          <div class="clock-time" id="clockTime">--:--:--</div>
-          <div class="clock-date" id="clockDate"></div>
-        </div>
+    <div class="console-panel">
+      <div class="console-helmet" aria-hidden="true"><svg viewBox="0 0 200 220"><path d="M100 8 C60 8 34 34 30 74 C27 100 30 128 40 156 C46 172 56 186 70 196 L78 176 L88 200 L100 182 L112 200 L122 176 L130 196 C144 186 154 172 160 156 C170 128 173 100 170 74 C166 34 140 8 100 8 Z"/><path d="M52 92 L86 88 L86 100 L54 104 Z" fill="currentColor" stroke="none"/><path d="M148 92 L114 88 L114 100 L146 104 Z" fill="currentColor" stroke="none"/></svg></div>
+      <div class="console-head">
+        <span>J.A.R.V.I.S. CONSOLE</span>
+        <span class="console-ver">v2.4.1 // ONLINE</span>
       </div>
-    </section>
+
+      <section class="panel active" id="panel-dashboard">
+        <div class="dash-grid">
+          <div class="widget weather-widget" id="weatherWidget">
+            <div class="weather-icon" id="weatherIcon">🌐</div>
+            <div class="weather-main">
+              <div class="weather-temp" id="weatherTemp">--°</div>
+              <div class="weather-desc" id="weatherDesc">Lokalizuje pogode...</div>
+            </div>
+            <div class="weather-place" id="weatherPlace"></div>
+            <div class="forecast-row" id="forecastRow"></div>
+          </div>
+          <div class="widget clock-widget">
+            <div class="clock-time" id="clockTime">--:--:--</div>
+            <div class="clock-date" id="clockDate"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-todos">
+        <form class="inline-form" id="todoForm">
+          <input id="todoInput" class="text-input" type="text" placeholder="Nowe zadanie..." autocomplete="off" />
+          <button type="submit" class="send-btn">Dodaj</button>
+        </form>
+        <ul class="item-list" id="todoList"></ul>
+      </section>
+
+      <section class="panel" id="panel-timer">
+        <div class="timer-box">
+          <div class="timer-display" id="timerDisplay">00:00</div>
+          <div class="timer-controls">
+            <input id="timerMinutes" class="timer-input" type="number" min="0" max="180" value="5" aria-label="Minuty" />
+            <span>min</span>
+            <button id="timerStartBtn" class="send-btn">Start</button>
+            <button id="timerCancelBtn" class="send-btn secondary" hidden>Anuluj</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-reminders">
+        <form class="inline-form stacked" id="reminderForm">
+          <input id="reminderText" class="text-input" type="text" placeholder="Tresc przypomnienia..." autocomplete="off" />
+          <input id="reminderDate" class="text-input" type="datetime-local" />
+          <button type="submit" class="send-btn">Dodaj przypomnienie</button>
+        </form>
+        <ul class="item-list" id="reminderList"></ul>
+      </section>
+
+      <section class="panel" id="panel-camera">
+        <div class="camera-box">
+          <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
+          <canvas id="cameraCanvas" hidden></canvas>
+          <div class="camera-controls">
+            <button id="cameraToggleBtn" class="send-btn">Wlacz kamere</button>
+            <button id="cameraAskBtn" class="send-btn" disabled>Zapytaj Jarvisa o to, co widzi</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-images">
+        <form class="inline-form" id="imageForm">
+          <input id="imagePrompt" class="text-input" type="text" placeholder="Co narysowac?" autocomplete="off" />
+          <button type="submit" class="send-btn">Generuj</button>
+        </form>
+        <div class="image-gallery" id="imageGallery"></div>
+      </section>
+    </div>
+
+    <nav class="folder-nav" id="tabs">
+      <div class="folder-nav-head">/STORAGE/MODULES/</div>
+      <div class="folder-grid">
+        <button class="folder-tab active" data-tab="dashboard">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>PANEL</span>
+        </button>
+        <button class="folder-tab" data-tab="todos">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>ZADANIA</span>
+        </button>
+        <button class="folder-tab" data-tab="timer">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>TIMER</span>
+        </button>
+        <button class="folder-tab" data-tab="reminders">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>ALARM</span>
+        </button>
+        <button class="folder-tab" data-tab="camera">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>KAMERA</span>
+        </button>
+        <button class="folder-tab" data-tab="images">
+          <svg viewBox="0 0 24 20"><path d="M1 3 L9 3 L11 6 L23 6 L23 18 L1 18 Z"/></svg>
+          <span>OBRAZY</span>
+        </button>
+      </div>
+    </nav>
 
     <div id="log" class="log-hidden" aria-hidden="true"></div>
     <div class="toast-container" id="toastContainer"></div>
-
-    <section class="panel" id="panel-todos">
-      <form class="inline-form" id="todoForm">
-        <input id="todoInput" class="text-input" type="text" placeholder="Nowe zadanie..." autocomplete="off" />
-        <button type="submit" class="send-btn">Dodaj</button>
-      </form>
-      <ul class="item-list" id="todoList"></ul>
-    </section>
-
-    <section class="panel" id="panel-timer">
-      <div class="timer-box">
-        <div class="timer-display" id="timerDisplay">00:00</div>
-        <div class="timer-controls">
-          <input id="timerMinutes" class="timer-input" type="number" min="0" max="180" value="5" aria-label="Minuty" />
-          <span>min</span>
-          <button id="timerStartBtn" class="send-btn">Start</button>
-          <button id="timerCancelBtn" class="send-btn secondary" hidden>Anuluj</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-reminders">
-      <form class="inline-form stacked" id="reminderForm">
-        <input id="reminderText" class="text-input" type="text" placeholder="Tresc przypomnienia..." autocomplete="off" />
-        <input id="reminderDate" class="text-input" type="datetime-local" />
-        <button type="submit" class="send-btn">Dodaj przypomnienie</button>
-      </form>
-      <ul class="item-list" id="reminderList"></ul>
-    </section>
-
-    <section class="panel" id="panel-camera">
-      <div class="camera-box">
-        <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
-        <canvas id="cameraCanvas" hidden></canvas>
-        <div class="camera-controls">
-          <button id="cameraToggleBtn" class="send-btn">Wlacz kamere</button>
-          <button id="cameraAskBtn" class="send-btn" disabled>Zapytaj Jarvisa o to, co widzi</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-images">
-      <form class="inline-form" id="imageForm">
-        <input id="imagePrompt" class="text-input" type="text" placeholder="Co narysowac?" autocomplete="off" />
-        <button type="submit" class="send-btn">Generuj</button>
-      </form>
-      <div class="image-gallery" id="imageGallery"></div>
-    </section>
 
     <footer class="controls">
       <input id="textInput" class="text-input" type="text" placeholder="Napisz do Jarvisa..." autocomplete="off" />

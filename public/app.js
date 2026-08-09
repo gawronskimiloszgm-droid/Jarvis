@@ -105,7 +105,7 @@ async function fetchJSON(url, options, retries = 2) {
 }
 
 // --- Tabs ---
-const tabButtons = document.querySelectorAll('.tab');
+const tabButtons = document.querySelectorAll('.folder-tab');
 const panels = document.querySelectorAll('.panel');
 tabButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -994,19 +994,63 @@ setInterval(tickStatusCycle, 4000);
 // --- Sekwencja startowa ---
 const bootOverlay = document.getElementById('bootOverlay');
 const bootLog = document.getElementById('bootLog');
+const bootOrbContent = document.getElementById('bootOrbContent');
+const bootWaveBars = document.getElementById('bootWaveBars');
+
 const BOOT_LINES = [
+  'user www-data;',
+  'worker_processes auto;',
+  'worker_rlimit_nofile 65535;',
   '> inicjalizacja rdzenia J.A.R.V.I.S...',
-  '> laczenie z modelem Gemini...',
-  '> wczytywanie pamieci uzytkownika...',
-  '> synchronizacja zadan i przypomnien...',
-  '> kalibracja syntezatora mowy...',
-  '> systemy gotowe.',
+  '> laczenie z modelem Gemini Live...',
+  'ssl_protocols TLSv1.2 TLSv1.3;',
+  '> wczytywanie pamieci uzytkownika... <span class="ok">OK</span>',
+  '> synchronizacja zadan i przypomnien... <span class="ok">OK</span>',
+  '> kalibracja kanalu audio... <span class="ok">OK</span>',
+  'listen 443 ssl http2;',
+  '> systemy gotowe. <span class="ok">BOOT COMPLETE</span>',
 ];
 
+function buildBootWaveBars() {
+  const cx = 150, cy = 150, r = 138, count = 40;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    const bar = document.createElementNS(SVG_NS, 'rect');
+    bar.setAttribute('x', x - 1.5);
+    bar.setAttribute('y', y - 5);
+    bar.setAttribute('width', 3);
+    bar.setAttribute('height', 10);
+    bar.setAttribute('class', 'boot-wave-bar');
+    bar.setAttribute('transform', `rotate(${(angle * 180) / Math.PI + 90} ${x} ${y})`);
+    bar.style.animationDelay = `${(i % 8) * 0.08}s`;
+    bootWaveBars.appendChild(bar);
+  }
+}
+buildBootWaveBars();
+
+const BOOT_ICONS = {
+  jarvis: '<div class="boot-orb-text">JARVIS</div>',
+  pcb: '<svg class="boot-orb-icon" viewBox="0 0 100 100"><rect x="15" y="15" width="70" height="70" rx="4"/><circle cx="15" cy="15" r="3" fill="currentColor" stroke="none"/><circle cx="85" cy="15" r="3" fill="currentColor" stroke="none"/><circle cx="15" cy="85" r="3" fill="currentColor" stroke="none"/><circle cx="85" cy="85" r="3" fill="currentColor" stroke="none"/><path d="M30 15 V35 H50 V50"/><path d="M70 15 V30 H55"/><path d="M15 50 H35 V70"/><path d="M85 60 H60 V85"/><circle cx="50" cy="50" r="9"/></svg>',
+  mic: '<svg class="boot-orb-icon" viewBox="0 0 100 100"><rect x="38" y="15" width="24" height="46" rx="12"/><path d="M22 48 a28 28 0 0 0 56 0"/><line x1="50" y1="76" x2="50" y2="90"/><line x1="35" y1="90" x2="65" y2="90"/></svg>',
+  helmet: '<svg class="boot-orb-icon" viewBox="0 0 200 220"><path d="M100 8 C60 8 34 34 30 74 C27 100 30 128 40 156 C46 172 56 186 70 196 L78 176 L88 200 L100 182 L112 200 L122 176 L130 196 C144 186 154 172 160 156 C170 128 173 100 170 74 C166 34 140 8 100 8 Z"/><path d="M52 92 L86 88 L86 100 L54 104 Z" fill="currentColor" stroke="none"/><path d="M148 92 L114 88 L114 100 L146 104 Z" fill="currentColor" stroke="none"/></svg>',
+};
+
+async function cycleBootOrb() {
+  const order = ['jarvis', 'pcb', 'mic', 'helmet'];
+  for (const key of order) {
+    bootOrbContent.innerHTML = BOOT_ICONS[key];
+    await new Promise((r) => setTimeout(r, 550));
+  }
+}
+
 async function runBootSequence() {
+  cycleBootOrb();
   for (const line of BOOT_LINES) {
-    bootLog.textContent += line + '\n';
-    await new Promise((r) => setTimeout(r, 200));
+    bootLog.innerHTML += line + '\n';
+    bootLog.scrollTop = bootLog.scrollHeight;
+    await new Promise((r) => setTimeout(r, 180));
   }
 }
 
@@ -1015,8 +1059,16 @@ function hideBootOverlay() {
   setTimeout(() => bootOverlay.remove(), 700);
 }
 
+function setHudTopstats() {
+  const idEl = document.getElementById('hudId');
+  const unitEl = document.getElementById('hudUnit');
+  if (idEl) idEl.textContent = String(Date.now()).slice(-9);
+  if (unitEl) unitEl.textContent = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
+}
+
 // --- Init ---
 async function init() {
+  setHudTopstats();
   const bootPromise = runBootSequence();
   setStatus('URUCHAMIAM SYSTEMY...', 'thinking');
   try {
