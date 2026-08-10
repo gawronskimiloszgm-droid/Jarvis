@@ -589,13 +589,18 @@ if (wakeBtn) {
   wakeBtn.addEventListener('click', toggleWakeMode);
 }
 
-// --- Wake word "Jarvis" (tylko przegladarka/PWA - Electron nie ma dostepu
-// do silnika rozpoznawania mowy w swoim Chromium, wiec tam dziala tylko
-// przycisk ucha). Po wykryciu slowa startuje DOKLADNIE ta sama rozmowa na
-// zywo co przycisk - to tylko alternatywny wyzwalacz, nie osobna logika.
+// --- Wake word "Jarvis" ---
+// Przegladarka/PWA: Web Speech API (SpeechRecognition), dziala od razu.
+// Electron: wlasny, offline wykrywacz System.Speech (desktop/wakeword.ps1),
+// bo Chromium w Elektronie nie ma dostepu do Web Speech API.
+// Android (Capacitor): wlasny natywny plugin WakeWordPlugin.java oparty o
+// android.speech.SpeechRecognizer, bo WebView na Androidzie tez nie
+// udostepnia stronom Web Speech API - patrz uzasadnienie w tamtym pliku.
+// We wszystkich trzech przypadkach wykrycie startuje DOKLADNIE ta sama
+// rozmowe na zywo co przycisk ucha - to tylko alternatywny wyzwalacz.
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 let wakeRecognition = null;
-let autoWakeEnabled = Boolean(SpeechRecognitionCtor) && !window.jarvisDesktop;
+let autoWakeEnabled = Boolean(SpeechRecognitionCtor) && !window.jarvisDesktop && !isCapacitorNative();
 let wakeRestartTimer = null;
 
 function normalizePolish(text) {
@@ -618,10 +623,20 @@ function stopWakeListening() {
     rec.onresult = null;
     try { rec.stop(); } catch (e) { /* noop */ }
   }
+  if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
+    window.Capacitor.Plugins.WakeWord.stop().catch(() => {});
+  }
 }
 
 function startWakeListening() {
-  if (!autoWakeEnabled || wakeModeOn || wakeRecognition) return;
+  if (wakeModeOn) return;
+
+  if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
+    window.Capacitor.Plugins.WakeWord.start().catch(() => {});
+    return;
+  }
+
+  if (!autoWakeEnabled || wakeRecognition) return;
 
   const rec = new SpeechRecognitionCtor();
   wakeRecognition = rec;
@@ -655,6 +670,12 @@ function startWakeListening() {
   } catch (e) {
     wakeRecognition = null;
   }
+}
+
+if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
+  window.Capacitor.Plugins.WakeWord.addListener('wake', () => {
+    if (!wakeModeOn) startLiveConversation();
+  });
 }
 
 startWakeListening();

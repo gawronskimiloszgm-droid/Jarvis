@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DeviceControlPlugin.class);
+        registerPlugin(WakeWordPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
