@@ -1039,3 +1039,83 @@ html, body {
 .msg img {
   margin-top: 8px;
 }
+
+/* --- Wyniki wyszukiwania w sieci (wywolywane glosowo podczas rozmowy) --- */
+
+.search-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 64vh;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: rgba(3, 9, 20, 0.97);
+  border-top: 1px solid var(--cyan-bright);
+  box-shadow: 0 -10px 30px rgba(0, 210, 255, 0.18);
+  animation: search-overlay-in 0.25s ease-out;
+}
+
+@keyframes search-overlay-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.search-overlay-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cyan-dim);
+  font-size: 10.5px;
+  letter-spacing: 1.5px;
+  color: var(--cyan-bright);
+  text-shadow: 0 0 6px var(--cyan-glow);
+  flex: 0 0 auto;
+}
+
+.search-results {
+  overflow-y: auto;
+  padding: 12px 14px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-result-card {
+  border: 1px solid var(--cyan-dim);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 210, 255, 0.04);
+}
+
+.search-result-card a {
+  color: var(--cyan-bright);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.search-result-card a:hover {
+  text-decoration: underline;
+}
+
+.search-result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.search-result-url {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin: 3px 0 5px;
+  letter-spacing: 0.5px;
+}
+
+.search-result-snippet {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}

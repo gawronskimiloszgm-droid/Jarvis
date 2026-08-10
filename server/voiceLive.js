@@ -7,6 +7,7 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import * as memory from './memory.js';
 import { getWeather, getWeatherByCoords } from './weather.js';
+import { searchWeb } from './websearch.js';
 import { PERSONALITY_CORE } from './jarvis.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -41,6 +42,7 @@ Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktyczn
 - dodaj_zadanie: gdy uzytkownik poprosi o dodanie czegos do listy zadan/rzeczy do zrobienia - ZAWSZE wywolaj to narzedzie. Masz do tego pelny dostep - nigdy nie mow, ze nie potrafisz albo nie masz uprawnien do dodania zadania.
 - dodaj_przypomnienie: gdy uzytkownik poprosi o przypomnienie o czyms w konkretnym momencie - wylicz dokladna date i godzine w formacie ISO (RRRR-MM-DDTHH:MM) na podstawie aktualnej daty ponizej i tego, co powiedzial, i wywolaj to narzedzie.
 - wlacz_kamere / wylacz_kamere: patrz zasada o kamerze powyzej.
+- wyszukaj_w_sieci: gdy uzytkownik prosi, zebys cos wyszukal/sprawdzil w internecie (nie o pogode - do tego jest osobne narzedzie). Wyniki pokaza sie automatycznie na ekranie uzytkownika - powiedz krotko, glosowo, co znalazles (1-2 zdania podsumowania), NIE czytaj calej listy wynikow na glos, uzytkownik i tak je widzi i moze w nie kliknac.
 ${weatherToolLine}
 
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
@@ -89,6 +91,11 @@ const TOOLS = [
         name: 'wylacz_kamere',
         description: 'Wylacz kamere uzytkownika.',
         parameters: { type: 'object', properties: {} },
+      },
+      {
+        name: 'wyszukaj_w_sieci',
+        description: 'Wyszukaj cos w internecie i pokaz wyniki uzytkownikowi na ekranie.',
+        parameters: { type: 'object', properties: { zapytanie: { type: 'string' } }, required: ['zapytanie'] },
       },
     ],
   },
@@ -159,6 +166,17 @@ export async function attachVoiceRelay(clientWs, coords) {
               } else if (call.name === 'wylacz_kamere') {
                 safeSend(JSON.stringify({ type: 'stopCamera' }));
                 result = { ok: true };
+              } else if (call.name === 'wyszukaj_w_sieci') {
+                try {
+                  const query = (call.args || {}).zapytanie || '';
+                  const results = await searchWeb(query);
+                  safeSend(JSON.stringify({ type: 'showSearch', query, results }));
+                  result = results.length
+                    ? { wyniki: results.map((r) => ({ tytul: r.title, opis: r.snippet })) }
+                    : { error: 'brak wynikow' };
+                } catch {
+                  result = { error: 'blad wyszukiwania' };
+                }
               } else {
                 result = await executeTool(call.name, call.args || {}, coords);
               }

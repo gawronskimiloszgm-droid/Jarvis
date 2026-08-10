@@ -194,6 +194,14 @@
       <input id="textInput" class="text-input" type="text" placeholder="Napisz do Jarvisa..." autocomplete="off" />
       <button id="sendBtn" class="send-btn" aria-label="Wyslij">Wyslij</button>
     </footer>
+
+    <div class="search-overlay" id="searchOverlay" hidden>
+      <div class="search-overlay-head">
+        <span id="searchQuery">WYNIKI</span>
+        <button id="searchCloseBtn" class="icon-btn" aria-label="Zamknij wyniki">✕</button>
+      </div>
+      <div class="search-results" id="searchResults"></div>
+    </div>
   </div>
 
   <script src="/app.js"></script>

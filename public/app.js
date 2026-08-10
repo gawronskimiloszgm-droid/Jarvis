@@ -511,6 +511,62 @@ function disableLiveCamera() {
   if (previewEl) { previewEl.srcObject = null; previewEl.hidden = true; }
 }
 
+// Wyniki wyszukiwania w sieci ("antygravity") - Jarvis szuka na prosbe
+// glosowa, wyniki pokazuja sie tutaj do przegladania/klikania. Budujemy DOM
+// przez textContent/wlasciwosci (nie innerHTML) bo tytuly/opisy pochodza z
+// zewnetrznych stron i nie sa zaufanym HTML-em.
+function renderSearchResults(query, results) {
+  const overlay = document.getElementById('searchOverlay');
+  const queryEl = document.getElementById('searchQuery');
+  const listEl = document.getElementById('searchResults');
+  if (!overlay) return;
+
+  queryEl.textContent = `WYNIKI: ${query}`;
+  listEl.innerHTML = '';
+
+  if (!results.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-hint';
+    empty.textContent = 'Brak wynikow.';
+    listEl.appendChild(empty);
+  } else {
+    results.forEach((r) => {
+      const card = document.createElement('div');
+      card.className = 'search-result-card';
+
+      const isSafeUrl = /^https?:\/\//i.test(r.url || '');
+      const titleEl = document.createElement(isSafeUrl ? 'a' : 'div');
+      if (isSafeUrl) {
+        titleEl.href = r.url;
+        titleEl.target = '_blank';
+        titleEl.rel = 'noopener noreferrer';
+      } else {
+        titleEl.className = 'search-result-title';
+      }
+      titleEl.textContent = r.title || '';
+
+      const urlEl = document.createElement('div');
+      urlEl.className = 'search-result-url';
+      try { urlEl.textContent = new URL(r.url).hostname; } catch (e) { urlEl.textContent = r.url || ''; }
+
+      const snippetEl = document.createElement('div');
+      snippetEl.className = 'search-result-snippet';
+      snippetEl.textContent = r.snippet || '';
+
+      card.appendChild(titleEl);
+      card.appendChild(urlEl);
+      card.appendChild(snippetEl);
+      listEl.appendChild(card);
+    });
+  }
+
+  overlay.hidden = false;
+}
+
+document.getElementById('searchCloseBtn')?.addEventListener('click', () => {
+  document.getElementById('searchOverlay').hidden = true;
+});
+
 async function startLiveConversation() {
   stopWakeListening();
   wakeModeOn = true;
@@ -578,6 +634,8 @@ async function startLiveConversation() {
       enableLiveCamera();
     } else if (msg.type === 'stopCamera') {
       disableLiveCamera();
+    } else if (msg.type === 'showSearch') {
+      renderSearchResults(msg.query, msg.results || []);
     }
   };
 

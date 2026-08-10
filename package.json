@@ -19,6 +19,7 @@
     "@capacitor/core": "^6.2.1",
     "@capacitor/geolocation": "^6.1.0",
     "@google/genai": "^1.0.0",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
