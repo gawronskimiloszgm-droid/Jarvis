@@ -1181,9 +1181,46 @@ function setHudTopstats() {
   if (unitEl) unitEl.textContent = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
 }
 
+// Prawdziwe dane urzadzenia tam, gdzie przegladarka na to pozwala - bateria
+// (Battery Status API) i wykorzystanie pamieci (Storage API). Przegladarki
+// celowo nie udostepniaja realnego zuzycia CPU/RAM ze wzgledow prywatnosci,
+// wiec te dwa wskazniki sa jedynymi "prawdziwymi" jakie mozemy tu pokazac.
+async function setHudDeviceStats() {
+  if (navigator.getBattery) {
+    try {
+      const battery = await navigator.getBattery();
+      const wrap = document.getElementById('hudBatteryWrap');
+      const el = document.getElementById('hudBattery');
+      const update = () => {
+        el.textContent = Math.round(battery.level * 100);
+        wrap.hidden = false;
+      };
+      update();
+      battery.addEventListener('levelchange', update);
+    } catch (e) {
+      /* Battery Status API niedostepne - po prostu nie pokazujemy tego pola */
+    }
+  }
+
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const { usage, quota } = await navigator.storage.estimate();
+      if (Number.isFinite(usage) && Number.isFinite(quota) && quota > 0) {
+        const wrap = document.getElementById('hudStorageWrap');
+        const el = document.getElementById('hudStorage');
+        el.textContent = `${(usage / 1e9).toFixed(1)}/${(quota / 1e9).toFixed(0)}`;
+        wrap.hidden = false;
+      }
+    } catch (e) {
+      /* Storage API niedostepne - po prostu nie pokazujemy tego pola */
+    }
+  }
+}
+
 // --- Init ---
 async function init() {
   setHudTopstats();
+  setHudDeviceStats();
   const bootPromise = runBootSequence();
   setStatus('URUCHAMIAM SYSTEMY...', 'thinking');
   try {

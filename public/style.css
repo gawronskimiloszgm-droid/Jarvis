@@ -349,6 +349,8 @@ html, body {
 .hud-topstats {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 0 2px 6px;
   font-family: 'Consolas', 'Courier New', monospace;
   font-size: 10.5px;
@@ -357,7 +359,8 @@ html, body {
 }
 
 .hud-topstats .hud-id,
-.hud-topstats .hud-unit {
+.hud-topstats .hud-unit,
+.hud-topstats .hud-stat {
   border: 1px solid var(--cyan-dim);
   border-radius: 3px;
   padding: 2px 8px;
@@ -366,7 +369,8 @@ html, body {
 }
 
 .hud-topstats .hud-id span,
-.hud-topstats .hud-unit span {
+.hud-topstats .hud-unit span,
+.hud-topstats .hud-stat span {
   color: var(--cyan-bright);
 }
 
