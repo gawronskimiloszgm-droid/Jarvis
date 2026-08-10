@@ -1119,3 +1119,81 @@ html, body {
   color: var(--text-dim);
   line-height: 1.4;
 }
+
+/* --- Poziomo / tablet --- */
+/* W pionie HUD i konsola sa jedno pod drugim. Przy szerokim ekranie (tablet,
+   telefon w poziomie) jest za malo wysokosci na taki stos - ustawiamy je
+   obok siebie, dzieki czemu reaktor zostaje duzy, a konsola dostaje pelna
+   wysokosc zamiast waskiego paska. */
+
+@media (min-width: 720px) and (orientation: landscape) {
+  .app {
+    max-width: 1200px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr auto auto;
+    grid-template-areas:
+      "topbar   topbar"
+      "dates    dates"
+      "hud      console"
+      "nav      console"
+      "controls controls";
+    column-gap: 18px;
+    align-items: start;
+  }
+
+  .topbar { grid-area: topbar; }
+  .date-strip { grid-area: dates; }
+  .hud-frame { grid-area: hud; align-self: center; }
+  .console-panel { grid-area: console; margin-bottom: 0; height: 100%; }
+  .folder-nav { grid-area: nav; }
+  .controls { grid-area: controls; }
+
+  /* Rozmiar reaktora ograniczony TAKZE wysokoscia - w poziomie to jej
+     zwykle brakuje, nie szerokosci (telefon w poziomie ma ~375px wysokosci). */
+  .reactor {
+    width: min(26vw, 30vh, 220px);
+    height: min(26vw, 30vh, 220px);
+  }
+
+  .search-overlay {
+    left: auto;
+    right: 0;
+    width: min(480px, 50vw);
+    max-height: 100vh;
+    top: 0;
+    border-left: 1px solid var(--cyan-bright);
+    border-top: none;
+  }
+}
+
+/* Niski ekran w poziomie (telefon obrocony) - zbijamy wszystkie pionowe
+   odstepy, zeby konsola i pole tekstowe zmiescily sie bez przewijania. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .topbar { padding: 8px 4px 4px; }
+  .date-strip { display: none; }
+  .hud-frame { padding: 2px 0 2px; row-gap: 2px; }
+  .hud-corner { padding: 5px 8px; }
+  .hud-corner-row { padding: 1px 0; }
+  .hud-clock-time { font-size: 17px; }
+  .hud-title { font-size: 10px; letter-spacing: 4px; }
+  .folder-nav { padding: 0 2px 4px; }
+  .folder-nav-head { display: none; }
+  .folder-tab { padding: 4px 2px 3px; gap: 2px; }
+  .folder-tab svg { width: 16px; height: 14px; }
+  .controls { padding: 4px 2px 6px; }
+  .send-btn { height: 34px; }
+  .text-input { padding: 6px 12px; font-size: 13px; }
+  .status-cycle { display: none; }
+  .reactor { width: min(26vw, 19vh, 220px); height: min(26vw, 19vh, 220px); }
+}
+
+/* Duzy tablet - wiecej oddechu i czytelniejsze liczby z odleglosci. */
+@media (min-width: 1024px) {
+  .hud-corner-row { font-size: 11px; }
+  .hud-corner-title { font-size: 10px; }
+  .hud-clock-time { font-size: 30px; }
+  .hud-title { font-size: 15px; letter-spacing: 8px; }
+  .folder-tab span { font-size: 9.5px; }
+  .folder-tab svg { width: 24px; height: 20px; }
+}
