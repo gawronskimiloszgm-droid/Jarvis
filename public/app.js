@@ -445,6 +445,16 @@ function floatTo16BitPCM(float32Array) {
   return buffer;
 }
 
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 function stopLivePlayback() {
   liveActiveSources.forEach((s) => { try { s.stop(); } catch (e) { /* noop */ } });
   liveActiveSources = [];
@@ -490,17 +500,32 @@ async function enableLiveCamera() {
   previewEl.srcObject = liveVideoStream;
   previewEl.hidden = false;
 
+  // toBlob (async, poza glownym watkiem) zamiast toDataURL (synchroniczne,
+  // blokowaloby glowny watek na tyle dlugo, ze przechwytywanie audio
+  // (ScriptProcessorNode, tez na glownym watku) traciloby probki - to
+  // realne zrodlo duzych opoznien w odpowiedziach, nie sam model.
   const ctx = liveFrameCanvas.getContext('2d');
+  let frameInFlight = false;
   liveFrameTimer = setInterval(() => {
-    if (!wakeModeOn || !liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+    if (!wakeModeOn || !liveWs || liveWs.readyState !== WebSocket.OPEN || frameInFlight) return;
     if (!previewEl.videoWidth) return;
-    const w = Math.min(480, previewEl.videoWidth);
+    const w = Math.min(360, previewEl.videoWidth);
     const h = Math.round(w * (previewEl.videoHeight / previewEl.videoWidth));
     liveFrameCanvas.width = w;
     liveFrameCanvas.height = h;
     ctx.drawImage(previewEl, 0, 0, w, h);
-    const dataUrl = liveFrameCanvas.toDataURL('image/jpeg', 0.6);
-    liveWs.send(JSON.stringify({ type: 'video', data: dataUrl.split(',')[1] }));
+    frameInFlight = true;
+    liveFrameCanvas.toBlob(
+      (blob) => {
+        frameInFlight = false;
+        if (!blob || !liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+        blob.arrayBuffer().then((buf) => {
+          liveWs.send(JSON.stringify({ type: 'video', data: arrayBufferToBase64(buf) }));
+        });
+      },
+      'image/jpeg',
+      0.5
+    );
   }, 1500);
 }
 
@@ -589,23 +614,33 @@ async function startLiveConversation() {
   liveWs = new WebSocket(getLiveWsUrl());
   liveWs.binaryType = 'arraybuffer';
 
-  liveWs.onopen = () => {
+  liveWs.onopen = async () => {
     liveAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const source = liveAudioCtx.createMediaStreamSource(liveMicStream);
-    liveProcessor = liveAudioCtx.createScriptProcessor(4096, 1, 1);
-    const silentGain = liveAudioCtx.createGain();
-    silentGain.gain.value = 0;
-    source.connect(liveProcessor);
-    liveProcessor.connect(silentGain);
-    silentGain.connect(liveAudioCtx.destination);
-
-    liveProcessor.onaudioprocess = (e) => {
+    const onAudioFrame = (float32Array) => {
       if (!wakeModeOn || liveWs.readyState !== WebSocket.OPEN) return;
-      const input = e.inputBuffer.getChannelData(0);
-      const resampled = resampleTo16k(input, liveAudioCtx.sampleRate);
+      const resampled = resampleTo16k(float32Array, liveAudioCtx.sampleRate);
       liveWs.send(floatTo16BitPCM(resampled));
       audioLevel = Math.max(audioLevel, 0.3);
     };
+
+    try {
+      // AudioWorklet dziala na osobnym watku audio - odporne na jakiekolwiek
+      // zaciecia glownego watku (np. kodowanie klatki kamery). Preferowane
+      // nad przestarzalym ScriptProcessorNode ponizej.
+      await liveAudioCtx.audioWorklet.addModule('/live-audio-processor.js');
+      liveProcessor = new AudioWorkletNode(liveAudioCtx, 'live-audio-processor');
+      liveProcessor.port.onmessage = (e) => onAudioFrame(e.data);
+      source.connect(liveProcessor);
+    } catch (err) {
+      liveProcessor = liveAudioCtx.createScriptProcessor(4096, 1, 1);
+      const silentGain = liveAudioCtx.createGain();
+      silentGain.gain.value = 0;
+      source.connect(liveProcessor);
+      liveProcessor.connect(silentGain);
+      silentGain.connect(liveAudioCtx.destination);
+      liveProcessor.onaudioprocess = (e) => onAudioFrame(e.inputBuffer.getChannelData(0));
+    }
   };
 
   liveWs.onmessage = (event) => {
@@ -648,7 +683,12 @@ function stopLiveConversation() {
   wakeBtn.classList.remove('active');
   stopLivePlayback();
   disableLiveCamera();
-  if (liveProcessor) { liveProcessor.disconnect(); liveProcessor.onaudioprocess = null; liveProcessor = null; }
+  if (liveProcessor) {
+    liveProcessor.disconnect();
+    liveProcessor.onaudioprocess = null;
+    if (liveProcessor.port) liveProcessor.port.onmessage = null;
+    liveProcessor = null;
+  }
   if (liveAudioCtx) { liveAudioCtx.close().catch(() => {}); liveAudioCtx = null; }
   if (liveMicStream) { liveMicStream.getTracks().forEach((t) => t.stop()); liveMicStream = null; }
   if (livePlaybackCtx) { livePlaybackCtx.close().catch(() => {}); livePlaybackCtx = null; }
