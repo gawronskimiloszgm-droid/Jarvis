@@ -40,7 +40,7 @@
             android:name=".JarvisBubbleService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="microphone|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FOREGROUND_SERVICE_SUBTYPE"
                 android:value="Osobisty asystent glosowy dostepny z dymka nad innymi aplikacjami" />
@@ -62,5 +62,8 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Bez tego Android 14 odcina mikrofon, gdy aplikacja jest w tle -
+         czyli dokladnie wtedy, gdy widac dymek. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

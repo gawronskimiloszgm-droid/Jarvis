@@ -102,13 +102,29 @@ public class JarvisBubbleService extends Service {
             .setOngoing(true)
             .build();
 
-        // Android 14 wymaga podania typu uslugi pierwszoplanowej.
+        // Android 14 wymaga podania typu uslugi pierwszoplanowej. Typ
+        // MICROPHONE jest kluczowy: bez niego system odbiera mikrofon, gdy
+        // aplikacja przechodzi w tlo, i rozmowa przez dymek zamiera.
+        //
+        // Ale deklaracja tego typu BEZ przyznanej zgody RECORD_AUDIO konczy
+        // sie wyjatkiem i ubiciem uslugi - wiec sprawdzamy zgode i w razie
+        // czego startujemy skromniej (sam dymek, bez mikrofonu w tle).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            );
+            boolean micGranted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            int type = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            if (micGranted) {
+                type |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+            }
+            try {
+                startForeground(NOTIFICATION_ID, notification, type);
+            } catch (Exception e) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                );
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }

@@ -1675,12 +1675,32 @@ async function checkBubbleLaunch() {
     /* plugin niedostepny - dymek po prostu otworzy apke bez rozmowy */
   }
 }
+// Gdy aplikacja schodzi w tlo (np. zostaje sam dymek), przegladarka
+// potrafi uspic konteksty audio - a wtedy rozmowa milknie mimo dzialajacej
+// uslugi. Wznawiamy je jawnie w obie strony.
+async function keepAudioAlive() {
+  if (!store.live) return;
+  for (const ctx of [micCtx, outCtx]) {
+    if (ctx && ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        /* nie da sie wznowic - rozmowa i tak zostanie zerwana widocznie */
+      }
+    }
+  }
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     checkBubbleLaunch();
     refreshBubble();
   }
+  keepAudioAlive();
 });
+
+// W tle zdarzenia bywaja rzadsze, wiec dokladamy okresowe sprawdzenie.
+setInterval(keepAudioAlive, 5000);
 
 if (isNativeShell() && window.Capacitor.Plugins.Geolocation) {
   window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000 })
