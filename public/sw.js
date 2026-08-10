@@ -1,4 +1,4 @@
-const CACHE = 'jarvis-shell-v3';
+const CACHE = 'jarvis-shell-v4';
 const SHELL = ['/', '/style.css', '/app.js', '/live-audio-processor.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -38,8 +38,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: '/icons/icon-192.svg',
-      badge: '/icons/icon-192.svg',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
     })
   );
 });
