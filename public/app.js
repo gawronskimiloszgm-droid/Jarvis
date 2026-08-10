@@ -514,6 +514,17 @@ function syncDock() {
 
 let coreRaf = null;
 
+// Rdzen: wielowarstwowy, reagujacy na dzwiek. Warstwy od zewnatrz:
+// pierscien podzialki, sektory danych, orbity satelitow, wykres widma,
+// obrotowe luki, przeciwbiezne trojkaty, rdzen z poswiata i sweep radaru.
+const CORE_SPECTRUM = 72;
+const coreBands = new Float32Array(CORE_SPECTRUM);
+const CORE_SATS = [
+  { r: 0.86, sp: 0.42, size: 2.6, tilt: 0.0 },
+  { r: 0.7, sp: -0.63, size: 2.0, tilt: 1.1 },
+  { r: 0.55, sp: 0.95, size: 1.6, tilt: 2.2 },
+];
+
 function startCoreVisual(cv) {
   const ctx = cv.getContext('2d');
   let t = 0;
@@ -532,7 +543,7 @@ function startCoreVisual(cv) {
 
     const cx = w / 2;
     const cy = h / 2;
-    const base = Math.min(w, h) / 2 - 6;
+    const base = Math.min(w, h) / 2 - 4;
     if (base <= 0) {
       coreRaf = requestAnimationFrame(draw);
       return;
@@ -540,52 +551,129 @@ function startCoreVisual(cv) {
     const lvl = store.audioLevel;
     t += 0.016;
 
-    // Obrotowe luki
-    const arcs = [
-      { r: base * 0.94, from: 0.1, len: 1.5, sp: 0.35, a: 0.55 },
-      { r: base * 0.94, from: 3.4, len: 1.1, sp: 0.35, a: 0.55 },
-      { r: base * 0.76, from: 1.2, len: 2.4, sp: -0.5, a: 0.75 },
-      { r: base * 0.58, from: 2.6, len: 1.8, sp: 0.8, a: 0.9 },
-    ];
-    arcs.forEach((a) => {
-      ctx.beginPath();
-      ctx.arc(cx, cy, a.r, a.from + t * a.sp, a.from + a.len + t * a.sp);
-      ctx.strokeStyle = `rgba(34, 224, 255, ${a.a})`;
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-    });
+    const ink = (a) => `rgba(34, 224, 255, ${a})`;
+    const warm = (a) => `rgba(255, 179, 71, ${a})`;
 
-    // Radialne slupki reagujace na dzwiek
-    const bars = 56;
-    for (let i = 0; i < bars; i++) {
-      const ang = (i / bars) * Math.PI * 2;
-      const wobble = Math.sin(t * 3 + i * 0.7) * 0.5 + 0.5;
-      const len = base * 0.1 + wobble * base * 0.1 * (0.25 + lvl * 2.4);
-      const r0 = base * 0.34;
+    // 1. Zewnetrzny pierscien podzialki - co 12. kreska dluzsza
+    const ticks = 96;
+    for (let i = 0; i < ticks; i++) {
+      const ang = (i / ticks) * Math.PI * 2 + t * 0.05;
+      const major = i % 12 === 0;
+      const len = major ? base * 0.09 : base * 0.045;
+      const r0 = base * 0.99 - len;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
       ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
-      ctx.strokeStyle = `rgba(34, 224, 255, ${0.2 + wobble * 0.55})`;
-      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = ink(major ? 0.85 : 0.28);
+      ctx.lineWidth = major ? 1.6 : 1;
       ctx.stroke();
     }
 
-    // Srodkowy wielobok
-    const sides = 6;
-    const pr = base * 0.24 * (1 + lvl * 0.4);
-    ctx.beginPath();
-    for (let i = 0; i <= sides; i++) {
-      const ang = (i / sides) * Math.PI * 2 - t * 0.4;
-      const px = cx + Math.cos(ang) * pr;
-      const py = cy + Math.sin(ang) * pr;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+    // 2. Sektory danych - grube luki w przeciwnym kierunku
+    for (let i = 0; i < 4; i++) {
+      const from = (i / 4) * Math.PI * 2 - t * 0.22;
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * 0.9, from, from + 0.42);
+      ctx.strokeStyle = ink(0.5);
+      ctx.lineWidth = 3;
+      ctx.stroke();
     }
-    ctx.closePath();
-    ctx.strokeStyle = 'rgba(34, 224, 255, 0.95)';
+
+    // 3. Wykres widma - wartosci plyna, dzwiek je wybija
+    for (let i = 0; i < CORE_SPECTRUM; i++) {
+      const noise = Math.sin(t * 2.1 + i * 0.55) * 0.5 + Math.sin(t * 3.7 + i * 1.3) * 0.5;
+      const target = 0.18 + Math.abs(noise) * 0.22 + lvl * (0.55 + Math.abs(noise) * 0.9);
+      coreBands[i] += (target - coreBands[i]) * 0.25;
+      const ang = (i / CORE_SPECTRUM) * Math.PI * 2 - Math.PI / 2;
+      const r0 = base * 0.42;
+      const r1 = r0 + coreBands[i] * base * 0.42;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+      ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
+      ctx.strokeStyle = ink(0.25 + coreBands[i] * 0.95);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 4. Obrotowe luki na roznych promieniach
+    [
+      { r: 0.8, from: 0.4, len: 1.7, sp: -0.4, a: 0.6 },
+      { r: 0.8, from: 3.6, len: 1.2, sp: -0.4, a: 0.6 },
+      { r: 0.33, from: 1.0, len: 2.6, sp: 0.7, a: 0.85 },
+    ].forEach((a) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * a.r, a.from + t * a.sp, a.from + a.len + t * a.sp);
+      ctx.strokeStyle = ink(a.a);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    });
+
+    // 5. Satelity na eliptycznych orbitach
+    CORE_SATS.forEach((s) => {
+      const ang = t * s.sp + s.tilt;
+      const sx = cx + Math.cos(ang) * base * s.r;
+      const sy = cy + Math.sin(ang) * base * s.r * 0.42;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, base * s.r, base * s.r * 0.42, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = ink(0.1);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(sx, sy, s.size + lvl * 2, 0, Math.PI * 2);
+      ctx.fillStyle = ink(0.95);
+      ctx.fill();
+    });
+
+    // 6. Przeciwbiezne trojkaty
+    [
+      { n: 3, r: 0.26, sp: -0.5, a: 0.8 },
+      { n: 3, r: 0.2, sp: 0.85, a: 0.55 },
+    ].forEach((p) => {
+      const pr = base * p.r * (1 + lvl * 0.35);
+      ctx.beginPath();
+      for (let i = 0; i <= p.n; i++) {
+        const ang = (i / p.n) * Math.PI * 2 + t * p.sp;
+        const px = cx + Math.cos(ang) * pr;
+        const py = cy + Math.sin(ang) * pr;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = ink(p.a);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // 7. Sweep radaru
+    const sweep = t * 1.15;
+    const grad = ctx.createLinearGradient(
+      cx,
+      cy,
+      cx + Math.cos(sweep) * base * 0.9,
+      cy + Math.sin(sweep) * base * 0.9
+    );
+    grad.addColorStop(0, 'rgba(34, 224, 255, 0)');
+    grad.addColorStop(1, 'rgba(34, 224, 255, 0.55)');
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(sweep) * base * 0.9, cy + Math.sin(sweep) * base * 0.9);
+    ctx.strokeStyle = grad;
     ctx.lineWidth = 2;
     ctx.stroke();
-    ctx.fillStyle = `rgba(34, 224, 255, ${0.08 + lvl * 0.3})`;
+
+    // 8. Rdzen z poswiata - bursztynowy przy glosnym dzwieku
+    const cr = base * 0.11 * (1 + lvl * 0.75);
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr * 3.4);
+    glow.addColorStop(0, ink(0.85));
+    glow.addColorStop(0.35, ink(0.2 + lvl * 0.3));
+    glow.addColorStop(1, 'rgba(34, 224, 255, 0)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, cr * 3.4, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+    ctx.fillStyle = lvl > 0.45 ? warm(0.95) : ink(0.98);
     ctx.fill();
 
     store.audioLevel *= 0.92;
@@ -1384,7 +1472,10 @@ function bootVisual(cv) {
   let t = 0;
 
   const draw = () => {
-    if ($('#boot').classList.contains('gone')) return;
+    // Po zakonczeniu startu element znika z DOM - bez tego sprawdzenia
+    // petla rysujaca rzucalaby wyjatkiem przy kazdej klatce.
+    const bootEl = $('#boot');
+    if (!bootEl || bootEl.classList.contains('gone')) return;
     ctx.clearRect(0, 0, size, size);
     const c = size / 2;
     t += 0.02;

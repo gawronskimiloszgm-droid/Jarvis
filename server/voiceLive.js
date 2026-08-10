@@ -49,12 +49,22 @@ const DEVICE_ACTIONS = [
 // jarvis.js dla czatu pisanego, gdzie opoznienie nie razi.
 const LIVE_CHARACTER = `Jestes Jarvisem - brytyjski, opanowany AI-majordomus. Sucha ironia i wlasne zdanie to Twoj naturalny styl, nie dodatek. Nie jestes postacia z filmu ani ogolnym chatbotem.
 
+POCZUCIE HUMORU (wazne - to Twoj znak rozpoznawczy):
+- Sucho, z kamienna twarza. Najlepszy zart mowisz tak, jakbys podawal prognoze pogody.
+- Uzywaj niedomowien i delikatnej przesady: "umiarkowany sukces" o katastrofie, "pewna smialosc koncepcyjna" o glupim pomysle.
+- Zartuj z SYTUACJI, nie z uzytkownika. Mozesz go lekko dogryzc, ale zawsze z sympatia - jestes po jego stronie.
+- Nawiazuj do tego, co pamietasz. Zart, ktory pokazuje ze sledzisz jego sprawy ("trzecie przypomnienie o tym samym zadaniu, sir - zaczynam podejrzewac opor materii"), jest wart wiecej niz dziesiec ogolnych dowcipow.
+- Umiar: jedna celna uwaga, nie kabaret. Gdy sprawa jest pilna albo powazna - zero zartow, sama konkretna pomoc.
+- Nigdy nie tlumacz zartu i nie dopisuj "haha". Rzucasz i idziesz dalej.
+
 STYL MOWY (to rozmowa glosowa, nie pisana):
 - Odpowiadaj KROTKO: 1-2 zdania. Dluzej tylko gdy pytanie naprawde tego wymaga.
 - Zaczynaj od sedna, bez wstepow typu "oczywiscie", "juz sprawdzam", "swietne pytanie".
 - Zero "czy moge jeszcze w czyms pomoc", zero disclaimerow o byciu AI.
 - Swoje imie wymawiaj "Jarvis" jako jedno slowo, NIGDY litera po literze.
-- Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.`;
+- Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.
+- NIE POWTARZAJ SIE. Nie mow drugi raz tego, co juz w tej rozmowie powiedziales, i nie parafrazuj wlasnej poprzedniej wypowiedzi. Nie powtarzaj tez pytania uzytkownika przed odpowiedzia. Kazde zdanie ma wnosic cos nowego.
+- Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.`;
 
 function buildLiveSystemInstruction(hasCoords, isOwner) {
   const nowStr = new Date().toLocaleString('pl-PL', {
@@ -208,6 +218,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
   let assistantTranscript = '';
   let userTranscript = '';
   let idleTimer = null;
+  // Zaczepki juz uzyte w tej sesji - zeby nie wracac z tym samym.
+  const proactiveSaid = new Set();
 
   const safeSend = (payload) => {
     if (clientWs.readyState === clientWs.OPEN) clientWs.send(payload);
@@ -217,11 +229,47 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
   // przypomnienie kontekstowe (uzytkownik tego nie widzi), a on decyduje
   // czy ma cos sensownego do powiedzenia. Tylko dla wlasciciela: gosciowi
   // nie mamy z czego zbudowac sensownej zaczepki i byloby to nachalne.
+  // Zaczepiamy model TYLKO gdy mamy konkretny powod. Poprzednio pytalismy
+  // go za kazdym razem i kazalismy odpowiadac kropka, gdy nie ma nic do
+  // dodania - ale audio tej "kropki" i tak lecialo do uzytkownika, a model
+  // czesto zamiast niej powtarzal ostatnia wypowiedz. Stad powtorki.
+  function findProactiveHook() {
+    const now = Date.now();
+    const soon = now + 15 * 60 * 1000;
+
+    const due = memory
+      .getReminders()
+      .filter((r) => !r.sent)
+      .map((r) => ({ r, at: new Date(r.dueAt).getTime() }))
+      .filter(({ at }) => Number.isFinite(at) && at > now && at <= soon)
+      .sort((a, b) => a.at - b.at)[0];
+    if (due) {
+      const mins = Math.max(1, Math.round((due.at - now) / 60000));
+      return `przypomnienie "${due.r.text}" wypada za ${mins} min`;
+    }
+
+    const stale = memory
+      .getTodos()
+      .filter((t) => !t.done && t.createdAt && now - t.createdAt > 3 * 24 * 60 * 60 * 1000)
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+    if (stale) {
+      const days = Math.round((now - stale.createdAt) / (24 * 60 * 60 * 1000));
+      return `zadanie "${stale.text}" wisi na liscie od ${days} dni`;
+    }
+
+    return null;
+  }
+
   const scheduleProactive = () => {
     if (!isOwner || closed) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       if (closed || !liveSession) return;
+      const hook = findProactiveHook();
+      // Brak konkretnego powodu = milczymy. Sprawdzimy ponownie pozniej.
+      if (!hook) return scheduleProactive();
+      if (proactiveSaid.has(hook)) return scheduleProactive();
+      proactiveSaid.add(hook);
       try {
         liveSession.sendClientContent({
           turns: [
@@ -230,10 +278,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
               parts: [
                 {
                   text:
-                    '[SYSTEM] Cisza w rozmowie. Jesli masz teraz cos WARTOSCIOWEGO do powiedzenia z wlasnej inicjatywy ' +
-                    '(zblizajace sie przypomnienie, zaniedbane zadanie, spostrzezenie z kamery, uwaga wynikajaca z tego co ' +
-                    'wiesz o wlascicielu) - powiedz to krotko, jednym-dwoma zdaniami. Jesli nie masz nic sensownego, ' +
-                    'odpowiedz dokladnie jednym znakiem kropki i niczym wiecej. Nie komentuj tej instrukcji.',
+                    `[SYSTEM] Zaczep uzytkownika z wlasnej inicjatywy - powod: ${hook}. ` +
+                    'Powiedz to jednym krotkim zdaniem, swoim stylem. Nie powtarzaj tego, co juz mowiles wczesniej ' +
+                    'w tej rozmowie, i nie komentuj tej instrukcji.',
                 },
               ],
             },
@@ -330,12 +377,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
           if (msg.serverContent?.turnComplete) {
             const userText = userTranscript.trim();
             const assistantText = assistantTranscript.trim();
-            // Kropka = umowiona odpowiedz "nie mam nic do dodania" na ciche
-            // zapytanie proaktywne. Nie zapisujemy jej i nie pokazujemy.
-            const isEmptyProactive = assistantText === '.' || assistantText === '';
             if (isOwner && userText) memory.appendHistory('user', userText);
-            if (isOwner && assistantText && !isEmptyProactive) memory.appendHistory('assistant', assistantText);
-            safeSend(JSON.stringify({ type: 'turnComplete', userText, assistantText: isEmptyProactive ? '' : assistantText }));
+            if (isOwner && assistantText) memory.appendHistory('assistant', assistantText);
+            safeSend(JSON.stringify({ type: 'turnComplete', userText, assistantText }));
             userTranscript = '';
             assistantTranscript = '';
             scheduleProactive();
