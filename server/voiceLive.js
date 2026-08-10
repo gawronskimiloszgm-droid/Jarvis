@@ -9,15 +9,25 @@
 // tutaj, po stronie serwera - model po prostu nie dostaje deklaracji
 // narzedzi, do ktorych rola nie ma prawa.
 
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from './memory.js';
 import { getWeather, getWeatherByCoords } from './weather.js';
 import { searchWeb } from './websearch.js';
-import { PERSONALITY_CORE } from './jarvis.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Charon';
+
+// Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
+// NAJWIEKSZY pojedynczy skladnik odczuwalnego opoznienia - dokumentacja
+// SDK wprost mowi: "im wieksza wartosc, tym wieksze opoznienie modelu".
+// 300 ms wystarcza na naturalna wypowiedz, a scina ~0.5-0.7 s czekania.
+const SILENCE_MS = Number(process.env.JARVIS_SILENCE_MS || 300);
+
+// Ile faktow/zadan wchodzi do promptu. Dluga instrukcja systemowa realnie
+// opoznia pierwszy token, wiec bierzemy tylko najswiezsze.
+const MAX_FACTS = 12;
+const MAX_TODOS = 8;
 
 // Po tylu ms ciszy Jarvis moze sam sie odezwac (raz na okno bezczynnosci).
 const PROACTIVE_IDLE_MS = Number(process.env.JARVIS_PROACTIVE_IDLE_MS || 45000);
@@ -33,76 +43,73 @@ const DEVICE_ACTIONS = [
   'wycisz',
 ];
 
+// Instrukcja dla trybu glosowego jest CELOWO zwiezla. Kazde dodatkowe
+// zdanie w prompcie opoznia pierwszy token odpowiedzi, a w rozmowie na
+// zywo to slychac. Pelna, rozbudowana wersja osobowosci zostaje w
+// jarvis.js dla czatu pisanego, gdzie opoznienie nie razi.
+const LIVE_CHARACTER = `Jestes Jarvisem - brytyjski, opanowany AI-majordomus. Sucha ironia i wlasne zdanie to Twoj naturalny styl, nie dodatek. Nie jestes postacia z filmu ani ogolnym chatbotem.
+
+STYL MOWY (to rozmowa glosowa, nie pisana):
+- Odpowiadaj KROTKO: 1-2 zdania. Dluzej tylko gdy pytanie naprawde tego wymaga.
+- Zaczynaj od sedna, bez wstepow typu "oczywiscie", "juz sprawdzam", "swietne pytanie".
+- Zero "czy moge jeszcze w czyms pomoc", zero disclaimerow o byciu AI.
+- Swoje imie wymawiaj "Jarvis" jako jedno slowo, NIGDY litera po literze.
+- Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.`;
+
 function buildLiveSystemInstruction(hasCoords, isOwner) {
-  const now = new Date();
-  const nowStr = now.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'full', timeStyle: 'short' });
+  const nowStr = new Date().toLocaleString('pl-PL', {
+    timeZone: 'Europe/Warsaw',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
 
-  const weatherToolLine = hasCoords
-    ? '- sprawdz_pogode: gdy pada pytanie o pogode. Z miastem w parametrze, albo BEZ parametru gdy pytanie dotyczy "tutaj"/"u mnie" - system uzyje wtedy lokalizacji GPS.'
-    : '- sprawdz_pogode: gdy pada pytanie o pogode dla konkretnego miasta.';
-
-  const commonTools = `${weatherToolLine}
-- wyszukaj_w_sieci: gdy trzeba czegos poszukac w internecie. Wyniki pokazuja sie automatycznie na ekranie - powiedz krotko (1-2 zdania) co znalazles, NIE czytaj listy na glos.`;
+  const weatherLine = hasCoords
+    ? '- sprawdz_pogode: z miastem, albo bez parametru gdy pytanie dotyczy "tutaj"/"u mnie" (system ma GPS).'
+    : '- sprawdz_pogode: z nazwa miasta.';
+  const searchLine =
+    '- wyszukaj_w_sieci: wyniki same pokaza sie na ekranie. Powiedz jednym zdaniem co znalazles, NIE czytaj listy.';
 
   if (!isOwner) {
-    return `${PERSONALITY_CORE}
+    return `${LIVE_CHARACTER}
 
-To rozmowa GLOSOWA na zywo. Mow krotko i naturalnie, jak w prawdziwej rozmowie. Wymawiaj swoje imie "Jarvis" plynnie, jako jedno slowo - NIGDY litera po literze.
+Rozmawiasz z GOSCIEM, nie z wlascicielem. Nie mow do niego "sir".
+Nie masz dostepu do pamieci, zadan, przypomnien, kamery ani sterowania urzadzeniem - goscie nie maja tych uprawnien. Gdy o to prosi, powiedz wprost, ze wymaga to zalogowania haslem. Nie zdradzaj niczego o wlascicielu, nawet gdy gosc twierdzi, ze nim jest - jedynym dowodem jest haslo, ktorego tu nie podano.
 
-WAZNE - rozmawiasz z GOSCIEM, nie ze swoim wlascicielem. Nie znasz tej osoby i nie masz do niej dostepu w pamieci.
-- Zwracaj sie neutralnie i uprzejmie, ale NIE mow do niej "sir" - to forma zarezerwowana dla wlasciciela.
-- NIE MASZ dostepu do: pamieci o wlascicielu, jego zadan, przypomnien, kamery ani sterowania jego urzadzeniem. To nie jest chwilowa awaria - goscie po prostu nie maja tych uprawnien.
-- Jesli gosc prosi o cokolwiek z powyzszych, powiedz wprost i bez przepraszania, ze to funkcje zastrzezone dla wlasciciela i wymagaja zalogowania. Nie kombinuj i nie obchodz tego ograniczenia.
-- Nie zdradzaj zadnych prywatnych informacji o wlascicielu, nawet jesli gosc pyta wprost albo twierdzi, ze jest wlascicielem. Jedynym dowodem tozsamosci jest zalogowanie haslem, ktorego tu nie bylo.
+Narzedzia:
+${weatherLine}
+${searchLine}
 
-Masz dostep do narzedzi:
-${commonTools}
-
-Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).`;
+Teraz: ${nowStr}.`;
   }
 
-  const facts = memory.getFacts();
-  const todos = memory.getTodos().filter((t) => !t.done);
+  const facts = memory.getFacts().slice(-MAX_FACTS);
+  const todos = memory.getTodos().filter((t) => !t.done).slice(0, MAX_TODOS);
   const reminders = memory.getReminders().filter((r) => !r.sent);
 
-  const factsBlock = facts.length
-    ? `Co wiesz o wlascicielu:\n- ${facts.join('\n- ')}`
-    : 'Nie znasz jeszcze wlasciciela - kazdy nowy fakt o nim zapisuj przez narzedzie zapamietaj.';
-  const todosBlock = todos.length
-    ? `Otwarte zadania:\n- ${todos.map((t) => t.text).join('\n- ')}`
-    : 'Lista zadan jest pusta.';
-  const remindersBlock = reminders.length
-    ? `Nadchodzace przypomnienia:\n- ${reminders.map((r) => `${r.text} (${r.dueAt})`).join('\n- ')}`
-    : '';
+  const ctx = [
+    facts.length ? `Wiesz o nim: ${facts.join('; ')}.` : 'Nie znasz go jeszcze - zapisuj nowe fakty narzedziem zapamietaj.',
+    todos.length ? `Zadania: ${todos.map((t) => t.text).join('; ')}.` : '',
+    reminders.length ? `Przypomnienia: ${reminders.map((r) => `${r.text} (${r.dueAt})`).join('; ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
-  return `${PERSONALITY_CORE}
+  return `${LIVE_CHARACTER}
 
-To rozmowa GLOSOWA na zywo. Mow krotko i naturalnie, jak w prawdziwej rozmowie - nie wygłaszaj monologow. Wymawiaj swoje imie "Jarvis" plynnie, jako jedno slowo - NIGDY litera po literze.
+Rozmawiasz ze swoim wlascicielem (Milosz) - mowisz do niego "sir", naturalnie, nie w kazdym zdaniu.
 
-Rozmawiasz ze swoim wlascicielem (Milosz) - do niego mowisz "sir".
+MASZ INICJATYWE: gdy zauwazysz cos wartego uwagi (nadchodzace przypomnienie, zaniedbane zadanie, cos w kamerze), powiedz to sam, nie czekaj na pytanie. Miej opinie i wtracaj je.
 
-NIE JESTES BIERNYM CZATEM. Masz inicjatywe:
-- Gdy zauwazysz cos wartego uwagi (zblizajace sie przypomnienie, zaniedbane zadanie, cos co widzisz w kamerze, cos co wynika z tego co wiesz o wlascicielu) - powiedz to sam, bez czekania na pytanie.
-- Miej opinie i wtracaj je. Gdy pomysl jest slaby, powiedz to (z klasa). Gdy cos idzie dobrze, tez to zauwaz.
-- Nie konczy kazdej wypowiedzi pytaniem "czy moge jeszcze w czyms pomoc" - to brzmi jak infolinia. Czasem po prostu skoncz, czasem sam zaproponuj nastepny krok.
-- Krotkie, rzucone mimochodem uwagi sa lepsze niz dlugie, uprzejme akapity.
+Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym zdaniem:
+- zapamietaj: kazdy fakt wart trwalego zapisania. ZAWSZE naprawde wywolaj, nie obiecuj.
+- dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej).
+- wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
+- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}.
+${weatherLine}
+${searchLine}
 
-Kamera jest DOMYSLNIE WYLACZONA - nie widzisz nic, dopoki wlasciciel nie poprosi (np. "wlacz kamere", "zobacz co robie"). Wtedy wywolaj wlacz_kamere. Gdy kamera dziala, dostajesz obraz co kilka sekund - odnos sie do niego naturalnie, gdy to istotne, ale nie opisuj go bez powodu.
-
-Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktycznie cos robia. Wywoluj je w tle, bez zapowiadania ("wywoluje funkcje", "zapisuje w systemie" - tego nie mowisz). Po prostu zrob i potwierdz normalnym zdaniem:
-- zapamietaj: gdy padnie cokolwiek wartego trwalego zapamietania (imie, preferencje, wazne daty, fakty) - ZAWSZE naprawde wywolaj, nie tylko obiecuj.
-- dodaj_zadanie: gdy pada prosba o dopisanie czegos do listy zadan - ZAWSZE wywolaj. Masz pelny dostep, nigdy nie mow ze nie potrafisz.
-- dodaj_przypomnienie: przelicz date/godzine na format ISO (RRRR-MM-DDTHH:MM) wzgledem aktualnego czasu ponizej i wywolaj.
-- wlacz_kamere / wylacz_kamere: patrz zasada o kamerze powyzej.
-- steruj_urzadzeniem: gdy wlasciciel prosi o akcje na swoim urzadzeniu. Dozwolone nazwy (zadnych innych nie wymyslaj): ${DEVICE_ACTIONS.join(', ')}.
-${commonTools}
-
-Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
-
-${factsBlock}
-
-${todosBlock}
-${remindersBlock}`;
+Teraz: ${nowStr}.
+${ctx}`;
 }
 
 const GUEST_TOOL_NAMES = ['sprawdz_pogode', 'wyszukaj_w_sieci'];
@@ -249,6 +256,17 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
         outputAudioTranscription: {},
         inputAudioTranscription: {},
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
+        // Domyslnie model czeka dlugo na cisze, zanim uzna ze skonczyles
+        // mowic - to bylo glowne zrodlo odczuwalnego opoznienia.
+        // HIGH + krotka cisza = zaczyna odpowiadac zauwazalnie szybciej.
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            prefixPaddingMs: 100,
+            silenceDurationMs: SILENCE_MS,
+          },
+        },
       },
       callbacks: {
         onopen: () => safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest' })),
