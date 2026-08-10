@@ -545,9 +545,54 @@ const PANEL_DEFS = {
     },
     refresh: () => refreshBubble(),
   },
+
+  grip: {
+    title: 'STEROWANIE APLIKACJAMI',
+    glyph: '✥',
+    owner: true,
+    box: grid(0.2, 5.4, 3.9, 2.4),
+    build(body) {
+      body.innerHTML = '';
+      if (!isNativeShell()) {
+        const l = el('div', 'locked');
+        l.append(el('div', 'locked-mark', '✥'));
+        const p = el('p');
+        p.textContent = 'Sterowanie wnetrzem aplikacji dziala tylko w apce na Androida.';
+        l.appendChild(p);
+        body.appendChild(l);
+        return;
+      }
+      const state = el('div', 'kv');
+      state.append(el('span', null, 'USLUGA'));
+      const b = el('b', null, '...');
+      b.id = 'gripState';
+      state.appendChild(b);
+
+      const info = el('div', 'sub');
+      info.style.margin = '10px 0';
+      info.textContent =
+        'Pozwala Jarvisowi wykonac: cofnij, ekran glowny, ostatnie aplikacje, powiadomienia, przewijanie oraz klikniecie przycisku po napisie. Dziala tylko na Twoje polecenie.';
+
+      const row = el('div', 'field');
+      const openBtn = el('button', 'btn primary', 'Ustawienia dostepnosci');
+      openBtn.addEventListener('click', async () => {
+        await window.Capacitor.Plugins.AppControl.openSettings();
+        toast('Znajdz "J.A.R.V.I.S." i wlacz usluge, potem wroc.', 'ok');
+      });
+      const testBtn = el('button', 'btn', 'Test: wstecz');
+      testBtn.addEventListener('click', () => runAppAction('wstecz'));
+      row.append(openBtn, testBtn);
+
+      body.append(state, info, row);
+      refreshGrip();
+    },
+    refresh: () => refreshGrip(),
+  },
 };
 
-const DOCK_ORDER = ['core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble'];
+const DOCK_ORDER = [
+  'core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble', 'grip',
+];
 
 function buildDock() {
   const dock = $('#dock');
@@ -993,6 +1038,19 @@ async function refreshBubble() {
   }
 }
 
+async function refreshGrip() {
+  if (!isNativeShell() || !window.Capacitor.Plugins.AppControl) return;
+  const stateEl = $('#gripState');
+  if (!stateEl) return;
+  try {
+    const s = await window.Capacitor.Plugins.AppControl.status();
+    stateEl.textContent = s.enabled ? 'WLACZONA' : 'WYLACZONA';
+    stateEl.classList.toggle('good', Boolean(s.enabled));
+  } catch {
+    stateEl.textContent = 'BLAD';
+  }
+}
+
 // ---------- Wyszukiwanie ----------
 
 let lastSearch = null;
@@ -1128,6 +1186,25 @@ async function runDeviceAction(name) {
     toast('Sterowanie dziala w aplikacji desktopowej lub mobilnej.', 'ok');
   } catch {
     toast(`Nie udalo sie: ${name}`);
+  }
+}
+
+// Sterowanie wnetrzem aplikacji - wylacznie w apce na Androida, przez
+// usluge dostepnosci, ktora uzytkownik musi wlaczyc recznie.
+async function runAppAction(action, text) {
+  if (!isOwner()) {
+    toast('Sterowanie aplikacjami wymaga zalogowania.');
+    return;
+  }
+  if (!isNativeShell() || !window.Capacitor.Plugins.AppControl) {
+    toast('Sterowanie aplikacjami dziala tylko w apce na Androida.', 'ok');
+    return;
+  }
+  try {
+    const r = await window.Capacitor.Plugins.AppControl.run({ action, text: text || '' });
+    if (!r?.ok) toast(`Nie udalo sie wykonac: ${action}${text ? ` "${text}"` : ''}`);
+  } catch (err) {
+    toast(err.message || 'Usluga dostepnosci jest wylaczona.');
   }
 }
 
@@ -1377,6 +1454,7 @@ async function liveStart() {
     else if (m.type === 'stopCamera') camOff();
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
     else if (m.type === 'deviceAction') runDeviceAction(m.action);
+    else if (m.type === 'appAction') runAppAction(m.action, m.text);
     else if (m.type === 'error') {
       toast(`Rozmowa: ${m.message}`);
       liveStop();
@@ -1695,6 +1773,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     checkBubbleLaunch();
     refreshBubble();
+    refreshGrip();
   }
   keepAudioAlive();
 });

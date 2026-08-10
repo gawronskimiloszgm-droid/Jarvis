@@ -43,6 +43,18 @@ const DEVICE_ACTIONS = [
   'wycisz',
 ];
 
+// Sterowanie WNETRZEM aplikacji (usluga dostepnosci, tylko Android).
+// Zamknieta lista - model nie moze wymyslic wlasnej operacji.
+const APP_ACTIONS = [
+  'wstecz',
+  'ekran-glowny',
+  'ostatnie-aplikacje',
+  'powiadomienia',
+  'przewin-w-dol',
+  'przewin-w-gore',
+  'kliknij',
+];
+
 // Instrukcja dla trybu glosowego jest CELOWO zwiezla. Kazde dodatkowe
 // zdanie w prompcie opoznia pierwszy token odpowiedzi, a w rozmowie na
 // zywo to slychac. Pelna, rozbudowana wersja osobowosci zostaje w
@@ -115,6 +127,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej).
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}.
+- steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
 ${searchLine}
 
@@ -173,6 +186,19 @@ const ALL_TOOLS = [
     parameters: {
       type: 'object',
       properties: { akcja: { type: 'string', enum: DEVICE_ACTIONS } },
+      required: ['akcja'],
+    },
+  },
+  {
+    name: 'steruj_aplikacja',
+    description:
+      'Steruj wnetrzem aplikacji otwartej na telefonie: cofnij, ekran glowny, ostatnie aplikacje, powiadomienia, przewijanie, albo klikniecie przycisku po jego widocznym napisie.',
+    parameters: {
+      type: 'object',
+      properties: {
+        akcja: { type: 'string', enum: APP_ACTIONS },
+        tekst: { type: 'string', description: 'Napis na przycisku - wymagany tylko dla akcji "kliknij".' },
+      },
       required: ['akcja'],
     },
   },
@@ -341,6 +367,14 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
                 const akcja = (call.args || {}).akcja;
                 if (DEVICE_ACTIONS.includes(akcja)) {
                   safeSend(JSON.stringify({ type: 'deviceAction', action: akcja }));
+                  result = { ok: true };
+                } else {
+                  result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'steruj_aplikacja') {
+                const { akcja, tekst } = call.args || {};
+                if (APP_ACTIONS.includes(akcja)) {
+                  safeSend(JSON.stringify({ type: 'appAction', action: akcja, text: tekst || '' }));
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };

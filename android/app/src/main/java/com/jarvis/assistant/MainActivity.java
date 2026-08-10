@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DeviceControlPlugin.class);
         registerPlugin(WakeWordPlugin.class);
         registerPlugin(BubblePlugin.class);
+        registerPlugin(AppControlPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
