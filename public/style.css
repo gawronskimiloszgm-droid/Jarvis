@@ -367,6 +367,20 @@ html, body {
   height: 100%;
 }
 
+.live-camera-preview {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  width: 38%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--cyan-bright);
+  box-shadow: 0 0 12px var(--cyan-glow);
+  background: #000;
+  transform: scaleX(-1);
+}
+
 .reticle-svg {
   position: absolute;
   inset: 6%;

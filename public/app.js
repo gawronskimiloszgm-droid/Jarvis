@@ -390,6 +390,8 @@ let liveProcessor = null;
 let livePlaybackCtx = null;
 let liveNextPlayTime = 0;
 let liveActiveSources = [];
+let liveFrameTimer = null;
+const liveFrameCanvas = document.createElement('canvas');
 
 function getLiveWsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -468,6 +470,32 @@ function playLiveAudioChunk(arrayBuffer) {
   audioLevel = 0.7;
 }
 
+function startLiveFrameCapture(stream) {
+  const previewEl = document.getElementById('liveCameraPreview');
+  if (!previewEl) return;
+  previewEl.srcObject = stream;
+  previewEl.hidden = false;
+
+  const ctx = liveFrameCanvas.getContext('2d');
+  liveFrameTimer = setInterval(() => {
+    if (!wakeModeOn || !liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+    if (!previewEl.videoWidth) return;
+    const w = Math.min(480, previewEl.videoWidth);
+    const h = Math.round(w * (previewEl.videoHeight / previewEl.videoWidth));
+    liveFrameCanvas.width = w;
+    liveFrameCanvas.height = h;
+    ctx.drawImage(previewEl, 0, 0, w, h);
+    const dataUrl = liveFrameCanvas.toDataURL('image/jpeg', 0.6);
+    liveWs.send(JSON.stringify({ type: 'video', data: dataUrl.split(',')[1] }));
+  }, 1500);
+}
+
+function stopLiveFrameCapture() {
+  if (liveFrameTimer) { clearInterval(liveFrameTimer); liveFrameTimer = null; }
+  const previewEl = document.getElementById('liveCameraPreview');
+  if (previewEl) { previewEl.srcObject = null; previewEl.hidden = true; }
+}
+
 async function startLiveConversation() {
   stopWakeListening();
   wakeModeOn = true;
@@ -475,15 +503,25 @@ async function startLiveConversation() {
   setStatus('LACZE...', 'thinking');
 
   try {
-    liveMicStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+    liveMicStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1 },
+      video: { facingMode: 'user', width: { ideal: 480 } },
+    });
   } catch (e) {
-    toast('Brak dostepu do mikrofonu.');
-    wakeModeOn = false;
-    wakeBtn.classList.remove('active');
-    setStatus('ONLINE', null);
-    startWakeListening();
-    return;
+    try {
+      liveMicStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+    } catch (e2) {
+      toast('Brak dostepu do mikrofonu.');
+      wakeModeOn = false;
+      wakeBtn.classList.remove('active');
+      setStatus('ONLINE', null);
+      startWakeListening();
+      return;
+    }
   }
+
+  const liveVideoTrack = liveMicStream.getVideoTracks()[0] || null;
+  if (liveVideoTrack) startLiveFrameCapture(liveMicStream);
 
   livePlaybackCtx = new (window.AudioContext || window.webkitAudioContext)();
   liveNextPlayTime = 0;
@@ -542,6 +580,7 @@ function stopLiveConversation() {
   wakeModeOn = false;
   wakeBtn.classList.remove('active');
   stopLivePlayback();
+  stopLiveFrameCapture();
   if (liveProcessor) { liveProcessor.disconnect(); liveProcessor.onaudioprocess = null; liveProcessor = null; }
   if (liveAudioCtx) { liveAudioCtx.close().catch(() => {}); liveAudioCtx = null; }
   if (liveMicStream) { liveMicStream.getTracks().forEach((t) => t.stop()); liveMicStream = null; }

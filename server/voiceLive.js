@@ -34,6 +34,8 @@ function buildLiveSystemInstruction(hasCoords) {
 
 To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
 
+Jesli uzytkownik ma wlaczona kamere, widzisz na biezaco (co kilka sekund) obraz z niej - tak jak podczas rozmowy wideo. Odnos sie do tego naturalnie, gdy jest to istotne (np. komentujesz, co robi, pytasz o cos, co widzisz), ale nie opisuj obrazu bez powodu ani nie mow "widze na kamerze, ze..." przy kazdej wypowiedzi - traktuj to jako naturalna czesc rozmowy, nie jako osobna funkcje ktora ogloszasz.
+
 Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktycznie zapisuja dane w systemie, a nie teoria. Wywoluj je w tle bez komentowania tego na glos ("wywoluje funkcje", "zapisuje w systemie" - tego nie mowisz), po prostu wykonaj akcje i potwierdz normalnym zdaniem:
 - zapamietaj: gdy uzytkownik powie o sobie cokolwiek wartego trwalego zapamietania (imie, preferencje, wazne daty, fakty) - ZAWSZE faktycznie wywolaj to narzedzie, nie tylko obiecuj, ze zapamietasz.
 - dodaj_zadanie: gdy uzytkownik poprosi o dodanie czegos do listy zadan/rzeczy do zrobienia - ZAWSZE wywolaj to narzedzie. Masz do tego pelny dostep - nigdy nie mow, ze nie potrafisz albo nie masz uprawnien do dodania zadania.
@@ -185,7 +187,11 @@ export async function attachVoiceRelay(clientWs, coords) {
     } else {
       try {
         const msg = JSON.parse(data.toString());
-        if (msg.type === 'end') liveSession.close();
+        if (msg.type === 'end') {
+          liveSession.close();
+        } else if (msg.type === 'video' && msg.data) {
+          liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
+        }
       } catch {
         /* noop */
       }
