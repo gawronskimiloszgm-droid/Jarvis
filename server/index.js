@@ -15,6 +15,7 @@ import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
 import { attachVoiceRelay } from './voiceLive.js';
+import { isAuthConfigured, verifyPassword, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +25,24 @@ app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'online', ttsConfigured: tts.isConfigured(), pushConfigured: push.isConfigured() });
+  res.json({
+    status: 'online',
+    ttsConfigured: tts.isConfigured(),
+    pushConfigured: push.isConfigured(),
+    authConfigured: isAuthConfigured(),
+    role: roleFromRequest(req),
+  });
+});
+
+// --- Logowanie wlasciciela ---
+app.post('/api/login', (req, res) => {
+  if (!isAuthConfigured()) {
+    return res.status(500).json({ error: 'Brak skonfigurowanego OWNER_PASSWORD na serwerze.' });
+  }
+  if (!verifyPassword(req.body?.password)) {
+    return res.status(401).json({ error: 'Nieprawidlowe haslo.' });
+  }
+  res.json({ token: issueToken(), role: 'owner' });
 });
 
 // --- Chat (streaming) ---
@@ -46,10 +64,12 @@ app.post('/api/chat', async (req, res) => {
       ? { lat: location.lat, lon: location.lon }
       : null;
 
+  const isOwner = roleFromRequest(req) === 'owner';
+
   try {
     await jarvis.chatStream(String(message), (chunk) => {
       res.write(chunk);
-    }, coords);
+    }, coords, isOwner);
     res.end();
   } catch (err) {
     console.error('Chat error:', err);
@@ -61,49 +81,49 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// --- Memory (facts) ---
-app.get('/api/memory', (req, res) => {
+// --- Memory (facts) --- tylko wlasciciel
+app.get('/api/memory', requireOwner, (req, res) => {
   res.json({ facts: memory.getFacts() });
 });
 
-app.delete('/api/memory/:index', (req, res) => {
+app.delete('/api/memory/:index', requireOwner, (req, res) => {
   const data = memory.removeFact(Number(req.params.index));
   res.json({ facts: data.facts });
 });
 
-// --- Todos ---
-app.get('/api/todos', (req, res) => {
+// --- Todos --- tylko wlasciciel
+app.get('/api/todos', requireOwner, (req, res) => {
   res.json({ todos: memory.getTodos() });
 });
 
-app.post('/api/todos', (req, res) => {
+app.post('/api/todos', requireOwner, (req, res) => {
   const todos = memory.addTodo(req.body.text);
   res.json({ todos });
 });
 
-app.patch('/api/todos/:id', (req, res) => {
+app.patch('/api/todos/:id', requireOwner, (req, res) => {
   const todos = memory.setTodoDone(req.params.id, req.body.done);
   res.json({ todos });
 });
 
-app.delete('/api/todos/:id', (req, res) => {
+app.delete('/api/todos/:id', requireOwner, (req, res) => {
   const todos = memory.removeTodo(req.params.id);
   res.json({ todos });
 });
 
-// --- Reminders ---
-app.get('/api/reminders', (req, res) => {
+// --- Reminders --- tylko wlasciciel
+app.get('/api/reminders', requireOwner, (req, res) => {
   res.json({ reminders: memory.getReminders() });
 });
 
-app.post('/api/reminders', (req, res) => {
+app.post('/api/reminders', requireOwner, (req, res) => {
   const { text, dueAt } = req.body;
   if (!text || !dueAt) return res.status(400).json({ error: 'Brak tresci lub daty.' });
   const reminders = memory.addReminder(text, dueAt);
   res.json({ reminders });
 });
 
-app.delete('/api/reminders/:id', (req, res) => {
+app.delete('/api/reminders/:id', requireOwner, (req, res) => {
   const reminders = memory.removeReminder(req.params.id);
   res.json({ reminders });
 });
@@ -158,8 +178,8 @@ app.get('/api/image/:id', (req, res) => {
   res.send(entry.buffer);
 });
 
-// --- Vision (analiza obrazu z kamery) ---
-app.post('/api/vision', async (req, res) => {
+// --- Vision (analiza obrazu z kamery) --- tylko wlasciciel
+app.post('/api/vision', requireOwner, async (req, res) => {
   const { image: imageDataUrl, mimeType, question } = req.body;
   if (!imageDataUrl) return res.status(400).json({ error: 'Brak obrazu.' });
   if (!process.env.GEMINI_API_KEY) {
@@ -204,7 +224,8 @@ wss.on('connection', (ws, req) => {
   const lat = parseFloat(url.searchParams.get('lat'));
   const lon = parseFloat(url.searchParams.get('lon'));
   const coords = Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
-  attachVoiceRelay(ws, coords).catch((err) => {
+  const isOwner = isOwnerToken(url.searchParams.get('token'));
+  attachVoiceRelay(ws, coords, isOwner).catch((err) => {
     console.error('Voice relay error:', err);
     ws.close();
   });

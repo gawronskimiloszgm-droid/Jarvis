@@ -1,526 +1,906 @@
-const logEl = document.getElementById('log');
-const statusEl = document.getElementById('status');
-const reactor = document.getElementById('reactor');
-const textInput = document.getElementById('textInput');
-const sendBtn = document.getElementById('sendBtn');
-const canvas = document.getElementById('wave');
-const ctx = canvas.getContext('2d');
-const wakeBtn = document.getElementById('wakeBtn');
-const notifyBtn = document.getElementById('notifyBtn');
+// J.A.R.V.I.S. - warstwa interfejsu zbudowana od zera.
+//
+// Zamiast statycznego ukladu: przestrzen robocza z panelami, ktore mozna
+// swobodnie przesuwac i skalowac (mysza i palcem). Uklad zapisuje sie
+// lokalnie, wiec zostaje miedzy uruchomieniami.
+//
+// Dostep: wlasciciel loguje sie haslem i ma pelnie funkcji; gosc moze
+// rozmawiac, pytac o pogode i szukac w sieci. Prawdziwa blokada jest na
+// serwerze - to tutaj tylko chowa niedostepne rzeczy z oczu.
 
-let ttsConfigured = false;
-let pushConfigured = false;
+// ---------- Stan ----------
 
-function setStatus(text, mode) {
-  statusEl.textContent = text;
-  reactor.classList.remove('listening', 'thinking', 'speaking');
-  if (mode) reactor.classList.add(mode);
+const store = {
+  token: localStorage.getItem('jarvis.token') || null,
+  role: 'guest',
+  audioLevel: 0,
+  live: false,
+  location: null,
+};
+
+const isOwner = () => store.role === 'owner';
+
+// ---------- Drobiazgi ----------
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+
+function toast(msg, kind = 'bad') {
+  const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
+  $('#toasts').appendChild(n);
+  setTimeout(() => n.remove(), 4800);
 }
 
-function addMessage(text, cls) {
-  const div = document.createElement('div');
-  div.className = `msg ${cls}`;
-  div.textContent = text;
-  logEl.appendChild(div);
-  logEl.scrollTop = logEl.scrollHeight;
-  return div;
+function authHeaders(extra = {}) {
+  return store.token ? { ...extra, Authorization: `Bearer ${store.token}` } : extra;
 }
 
-const toastContainer = document.getElementById('toastContainer');
-
-function toast(text, kind = 'error') {
-  const el = document.createElement('div');
-  el.className = `toast ${kind === 'info' ? 'info' : ''}`;
-  el.textContent = text;
-  toastContainer.appendChild(el);
-  setTimeout(() => el.remove(), 5000);
+async function api(url, options = {}) {
+  const res = await fetch(url, { ...options, headers: authHeaders(options.headers || {}) });
+  if (res.status === 403) throw new Error('Brak uprawnien');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Blad ${res.status}`);
+  }
+  return res.json();
 }
 
-function setGauge(name, value) {
-  const el = document.querySelector(`[data-stat="${name}"]`);
-  if (!el) return;
-  el.textContent = value;
+function setState(text) {
+  const n = $('#barState');
+  if (n) n.textContent = text;
 }
 
-async function loadFactsGauge() {
+// ---------- Menedzer paneli ----------
+
+const PANES = new Map();
+let zTop = 10;
+
+function savedBox(id) {
   try {
-    const { data } = await fetchJSON('/api/memory');
-    setGauge('facts', data.facts.length, 20);
-  } catch (e) { /* noop */ }
-}
-
-const IMG_MARKER_RE = /\[\[IMG:([^\]]+)\]\]/;
-const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/g;
-
-// Akcje na urzadzeniu (otworz Spotify, glosnosc, zablokuj ekran...) dzialaja
-// w aplikacji desktopowej (Electron wstrzykuje window.jarvisDesktop) i w
-// aplikacji mobilnej (Capacitor wstrzykuje window.Capacitor). W zwyklej
-// przegladarce zaden z tych mostow nie istnieje, wiec nic sie nie stanie.
-function isCapacitorNative() {
-  return Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-}
-
-async function runDesktopAction(name) {
-  if (window.jarvisDesktop) {
-    const result = await window.jarvisDesktop.runAction(name);
-    if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
-    return;
-  }
-  if (isCapacitorNative() && window.Capacitor.Plugins.DeviceControl) {
-    const result = await window.Capacitor.Plugins.DeviceControl.runAction({ name });
-    if (!result?.ok) toast(`Nie udalo sie wykonac akcji "${name}".`);
-    return;
-  }
-  toast(`Akcja "${name}" dziala tylko w aplikacji desktopowej lub mobilnej.`, 'info');
-}
-
-function renderReplyContent(div, text) {
-  const match = text.match(IMG_MARKER_RE);
-  if (!match) {
-    div.textContent = text;
-    return;
-  }
-  div.innerHTML = '';
-  div.appendChild(document.createTextNode(text.slice(0, match.index)));
-  const img = document.createElement('img');
-  img.src = `/api/image/${match[1]}`;
-  img.alt = 'Wygenerowany obraz';
-  div.appendChild(img);
-  const after = text.slice(match.index + match[0].length);
-  if (after.trim()) div.appendChild(document.createTextNode(after));
-}
-
-// Darmowy hosting czasem gubi pojedyncze zapytanie przy usypianiu/budzeniu serwera -
-// ponawiamy raz lub dwa razy zanim uznamy to za realny blad.
-async function fetchJSON(url, options, retries = 2) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(url, options);
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        if (res.ok && res.status === 204) return { ok: true, status: res.status, data: null };
-        throw new Error(`Serwer zwrocil nieoczekiwana odpowiedz (${res.status})`);
-      }
-      const data = await res.json();
-      return { ok: res.ok, status: res.status, data };
-    } catch (err) {
-      if (attempt === retries) throw err;
-      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
-    }
-  }
-}
-
-// --- Tabs ---
-const tabButtons = document.querySelectorAll('.folder-tab');
-const panels = document.querySelectorAll('.panel');
-tabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    tabButtons.forEach((b) => b.classList.remove('active'));
-    panels.forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`panel-${btn.dataset.tab}`).classList.add('active');
-  });
-});
-function switchToDashboardTab() {
-  tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === 'dashboard'));
-  panels.forEach((p) => p.classList.toggle('active', p.id === 'panel-dashboard'));
-}
-
-// --- Waveform visual (idle particle ring) ---
-let audioLevel = 0;
-let t = 0;
-function drawWave() {
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  const cx = w / 2, cy = h / 2;
-  const bars = 48;
-  const baseR = w * 0.42;
-  for (let i = 0; i < bars; i++) {
-    const angle = (i / bars) * Math.PI * 2;
-    const wobble = Math.sin(t * 0.05 + i * 0.5) * (4 + audioLevel * 30);
-    const len = 6 + Math.abs(wobble);
-    const r1 = baseR;
-    const r2 = baseR + len;
-    const x1 = cx + Math.cos(angle) * r1;
-    const y1 = cy + Math.sin(angle) * r1;
-    const x2 = cx + Math.cos(angle) * r2;
-    const y2 = cy + Math.sin(angle) * r2;
-    ctx.strokeStyle = `rgba(53,230,255,${0.15 + audioLevel * 0.5})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-  t += 1;
-  audioLevel *= 0.9;
-  requestAnimationFrame(drawWave);
-}
-drawWave();
-
-// --- Celownik/radar w reaktorze ---
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-function buildReticleTicks() {
-  const g = document.getElementById('reticleTicks');
-  if (!g) return;
-  const cx = 100, cy = 100, r = 80, tickLen = 6;
-  const count = 36;
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    const major = i % 3 === 0;
-    const outerR = r + (major ? tickLen * 1.6 : tickLen);
-    const x1 = cx + Math.cos(angle) * r;
-    const y1 = cy + Math.sin(angle) * r;
-    const x2 = cx + Math.cos(angle) * outerR;
-    const y2 = cy + Math.sin(angle) * outerR;
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', x1.toFixed(2));
-    line.setAttribute('y1', y1.toFixed(2));
-    line.setAttribute('x2', x2.toFixed(2));
-    line.setAttribute('y2', y2.toFixed(2));
-    line.setAttribute('class', major ? 'reticle-tick major' : 'reticle-tick');
-    g.appendChild(line);
-  }
-}
-buildReticleTicks();
-
-// --- Speech synthesis (browser fallback) ---
-function speakBrowser(text) {
-  return new Promise((resolve) => {
-    if (!('speechSynthesis' in window)) return resolve();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'pl-PL';
-    utter.rate = 1.0;
-    utter.pitch = 0.85;
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find((v) => /male|david|daniel|google.*polski/i.test(v.name));
-    if (preferred) utter.voice = preferred;
-    utter.onboundary = () => { audioLevel = 0.6; };
-    utter.onend = resolve;
-    utter.onerror = resolve;
-    window.speechSynthesis.speak(utter);
-  });
-}
-
-async function fetchAudioWithRetry(text, retries = 2) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('audio')) return res.blob();
-    if (res.status === 204) return null;
-    if (attempt === retries) return null;
-    await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
-  }
-  return null;
-}
-
-function playBlob(blob) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onplay = () => { audioLevel = 0.7; };
-    audio.ontimeupdate = () => { audioLevel = 0.5; };
-    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.play().catch(resolve);
-  });
-}
-
-async function prepareAudio(text) {
-  if (!ttsConfigured) return null;
-  try {
-    return await fetchAudioWithRetry(text);
-  } catch (e) {
-    console.warn('Serwerowy TTS zawiodl dla fragmentu, uzyje glosu przegladarki', e);
+    return JSON.parse(localStorage.getItem(`jarvis.pane.${id}`) || 'null');
+  } catch {
     return null;
   }
 }
 
-// Mowimy zdanie po zdaniu, w miare jak tekst splywa strumieniem. Synteza
-// kolejnego zdania startuje w tle od razu po dolaczeniu do kolejki (nie
-// czeka az poprzednie skonczy sie odtwarzac), wiec nie ma ciszy miedzy
-// zdaniami podczas gdy serwer generuje kolejny fragment audio.
-let speechQueue = [];
-let speaking = false;
-
-function enqueueSpeech(text) {
-  const clean = text.trim();
-  if (!clean) return;
-  speechQueue.push({ text: clean, audioPromise: prepareAudio(clean) });
-  drainSpeechQueue();
+function saveBox(id, box) {
+  localStorage.setItem(`jarvis.pane.${id}`, JSON.stringify(box));
 }
 
-async function drainSpeechQueue() {
-  if (speaking) return;
-  speaking = true;
-  setStatus('MOWIE...', 'speaking');
-  while (speechQueue.length) {
-    const item = speechQueue.shift();
-    const blob = await item.audioPromise;
-    if (blob) {
-      await playBlob(blob);
-    } else {
-      await speakBrowser(item.text);
+function clampBox(box) {
+  const stage = $('#stage').getBoundingClientRect();
+  const w = Math.min(box.w, stage.width - 8);
+  const h = Math.min(box.h, stage.height - 8);
+  return {
+    x: Math.max(0, Math.min(box.x, stage.width - w)),
+    y: Math.max(0, Math.min(box.y, stage.height - h)),
+    w,
+    h,
+  };
+}
+
+function focusPane(pane) {
+  document.querySelectorAll('.pane.focus').forEach((p) => p.classList.remove('focus'));
+  pane.classList.add('focus');
+  pane.style.zIndex = String(++zTop);
+}
+
+function makeDraggable(pane, handle, id) {
+  let start = null;
+
+  const down = (e) => {
+    if (e.target.closest('.pane-btn')) return;
+    const pt = e.touches ? e.touches[0] : e;
+    const r = pane.getBoundingClientRect();
+    const stage = $('#stage').getBoundingClientRect();
+    start = { px: pt.clientX, py: pt.clientY, x: r.left - stage.left, y: r.top - stage.top };
+    focusPane(pane);
+    e.preventDefault();
+  };
+
+  const move = (e) => {
+    if (!start) return;
+    const pt = e.touches ? e.touches[0] : e;
+    const box = clampBox({
+      x: start.x + (pt.clientX - start.px),
+      y: start.y + (pt.clientY - start.py),
+      w: pane.offsetWidth,
+      h: pane.offsetHeight,
+    });
+    pane.style.left = `${box.x}px`;
+    pane.style.top = `${box.y}px`;
+  };
+
+  const up = () => {
+    if (!start) return;
+    start = null;
+    const r = pane.getBoundingClientRect();
+    const stage = $('#stage').getBoundingClientRect();
+    saveBox(id, { x: r.left - stage.left, y: r.top - stage.top, w: pane.offsetWidth, h: pane.offsetHeight });
+  };
+
+  handle.addEventListener('mousedown', down);
+  handle.addEventListener('touchstart', down, { passive: false });
+  window.addEventListener('mousemove', move);
+  window.addEventListener('touchmove', move, { passive: false });
+  window.addEventListener('mouseup', up);
+  window.addEventListener('touchend', up);
+}
+
+function makeResizable(pane, grip, id) {
+  let start = null;
+
+  const down = (e) => {
+    const pt = e.touches ? e.touches[0] : e;
+    start = { px: pt.clientX, py: pt.clientY, w: pane.offsetWidth, h: pane.offsetHeight };
+    focusPane(pane);
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const move = (e) => {
+    if (!start) return;
+    const pt = e.touches ? e.touches[0] : e;
+    pane.style.width = `${Math.max(190, start.w + (pt.clientX - start.px))}px`;
+    pane.style.height = `${Math.max(120, start.h + (pt.clientY - start.py))}px`;
+    e.preventDefault();
+  };
+
+  const up = () => {
+    if (!start) return;
+    start = null;
+    const r = pane.getBoundingClientRect();
+    const stage = $('#stage').getBoundingClientRect();
+    saveBox(id, { x: r.left - stage.left, y: r.top - stage.top, w: pane.offsetWidth, h: pane.offsetHeight });
+  };
+
+  grip.addEventListener('mousedown', down);
+  grip.addEventListener('touchstart', down, { passive: false });
+  window.addEventListener('mousemove', move);
+  window.addEventListener('touchmove', move, { passive: false });
+  window.addEventListener('mouseup', up);
+  window.addEventListener('touchend', up);
+}
+
+function openPane(id) {
+  const def = PANEL_DEFS[id];
+  if (!def) return null;
+  if (def.owner && !isOwner()) {
+    toast('Ta funkcja wymaga zalogowania haslem.');
+    return null;
+  }
+  if (PANES.has(id)) {
+    const pane = PANES.get(id);
+    pane.classList.remove('min');
+    focusPane(pane);
+    return pane;
+  }
+
+  const frag = $('#panelTpl').content.cloneNode(true);
+  const pane = frag.querySelector('.pane');
+  pane.dataset.pane = id;
+  $('.pane-title', pane).textContent = def.title;
+
+  const box = clampBox(savedBox(id) || def.box());
+  pane.style.left = `${box.x}px`;
+  pane.style.top = `${box.y}px`;
+  pane.style.width = `${box.w}px`;
+  pane.style.height = `${box.h}px`;
+
+  const body = $('.pane-body', pane);
+  $('[data-act="close"]', pane).addEventListener('click', () => closePane(id));
+  $('[data-act="min"]', pane).addEventListener('click', () => {
+    pane.classList.toggle('min');
+    syncDock();
+  });
+  pane.addEventListener('mousedown', () => focusPane(pane));
+
+  makeDraggable(pane, $('.pane-bar', pane), id);
+  makeResizable(pane, $('[data-grip]', pane), id);
+
+  $('#stage').appendChild(pane);
+  PANES.set(id, pane);
+  focusPane(pane);
+
+  def.build(body, pane);
+  if (def.refresh) def.refresh();
+  syncDock();
+  return pane;
+}
+
+function closePane(id) {
+  const pane = PANES.get(id);
+  if (!pane) return;
+  if (PANEL_DEFS[id]?.onClose) PANEL_DEFS[id].onClose();
+  pane.remove();
+  PANES.delete(id);
+  syncDock();
+}
+
+function togglePane(id) {
+  if (PANES.has(id)) closePane(id);
+  else openPane(id);
+}
+
+function paneBody(id) {
+  const pane = PANES.get(id);
+  return pane ? $('.pane-body', pane) : null;
+}
+
+// ---------- Definicje paneli ----------
+
+function grid(col, row, w, h) {
+  return () => {
+    const stage = $('#stage').getBoundingClientRect();
+    const unitW = stage.width / 12;
+    const unitH = stage.height / 8;
+    return {
+      x: Math.round(col * unitW),
+      y: Math.round(row * unitH),
+      w: Math.round(w * unitW),
+      h: Math.round(h * unitH),
+    };
+  };
+}
+
+const PANEL_DEFS = {
+  core: {
+    title: 'RDZEN',
+    glyph: '◉',
+    box: grid(4, 0.2, 4, 4),
+    build(body) {
+      body.style.padding = '6px';
+      const wrap = el('div', 'core-wrap');
+      const cv = el('canvas', 'core-canvas');
+      cv.id = 'coreCanvas';
+      const st = el('div', 'core-state', 'GOTOWY');
+      st.id = 'coreState';
+      wrap.append(cv, st);
+      body.appendChild(wrap);
+      startCoreVisual(cv);
+    },
+  },
+
+  link: {
+    title: 'SYSTEM',
+    glyph: '▤',
+    box: grid(0.2, 0.2, 3.6, 2.2),
+    build(body) {
+      body.innerHTML = '';
+      const rows = [
+        ['TOZSAMOSC', 'linkRole'],
+        ['BATERIA', 'linkBattery'],
+        ['PAMIEC', 'linkStorage'],
+        ['LACZE', 'linkNet'],
+      ];
+      rows.forEach(([label, id]) => {
+        const r = el('div', 'kv');
+        r.append(el('span', null, label));
+        const b = el('b', null, '--');
+        b.id = id;
+        r.appendChild(b);
+        body.appendChild(r);
+      });
+      refreshLink();
+    },
+    refresh: () => refreshLink(),
+  },
+
+  clock: {
+    title: 'CZAS',
+    glyph: '◷',
+    box: grid(8.2, 0.2, 3.6, 2.2),
+    build(body) {
+      body.innerHTML = '';
+      const t = el('div', 'big-num', '--:--:--');
+      t.id = 'clkTime';
+      const d = el('div', 'sub', '');
+      d.id = 'clkDate';
+      body.append(t, d);
+      tickClock();
+    },
+  },
+
+  weather: {
+    title: 'OTOCZENIE',
+    glyph: '◍',
+    box: grid(0.2, 2.6, 3.6, 2.6),
+    build(body) {
+      body.innerHTML = '';
+      const t = el('div', 'big-num', '--°');
+      t.id = 'wxTemp';
+      const d = el('div', 'sub', 'lokalizuje...');
+      d.id = 'wxDesc';
+      const p = el('div', 'sub', '');
+      p.id = 'wxPlace';
+      p.style.marginTop = '6px';
+      const f = el('div');
+      f.id = 'wxDays';
+      f.style.marginTop = '10px';
+      body.append(t, d, p, f);
+      loadWeather();
+    },
+  },
+
+  talk: {
+    title: 'ROZMOWA',
+    glyph: '❐',
+    box: grid(8.2, 2.6, 3.6, 5.2),
+    build(body) {
+      body.innerHTML = '';
+      const feed = el('div', 'feed');
+      feed.id = 'talkFeed';
+      const f = el('form', 'field');
+      f.style.marginTop = '10px';
+      const i = el('input', 'inp');
+      i.id = 'talkInput';
+      i.placeholder = 'Napisz...';
+      i.autocomplete = 'off';
+      const b = el('button', 'btn', 'OK');
+      b.type = 'submit';
+      f.append(i, b);
+      f.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = i.value.trim();
+        if (text) {
+          i.value = '';
+          sendTyped(text);
+        }
+      });
+      body.append(feed, f);
+    },
+  },
+
+  tasks: {
+    title: 'ZADANIA',
+    glyph: '☰',
+    owner: true,
+    box: grid(0.2, 5.4, 3.9, 2.4),
+    build(body) {
+      body.innerHTML = '';
+      const f = el('form', 'field');
+      const i = el('input', 'inp');
+      i.placeholder = 'Nowe zadanie...';
+      i.autocomplete = 'off';
+      const b = el('button', 'btn', '+');
+      b.type = 'submit';
+      f.append(i, b);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!i.value.trim()) return;
+        try {
+          const { todos } = await api('/api/todos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: i.value.trim() }),
+          });
+          i.value = '';
+          drawTasks(todos);
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+      const ul = el('ul', 'list');
+      ul.id = 'taskList';
+      body.append(f, ul);
+      loadTasks();
+    },
+    refresh: () => loadTasks(),
+  },
+
+  alerts: {
+    title: 'PRZYPOMNIENIA',
+    glyph: '◔',
+    owner: true,
+    box: grid(4.2, 5.4, 3.9, 2.4),
+    build(body) {
+      body.innerHTML = '';
+      const f = el('form', 'field col');
+      const i = el('input', 'inp');
+      i.placeholder = 'Tresc...';
+      i.autocomplete = 'off';
+      const d = el('input', 'inp');
+      d.type = 'datetime-local';
+      const b = el('button', 'btn', 'Dodaj');
+      b.type = 'submit';
+      f.append(i, d, b);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!i.value.trim() || !d.value) return;
+        try {
+          const { reminders } = await api('/api/reminders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: i.value.trim(), dueAt: d.value }),
+          });
+          i.value = '';
+          d.value = '';
+          drawAlerts(reminders);
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+      const ul = el('ul', 'list');
+      ul.id = 'alertList';
+      body.append(f, ul);
+      loadAlerts();
+    },
+    refresh: () => loadAlerts(),
+  },
+
+  mind: {
+    title: 'PAMIEC',
+    glyph: '❖',
+    owner: true,
+    box: grid(4.2, 0.2, 3.6, 2.2),
+    build(body) {
+      body.innerHTML = '';
+      const ul = el('ul', 'list');
+      ul.id = 'mindList';
+      body.appendChild(ul);
+      loadMind();
+    },
+    refresh: () => loadMind(),
+  },
+
+  eye: {
+    title: 'KAMERA',
+    glyph: '◎',
+    owner: true,
+    box: grid(4.2, 2.6, 3.9, 2.6),
+    build(body) {
+      body.innerHTML = '';
+      const v = el('video', 'cam-feed');
+      v.id = 'camFeed';
+      v.autoplay = true;
+      v.playsInline = true;
+      v.muted = true;
+      const note = el('div', 'hint', 'Kamera wylaczona. Powiedz Jarvisowi "wlacz kamere".');
+      note.id = 'camNote';
+      body.append(v, note);
+      v.style.display = camStream ? 'block' : 'none';
+      note.style.display = camStream ? 'none' : 'block';
+      if (camStream) v.srcObject = camStream;
+    },
+  },
+
+  find: {
+    title: 'WYSZUKIWANIE',
+    glyph: '⌕',
+    box: grid(0.2, 2.6, 7.9, 5.2),
+    build(body) {
+      body.innerHTML = '';
+      const q = el('div', 'sub', 'Powiedz Jarvisowi, czego poszukac.');
+      q.id = 'findQuery';
+      const r = el('div');
+      r.id = 'findHits';
+      r.style.marginTop = '10px';
+      body.append(q, r);
+      if (lastSearch) drawHits(lastSearch.query, lastSearch.results);
+    },
+  },
+};
+
+const DOCK_ORDER = ['core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find'];
+
+function buildDock() {
+  const dock = $('#dock');
+  dock.innerHTML = '';
+  DOCK_ORDER.forEach((id) => {
+    const def = PANEL_DEFS[id];
+    const b = el('button', 'dock-btn');
+    b.dataset.dock = id;
+    b.append(el('span', 'gl', def.glyph), el('span', null, def.title));
+    b.addEventListener('click', () => togglePane(id));
+    dock.appendChild(b);
+  });
+  syncDock();
+}
+
+function syncDock() {
+  document.querySelectorAll('[data-dock]').forEach((b) => {
+    const id = b.dataset.dock;
+    b.classList.toggle('on', PANES.has(id));
+    b.classList.toggle('locked', Boolean(PANEL_DEFS[id].owner) && !isOwner());
+  });
+}
+
+// ---------- Wizualizacja rdzenia ----------
+
+let coreRaf = null;
+
+function startCoreVisual(cv) {
+  const ctx = cv.getContext('2d');
+  let t = 0;
+
+  const draw = () => {
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(rect.width * dpr)) {
+      cv.width = Math.round(rect.width * dpr);
+      cv.height = Math.round(rect.height * dpr);
+    }
+    const w = rect.width;
+    const h = rect.height;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const base = Math.min(w, h) / 2 - 6;
+    if (base <= 0) {
+      coreRaf = requestAnimationFrame(draw);
+      return;
+    }
+    const lvl = store.audioLevel;
+    t += 0.016;
+
+    // Obrotowe luki
+    const arcs = [
+      { r: base * 0.94, from: 0.1, len: 1.5, sp: 0.35, a: 0.55 },
+      { r: base * 0.94, from: 3.4, len: 1.1, sp: 0.35, a: 0.55 },
+      { r: base * 0.76, from: 1.2, len: 2.4, sp: -0.5, a: 0.75 },
+      { r: base * 0.58, from: 2.6, len: 1.8, sp: 0.8, a: 0.9 },
+    ];
+    arcs.forEach((a) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, a.r, a.from + t * a.sp, a.from + a.len + t * a.sp);
+      ctx.strokeStyle = `rgba(34, 224, 255, ${a.a})`;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
+
+    // Radialne slupki reagujace na dzwiek
+    const bars = 56;
+    for (let i = 0; i < bars; i++) {
+      const ang = (i / bars) * Math.PI * 2;
+      const wobble = Math.sin(t * 3 + i * 0.7) * 0.5 + 0.5;
+      const len = base * 0.1 + wobble * base * 0.1 * (0.25 + lvl * 2.4);
+      const r0 = base * 0.34;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+      ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
+      ctx.strokeStyle = `rgba(34, 224, 255, ${0.2 + wobble * 0.55})`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+
+    // Srodkowy wielobok
+    const sides = 6;
+    const pr = base * 0.24 * (1 + lvl * 0.4);
+    ctx.beginPath();
+    for (let i = 0; i <= sides; i++) {
+      const ang = (i / sides) * Math.PI * 2 - t * 0.4;
+      const px = cx + Math.cos(ang) * pr;
+      const py = cy + Math.sin(ang) * pr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(34, 224, 255, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = `rgba(34, 224, 255, ${0.08 + lvl * 0.3})`;
+    ctx.fill();
+
+    store.audioLevel *= 0.92;
+    coreRaf = requestAnimationFrame(draw);
+  };
+
+  if (coreRaf) cancelAnimationFrame(coreRaf);
+  draw();
+}
+
+function setCoreState(text) {
+  const n = $('#coreState');
+  if (n) n.textContent = text;
+  setState(text);
+}
+
+// ---------- Dane paneli ----------
+
+async function refreshLink() {
+  const roleEl = $('#linkRole');
+  if (roleEl) {
+    roleEl.textContent = isOwner() ? 'MILOSZ' : 'GOSC';
+    roleEl.classList.toggle('good', isOwner());
+  }
+  const net = $('#linkNet');
+  if (net) net.textContent = navigator.onLine ? 'AKTYWNE' : 'BRAK';
+
+  if (navigator.getBattery) {
+    try {
+      const b = await navigator.getBattery();
+      const n = $('#linkBattery');
+      if (n) n.textContent = `${Math.round(b.level * 100)}%`;
+    } catch {
+      /* brak API baterii */
     }
   }
-  speaking = false;
-  setStatus('ONLINE', null);
-}
-
-// Dzieli na zdania po . ! ? (ale NIE w liczbach dziesietnych typu "19.5")
-// oraz po pustej linii (podwojny enter = nowy akapit). Pojedynczy enter
-// sam w sobie nie konczy zdania, zeby uniknac mikro-fragmentow.
-const SENTENCE_END_RE = /[^.!?]*(?:(?<!\d)[.!?]+(?!\d)|\n\s*\n)/g;
-const MIN_CHUNK_LENGTH = 3;
-
-function extractSentences(buffer) {
-  const sentences = [];
-  let lastIndex = 0;
-  let pending = '';
-  SENTENCE_END_RE.lastIndex = 0;
-  let match;
-  while ((match = SENTENCE_END_RE.exec(buffer))) {
-    pending += match[0];
-    lastIndex = SENTENCE_END_RE.lastIndex;
-    if (pending.trim().length >= MIN_CHUNK_LENGTH) {
-      sentences.push(pending);
-      pending = '';
+  if (navigator.storage?.estimate) {
+    try {
+      const { usage, quota } = await navigator.storage.estimate();
+      const n = $('#linkStorage');
+      if (n && quota) n.textContent = `${(usage / 1e9).toFixed(1)}/${(quota / 1e9).toFixed(0)} GB`;
+    } catch {
+      /* brak API pamieci */
     }
   }
-  return { sentences, remainder: pending + buffer.slice(lastIndex) };
 }
 
-// --- Chat (streaming) ---
-async function streamResponseInto(res, replyDiv) {
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Blad serwera (${res.status})`);
+function tickClock() {
+  const now = new Date();
+  const t = $('#clkTime');
+  const d = $('#clkDate');
+  const bar = $('#barClock');
+  const hh = now.toLocaleTimeString('pl-PL', { hour12: false });
+  if (t) t.textContent = hh;
+  if (bar) bar.textContent = hh;
+  if (d) d.textContent = now.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+}
+setInterval(tickClock, 1000);
+
+const WX_TEXT = {
+  0: 'bezchmurnie', 1: 'przewaznie slonecznie', 2: 'czesciowe zachmurzenie', 3: 'pochmurno',
+  45: 'mgla', 48: 'mgla', 51: 'mzawka', 53: 'mzawka', 55: 'mzawka',
+  61: 'deszcz', 63: 'deszcz', 65: 'silny deszcz', 66: 'marznacy deszcz', 67: 'marznacy deszcz',
+  71: 'snieg', 73: 'snieg', 75: 'silny snieg', 77: 'snieg',
+  80: 'przelotny deszcz', 81: 'przelotny deszcz', 82: 'ulewa', 85: 'przelotny snieg', 86: 'silny snieg',
+  95: 'burza', 96: 'burza z gradem', 99: 'silna burza',
+};
+const DAY_SHORT = ['ND', 'PN', 'WT', 'SR', 'CZ', 'PT', 'SB'];
+
+async function fetchWeather(lat, lon, label) {
+  try {
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max&forecast_days=4&timezone=auto`
+    );
+    const data = await res.json();
+    const t = $('#wxTemp');
+    const d = $('#wxDesc');
+    const p = $('#wxPlace');
+    const days = $('#wxDays');
+    if (t) t.textContent = `${Math.round(data.current.temperature_2m)}°`;
+    if (d) d.textContent = (WX_TEXT[data.current.weather_code] || '').toUpperCase();
+    if (p) p.textContent = label;
+    if (days && data.daily?.time) {
+      days.innerHTML = '';
+      data.daily.time.forEach((date, i) => {
+        if (i === 0) return;
+        const row = el('div', 'kv');
+        row.append(el('span', null, DAY_SHORT[new Date(date).getDay()]));
+        row.append(el('b', null, `${Math.round(data.daily.temperature_2m_max[i])}°`));
+        days.appendChild(row);
+      });
+    }
+  } catch {
+    const d = $('#wxDesc');
+    if (d) d.textContent = 'BRAK DANYCH';
   }
+}
 
-  let fullReply = '';
-  let speechBuffer = '';
-  const handledActions = new Set();
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const piece = decoder.decode(value, { stream: true });
-    fullReply += piece;
-    renderReplyContent(replyDiv, fullReply);
-    logEl.scrollTop = logEl.scrollHeight;
+function loadWeather() {
+  if (store.location) return fetchWeather(store.location.lat, store.location.lon, 'TWOJA POZYCJA');
+  if (!navigator.geolocation) return fetchWeather(52.23, 21.01, 'WARSZAWA');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      store.location = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      fetchWeather(pos.coords.latitude, pos.coords.longitude, 'TWOJA POZYCJA');
+    },
+    () => fetchWeather(52.23, 21.01, 'WARSZAWA'),
+    { timeout: 8000 }
+  );
+}
 
-    for (const m of fullReply.matchAll(AKCJA_RE)) {
-      const name = m[1].trim();
-      if (!handledActions.has(name)) {
-        handledActions.add(name);
-        runDesktopAction(name);
+function drawTasks(todos) {
+  const ul = $('#taskList');
+  if (!ul) return;
+  ul.innerHTML = '';
+  if (!todos.length) {
+    ul.appendChild(el('li', 'hint', 'Brak zadan.'));
+    return;
+  }
+  todos.forEach((t) => {
+    const li = el('li', `row ${t.done ? 'done' : ''}`);
+    const c = el('input', 'row-check');
+    c.type = 'checkbox';
+    c.checked = t.done;
+    c.addEventListener('change', async () => {
+      try {
+        const { todos: next } = await api(`/api/todos/${t.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ done: c.checked }),
+        });
+        drawTasks(next);
+      } catch (err) {
+        toast(err.message);
       }
+    });
+    const x = el('button', 'row-x', '×');
+    x.addEventListener('click', async () => {
+      try {
+        const { todos: next } = await api(`/api/todos/${t.id}`, { method: 'DELETE' });
+        drawTasks(next);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    li.append(c, el('span', 'row-text', t.text), x);
+    ul.appendChild(li);
+  });
+}
+
+async function loadTasks() {
+  if (!isOwner() || !PANES.has('tasks')) return;
+  try {
+    const { todos } = await api('/api/todos');
+    drawTasks(todos);
+  } catch {
+    /* brak uprawnien albo brak sieci */
+  }
+}
+
+function drawAlerts(reminders) {
+  const ul = $('#alertList');
+  if (!ul) return;
+  ul.innerHTML = '';
+  const pending = reminders.filter((r) => !r.sent);
+  if (!pending.length) {
+    ul.appendChild(el('li', 'hint', 'Brak przypomnien.'));
+    return;
+  }
+  pending.forEach((r) => {
+    const li = el('li', 'row');
+    const when = new Date(r.dueAt).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const x = el('button', 'row-x', '×');
+    x.addEventListener('click', async () => {
+      try {
+        const { reminders: next } = await api(`/api/reminders/${r.id}`, { method: 'DELETE' });
+        drawAlerts(next);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    li.append(el('span', 'row-text', r.text), el('span', 'row-meta', when), x);
+    ul.appendChild(li);
+  });
+}
+
+async function loadAlerts() {
+  if (!isOwner() || !PANES.has('alerts')) return;
+  try {
+    const { reminders } = await api('/api/reminders');
+    drawAlerts(reminders);
+  } catch {
+    /* brak uprawnien albo brak sieci */
+  }
+}
+
+async function loadMind() {
+  if (!isOwner() || !PANES.has('mind')) return;
+  const ul = $('#mindList');
+  if (!ul) return;
+  try {
+    const { facts } = await api('/api/memory');
+    ul.innerHTML = '';
+    if (!facts.length) {
+      ul.appendChild(el('li', 'hint', 'Nic jeszcze nie zapamietano.'));
+      return;
     }
-
-    speechBuffer += piece.replace(IMG_MARKER_RE, '').replace(AKCJA_RE, '');
-    const { sentences, remainder } = extractSentences(speechBuffer);
-    for (const s of sentences) enqueueSpeech(s);
-    speechBuffer = remainder;
+    facts.forEach((f, i) => {
+      const li = el('li', 'row');
+      const x = el('button', 'row-x', '×');
+      x.addEventListener('click', async () => {
+        try {
+          await api(`/api/memory/${i}`, { method: 'DELETE' });
+          loadMind();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+      li.append(el('span', 'row-text', f), x);
+      ul.appendChild(li);
+    });
+  } catch {
+    /* brak uprawnien */
   }
-  if (speechBuffer.trim()) enqueueSpeech(speechBuffer);
-
-  const imgMatch = fullReply.match(IMG_MARKER_RE);
-  if (imgMatch) {
-    const img = document.createElement('img');
-    img.src = `/api/image/${imgMatch[1]}`;
-    img.alt = 'Wygenerowany obraz';
-    imageGallery.prepend(img);
-    toast('Jarvis wygenerowal obraz - zobacz zakladke Obrazy.', 'info');
-  }
-
-  return fullReply;
 }
 
-async function sendMessage(text) {
-  if (!text.trim()) return;
-  switchToDashboardTab();
-  addMessage(text, 'user');
-  textInput.value = '';
-  setStatus('PRZETWARZAM...', 'thinking');
+function refreshOwnerPanes() {
+  loadTasks();
+  loadAlerts();
+  loadMind();
+  refreshLink();
+}
 
-  const replyDiv = addMessage('', 'jarvis');
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, location: mobileLocation }),
-    });
-    const fullReply = await streamResponseInto(res, replyDiv);
-    if (!fullReply.trim()) {
-      replyDiv.remove();
-    } else {
-      loadTodos();
-      loadReminders();
-      loadFactsGauge();
+// ---------- Wyszukiwanie ----------
+
+let lastSearch = null;
+
+function drawHits(query, results) {
+  const q = $('#findQuery');
+  const box = $('#findHits');
+  if (!box) return;
+  if (q) q.textContent = `ZAPYTANIE: ${query}`;
+  box.innerHTML = '';
+  if (!results.length) {
+    box.appendChild(el('div', 'hint', 'Brak wynikow.'));
+    return;
+  }
+  // Tresc pochodzi z obcych stron - budujemy wezly, nie wstrzykujemy HTML.
+  results.forEach((r) => {
+    const card = el('div', 'hit');
+    const safe = /^https?:\/\//i.test(r.url || '');
+    const title = el(safe ? 'a' : 'div', null, r.title || '');
+    if (safe) {
+      title.href = r.url;
+      title.target = '_blank';
+      title.rel = 'noopener noreferrer';
     }
-  } catch (err) {
-    replyDiv.remove();
-    toast(`Blad: ${err.message}`);
-    setStatus('ONLINE', null);
-  }
+    const host = el('div', 'host');
+    try {
+      host.textContent = new URL(r.url).hostname;
+    } catch {
+      host.textContent = r.url || '';
+    }
+    card.append(title, host, el('div', 'snip', r.snippet || ''));
+    box.appendChild(card);
+  });
 }
 
-sendBtn.addEventListener('click', () => sendMessage(textInput.value));
-textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendMessage(textInput.value);
-});
-
-
-// --- Rozmowa na zywo (Gemini Live API) ---
-// Ciagly, dwukierunkowy strumien audio zamiast nagraj->transkrybuj->czat->mow.
-// To sam model rozumie mowe i mowi natywnie - bez posredniego tekstu, bez
-// dopasowywania slowa "Jarvis" (ktore bylo niewiarygodne). Kliknij, zeby
-// zaczac rozmowe, kliknij ponownie, zeby ja zakonczyc.
-let wakeModeOn = false; // true = trwa rozmowa na zywo
-let liveWs = null;
-let liveAudioCtx = null;
-let liveMicStream = null;
-let liveProcessor = null;
-let livePlaybackCtx = null;
-let liveNextPlayTime = 0;
-let liveActiveSources = [];
-let liveFrameTimer = null;
-const liveFrameCanvas = document.createElement('canvas');
-
-function getLiveWsUrl() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const base = `${proto}//${location.host}/ws/voice`;
-  if (mobileLocation) {
-    return `${base}?lat=${mobileLocation.lat}&lon=${mobileLocation.lon}`;
-  }
-  return base;
+function showSearch(query, results) {
+  lastSearch = { query, results };
+  openPane('find');
+  drawHits(query, results);
 }
 
-// Lokalizacja GPS - tylko w aplikacji mobilnej (Capacitor). Uzywana jako
-// domyslna lokalizacja dla pogody, gdy uzytkownik nie poda miasta.
-let mobileLocation = null;
+// ---------- Kamera ----------
 
-async function primeMobileLocation() {
-  if (!isCapacitorNative() || !window.Capacitor.Plugins.Geolocation) return;
+let camStream = null;
+let camTimer = null;
+const camCanvas = document.createElement('canvas');
+
+async function camOn() {
+  if (camStream || !isOwner()) return;
   try {
-    const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
-      enableHighAccuracy: false,
-      timeout: 8000,
-    });
-    mobileLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-  } catch (e) {
-    /* brak zgody albo brak GPS - po prostu nie uzywamy lokalizacji */
-  }
-}
-primeMobileLocation();
-
-function resampleTo16k(float32Array, inputRate) {
-  if (inputRate === 16000) return float32Array;
-  const ratio = inputRate / 16000;
-  const outLength = Math.floor(float32Array.length / ratio);
-  const result = new Float32Array(outLength);
-  for (let i = 0; i < outLength; i++) {
-    const srcIdx = i * ratio;
-    const idxLow = Math.floor(srcIdx);
-    const idxHigh = Math.min(idxLow + 1, float32Array.length - 1);
-    const frac = srcIdx - idxLow;
-    result[i] = float32Array[idxLow] * (1 - frac) + float32Array[idxHigh] * frac;
-  }
-  return result;
-}
-
-function floatTo16BitPCM(float32Array) {
-  const buffer = new ArrayBuffer(float32Array.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < float32Array.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32Array[i]));
-    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return buffer;
-}
-
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-function stopLivePlayback() {
-  liveActiveSources.forEach((s) => { try { s.stop(); } catch (e) { /* noop */ } });
-  liveActiveSources = [];
-  if (livePlaybackCtx) liveNextPlayTime = livePlaybackCtx.currentTime;
-}
-
-function playLiveAudioChunk(arrayBuffer) {
-  if (!livePlaybackCtx) return;
-  const int16 = new Int16Array(arrayBuffer);
-  const float32 = new Float32Array(int16.length);
-  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-  const audioBuffer = livePlaybackCtx.createBuffer(1, float32.length, 24000);
-  audioBuffer.copyToChannel(float32, 0);
-  const source = livePlaybackCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(livePlaybackCtx.destination);
-  const now = livePlaybackCtx.currentTime;
-  const startAt = Math.max(now, liveNextPlayTime);
-  source.start(startAt);
-  liveNextPlayTime = startAt + audioBuffer.duration;
-  liveActiveSources.push(source);
-  source.onended = () => { liveActiveSources = liveActiveSources.filter((s) => s !== source); };
-  audioLevel = 0.7;
-}
-
-// Kamera podczas rozmowy na zywo jest wylaczona domyslnie - wlacza sie
-// TYLKO gdy uzytkownik o to poprosi glosowo (Jarvis wywoluje wtedy narzedzie
-// wlacz_kamere, serwer przekazuje to tu jako komunikat 'startCamera').
-let liveVideoStream = null;
-
-async function enableLiveCamera() {
-  if (liveVideoStream || !wakeModeOn) return;
-  const previewEl = document.getElementById('liveCameraPreview');
-  if (!previewEl) return;
-  try {
-    liveVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 480 } },
-    });
-  } catch (e) {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 480 } } });
+  } catch {
     toast('Brak dostepu do kamery.');
     return;
   }
-  previewEl.srcObject = liveVideoStream;
-  previewEl.hidden = false;
+  openPane('eye');
+  const v = $('#camFeed');
+  const note = $('#camNote');
+  if (v) {
+    v.srcObject = camStream;
+    v.style.display = 'block';
+  }
+  if (note) note.style.display = 'none';
 
-  // toBlob (async, poza glownym watkiem) zamiast toDataURL (synchroniczne,
-  // blokowaloby glowny watek na tyle dlugo, ze przechwytywanie audio
-  // (ScriptProcessorNode, tez na glownym watku) traciloby probki - to
-  // realne zrodlo duzych opoznien w odpowiedziach, nie sam model.
-  const ctx = liveFrameCanvas.getContext('2d');
-  let frameInFlight = false;
-  liveFrameTimer = setInterval(() => {
-    if (!wakeModeOn || !liveWs || liveWs.readyState !== WebSocket.OPEN || frameInFlight) return;
-    if (!previewEl.videoWidth) return;
-    const w = Math.min(360, previewEl.videoWidth);
-    const h = Math.round(w * (previewEl.videoHeight / previewEl.videoWidth));
-    liveFrameCanvas.width = w;
-    liveFrameCanvas.height = h;
-    ctx.drawImage(previewEl, 0, 0, w, h);
-    frameInFlight = true;
-    liveFrameCanvas.toBlob(
+  const ctx = camCanvas.getContext('2d');
+  let busy = false;
+  camTimer = setInterval(() => {
+    if (busy || !store.live || !liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+    const vid = $('#camFeed');
+    if (!vid || !vid.videoWidth) return;
+    const w = Math.min(360, vid.videoWidth);
+    const h = Math.round(w * (vid.videoHeight / vid.videoWidth));
+    camCanvas.width = w;
+    camCanvas.height = h;
+    ctx.drawImage(vid, 0, 0, w, h);
+    busy = true;
+    camCanvas.toBlob(
       (blob) => {
-        frameInFlight = false;
+        busy = false;
         if (!blob || !liveWs || liveWs.readyState !== WebSocket.OPEN) return;
         blob.arrayBuffer().then((buf) => {
-          liveWs.send(JSON.stringify({ type: 'video', data: arrayBufferToBase64(buf) }));
+          liveWs.send(JSON.stringify({ type: 'video', data: bufToB64(buf) }));
         });
       },
       'image/jpeg',
@@ -529,854 +909,593 @@ async function enableLiveCamera() {
   }, 1500);
 }
 
-function disableLiveCamera() {
-  if (liveFrameTimer) { clearInterval(liveFrameTimer); liveFrameTimer = null; }
-  if (liveVideoStream) { liveVideoStream.getTracks().forEach((t) => t.stop()); liveVideoStream = null; }
-  const previewEl = document.getElementById('liveCameraPreview');
-  if (previewEl) { previewEl.srcObject = null; previewEl.hidden = true; }
-}
-
-// Wyniki wyszukiwania w sieci ("antygravity") - Jarvis szuka na prosbe
-// glosowa, wyniki pokazuja sie tutaj do przegladania/klikania. Budujemy DOM
-// przez textContent/wlasciwosci (nie innerHTML) bo tytuly/opisy pochodza z
-// zewnetrznych stron i nie sa zaufanym HTML-em.
-function renderSearchResults(query, results) {
-  const overlay = document.getElementById('searchOverlay');
-  const queryEl = document.getElementById('searchQuery');
-  const listEl = document.getElementById('searchResults');
-  if (!overlay) return;
-
-  queryEl.textContent = `WYNIKI: ${query}`;
-  listEl.innerHTML = '';
-
-  if (!results.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-hint';
-    empty.textContent = 'Brak wynikow.';
-    listEl.appendChild(empty);
-  } else {
-    results.forEach((r) => {
-      const card = document.createElement('div');
-      card.className = 'search-result-card';
-
-      const isSafeUrl = /^https?:\/\//i.test(r.url || '');
-      const titleEl = document.createElement(isSafeUrl ? 'a' : 'div');
-      if (isSafeUrl) {
-        titleEl.href = r.url;
-        titleEl.target = '_blank';
-        titleEl.rel = 'noopener noreferrer';
-      } else {
-        titleEl.className = 'search-result-title';
-      }
-      titleEl.textContent = r.title || '';
-
-      const urlEl = document.createElement('div');
-      urlEl.className = 'search-result-url';
-      try { urlEl.textContent = new URL(r.url).hostname; } catch (e) { urlEl.textContent = r.url || ''; }
-
-      const snippetEl = document.createElement('div');
-      snippetEl.className = 'search-result-snippet';
-      snippetEl.textContent = r.snippet || '';
-
-      card.appendChild(titleEl);
-      card.appendChild(urlEl);
-      card.appendChild(snippetEl);
-      listEl.appendChild(card);
-    });
+function camOff() {
+  if (camTimer) {
+    clearInterval(camTimer);
+    camTimer = null;
   }
-
-  overlay.hidden = false;
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  const v = $('#camFeed');
+  const note = $('#camNote');
+  if (v) {
+    v.srcObject = null;
+    v.style.display = 'none';
+  }
+  if (note) note.style.display = 'block';
 }
 
-document.getElementById('searchCloseBtn')?.addEventListener('click', () => {
-  document.getElementById('searchOverlay').hidden = true;
-});
+PANEL_DEFS.eye.onClose = () => camOff();
 
-async function startLiveConversation() {
-  stopWakeListening();
-  wakeModeOn = true;
-  wakeBtn.classList.add('active');
-  setStatus('LACZE...', 'thinking');
+// ---------- Sterowanie urzadzeniem ----------
+
+function isNativeShell() {
+  return Boolean(window.Capacitor?.isNativePlatform?.());
+}
+
+async function runDeviceAction(name) {
+  if (!isOwner()) {
+    toast('Sterowanie urzadzeniem wymaga zalogowania.');
+    return;
+  }
+  try {
+    if (window.jarvisDesktop) {
+      const r = await window.jarvisDesktop.runAction(name);
+      if (!r?.ok) toast(`Nie udalo sie: ${name}`);
+      return;
+    }
+    if (isNativeShell() && window.Capacitor.Plugins.DeviceControl) {
+      const r = await window.Capacitor.Plugins.DeviceControl.runAction({ name });
+      if (!r?.ok) toast(`Nie udalo sie: ${name}`);
+      return;
+    }
+    toast('Sterowanie dziala w aplikacji desktopowej lub mobilnej.', 'ok');
+  } catch {
+    toast(`Nie udalo sie: ${name}`);
+  }
+}
+
+// ---------- Transkrypcja rozmowy ----------
+
+function pushSaid(who, text) {
+  if (!text) return;
+  openPane('talk');
+  const feed = $('#talkFeed');
+  if (!feed) return;
+  const d = el('div', `said ${who === 'me' ? 'me' : 'jv'}`);
+  d.appendChild(el('span', 'who', who === 'me' ? 'TY' : 'JARVIS'));
+  d.appendChild(document.createTextNode(text));
+  feed.appendChild(d);
+  feed.scrollTop = feed.scrollHeight;
+  return d;
+}
+
+// ---------- Czat pisany ----------
+
+const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
+const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
+
+async function sendTyped(text) {
+  pushSaid('me', text);
+  setCoreState('MYSLE');
+  const node = pushSaid('jv', '');
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ message: text, location: store.location }),
+    });
+    if (!res.ok) throw new Error(`Blad ${res.status}`);
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let full = '';
+    const done = new Set();
+    for (;;) {
+      const { done: fin, value } = await reader.read();
+      if (fin) break;
+      full += dec.decode(value, { stream: true });
+      for (const m of full.matchAll(ACT_RE)) {
+        if (!done.has(m[1])) {
+          done.add(m[1]);
+          runDeviceAction(m[1].trim());
+        }
+      }
+      node.textContent = '';
+      node.appendChild(el('span', 'who', 'JARVIS'));
+      node.appendChild(document.createTextNode(full.replace(ACT_RE, '').replace(IMG_RE, '')));
+      $('#talkFeed').scrollTop = $('#talkFeed').scrollHeight;
+    }
+    const img = full.match(IMG_RE);
+    if (img) {
+      const im = el('img');
+      im.src = `/api/image/${img[1]}`;
+      im.alt = 'Wygenerowany obraz';
+      node.appendChild(im);
+    }
+    speak(full.replace(ACT_RE, '').replace(IMG_RE, '').trim());
+    if (isOwner()) refreshOwnerPanes();
+  } catch (err) {
+    node.remove();
+    toast(err.message);
+  }
+  setCoreState('GOTOWY');
+}
+
+// ---------- Mowa (czat pisany) ----------
+
+async function speak(text) {
+  if (!text) return;
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const audio = new Audio(URL.createObjectURL(blob));
+    setCoreState('MOWIE');
+    audio.onplay = () => { store.audioLevel = 0.7; };
+    audio.ontimeupdate = () => { store.audioLevel = Math.max(store.audioLevel, 0.5); };
+    audio.onended = () => setCoreState('GOTOWY');
+    await audio.play().catch(() => {});
+  } catch {
+    /* mowa jest dodatkiem - cisza nie blokuje rozmowy */
+  }
+}
+
+// ---------- Rozmowa na zywo ----------
+
+let liveWs = null;
+let micStream = null;
+let micNode = null;
+let micCtx = null;
+let outCtx = null;
+let outAt = 0;
+let outSources = [];
+
+function wsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const p = new URLSearchParams();
+  if (store.location) {
+    p.set('lat', store.location.lat);
+    p.set('lon', store.location.lon);
+  }
+  if (store.token) p.set('token', store.token);
+  const qs = p.toString();
+  return `${proto}//${location.host}/ws/voice${qs ? `?${qs}` : ''}`;
+}
+
+function to16k(f32, rate) {
+  if (rate === 16000) return f32;
+  const ratio = rate / 16000;
+  const out = new Float32Array(Math.floor(f32.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const src = i * ratio;
+    const lo = Math.floor(src);
+    const hi = Math.min(lo + 1, f32.length - 1);
+    out[i] = f32[lo] * (1 - (src - lo)) + f32[hi] * (src - lo);
+  }
+  return out;
+}
+
+function toPCM16(f32) {
+  const buf = new ArrayBuffer(f32.length * 2);
+  const view = new DataView(buf);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buf;
+}
+
+function bufToB64(buf) {
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+  }
+  return btoa(bin);
+}
+
+function stopOut() {
+  outSources.forEach((s) => {
+    try {
+      s.stop();
+    } catch {
+      /* juz zatrzymane */
+    }
+  });
+  outSources = [];
+  if (outCtx) outAt = outCtx.currentTime;
+}
+
+function playChunk(buf) {
+  if (!outCtx) return;
+  const i16 = new Int16Array(buf);
+  const f32 = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+  const ab = outCtx.createBuffer(1, f32.length, 24000);
+  ab.copyToChannel(f32, 0);
+  const src = outCtx.createBufferSource();
+  src.buffer = ab;
+  src.connect(outCtx.destination);
+  const at = Math.max(outCtx.currentTime, outAt);
+  src.start(at);
+  outAt = at + ab.duration;
+  outSources.push(src);
+  src.onended = () => {
+    outSources = outSources.filter((s) => s !== src);
+  };
+  store.audioLevel = 0.75;
+}
+
+async function liveStart() {
+  wakeStop();
+  store.live = true;
+  $('#talkBtn').classList.add('live');
+  setCoreState('LACZE');
 
   try {
-    liveMicStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
-  } catch (e) {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+  } catch {
     toast('Brak dostepu do mikrofonu.');
-    wakeModeOn = false;
-    wakeBtn.classList.remove('active');
-    setStatus('ONLINE', null);
-    startWakeListening();
+    store.live = false;
+    $('#talkBtn').classList.remove('live');
+    setCoreState('GOTOWY');
+    wakeStart();
     return;
   }
 
-  livePlaybackCtx = new (window.AudioContext || window.webkitAudioContext)();
-  liveNextPlayTime = 0;
-  liveWs = new WebSocket(getLiveWsUrl());
+  outCtx = new (window.AudioContext || window.webkitAudioContext)();
+  outAt = 0;
+  liveWs = new WebSocket(wsUrl());
   liveWs.binaryType = 'arraybuffer';
 
   liveWs.onopen = async () => {
-    liveAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = liveAudioCtx.createMediaStreamSource(liveMicStream);
-    const onAudioFrame = (float32Array) => {
-      if (!wakeModeOn || liveWs.readyState !== WebSocket.OPEN) return;
-      const resampled = resampleTo16k(float32Array, liveAudioCtx.sampleRate);
-      liveWs.send(floatTo16BitPCM(resampled));
-      audioLevel = Math.max(audioLevel, 0.3);
+    micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = micCtx.createMediaStreamSource(micStream);
+    const onFrame = (f32) => {
+      if (!store.live || liveWs.readyState !== WebSocket.OPEN) return;
+      liveWs.send(toPCM16(to16k(f32, micCtx.sampleRate)));
+      store.audioLevel = Math.max(store.audioLevel, 0.28);
     };
-
     try {
-      // AudioWorklet dziala na osobnym watku audio - odporne na jakiekolwiek
-      // zaciecia glownego watku (np. kodowanie klatki kamery). Preferowane
-      // nad przestarzalym ScriptProcessorNode ponizej.
-      await liveAudioCtx.audioWorklet.addModule('/live-audio-processor.js');
-      liveProcessor = new AudioWorkletNode(liveAudioCtx, 'live-audio-processor');
-      liveProcessor.port.onmessage = (e) => onAudioFrame(e.data);
-      source.connect(liveProcessor);
-    } catch (err) {
-      liveProcessor = liveAudioCtx.createScriptProcessor(4096, 1, 1);
-      const silentGain = liveAudioCtx.createGain();
-      silentGain.gain.value = 0;
-      source.connect(liveProcessor);
-      liveProcessor.connect(silentGain);
-      silentGain.connect(liveAudioCtx.destination);
-      liveProcessor.onaudioprocess = (e) => onAudioFrame(e.inputBuffer.getChannelData(0));
+      await micCtx.audioWorklet.addModule('/live-audio-processor.js');
+      micNode = new AudioWorkletNode(micCtx, 'live-audio-processor');
+      micNode.port.onmessage = (e) => onFrame(e.data);
+      src.connect(micNode);
+    } catch {
+      micNode = micCtx.createScriptProcessor(4096, 1, 1);
+      const g = micCtx.createGain();
+      g.gain.value = 0;
+      src.connect(micNode);
+      micNode.connect(g);
+      g.connect(micCtx.destination);
+      micNode.onaudioprocess = (e) => onFrame(e.inputBuffer.getChannelData(0));
     }
   };
 
-  liveWs.onmessage = (event) => {
-    if (event.data instanceof ArrayBuffer) {
-      playLiveAudioChunk(event.data);
-      setStatus('MOWIE...', 'speaking');
+  liveWs.onmessage = (ev) => {
+    if (ev.data instanceof ArrayBuffer) {
+      playChunk(ev.data);
+      setCoreState('MOWIE');
       return;
     }
-    let msg;
-    try { msg = JSON.parse(event.data); } catch (e) { return; }
-    if (msg.type === 'ready') {
-      setStatus('ROZMOWA NA ZYWO...', 'listening');
-    } else if (msg.type === 'interrupted') {
-      stopLivePlayback();
-    } else if (msg.type === 'turnComplete') {
-      loadTodos();
-      loadReminders();
-      loadFactsGauge();
-      if (wakeModeOn) setStatus('ROZMOWA NA ZYWO...', 'listening');
-    } else if (msg.type === 'error') {
-      toast(`Blad rozmowy na zywo: ${msg.message}`);
-      stopLiveConversation();
-    } else if (msg.type === 'closed') {
-      stopLiveConversation();
-    } else if (msg.type === 'startCamera') {
-      enableLiveCamera();
-    } else if (msg.type === 'stopCamera') {
-      disableLiveCamera();
-    } else if (msg.type === 'showSearch') {
-      renderSearchResults(msg.query, msg.results || []);
+    let m;
+    try {
+      m = JSON.parse(ev.data);
+    } catch {
+      return;
     }
+    if (m.type === 'ready') setCoreState('SLUCHAM');
+    else if (m.type === 'interrupted') stopOut();
+    else if (m.type === 'turnComplete') {
+      if (m.userText) pushSaid('me', m.userText);
+      if (m.assistantText) pushSaid('jv', m.assistantText);
+      if (isOwner()) refreshOwnerPanes();
+      if (store.live) setCoreState('SLUCHAM');
+    } else if (m.type === 'startCamera') camOn();
+    else if (m.type === 'stopCamera') camOff();
+    else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
+    else if (m.type === 'deviceAction') runDeviceAction(m.action);
+    else if (m.type === 'error') {
+      toast(`Rozmowa: ${m.message}`);
+      liveStop();
+    } else if (m.type === 'closed') liveStop();
   };
 
   liveWs.onerror = () => toast('Blad polaczenia glosowego.');
-  liveWs.onclose = () => { if (wakeModeOn) stopLiveConversation(); };
+  liveWs.onclose = () => {
+    if (store.live) liveStop();
+  };
 }
 
-function stopLiveConversation() {
-  wakeModeOn = false;
-  wakeBtn.classList.remove('active');
-  stopLivePlayback();
-  disableLiveCamera();
-  if (liveProcessor) {
-    liveProcessor.disconnect();
-    liveProcessor.onaudioprocess = null;
-    if (liveProcessor.port) liveProcessor.port.onmessage = null;
-    liveProcessor = null;
+function liveStop() {
+  store.live = false;
+  $('#talkBtn').classList.remove('live');
+  stopOut();
+  camOff();
+  if (micNode) {
+    micNode.disconnect();
+    micNode.onaudioprocess = null;
+    if (micNode.port) micNode.port.onmessage = null;
+    micNode = null;
   }
-  if (liveAudioCtx) { liveAudioCtx.close().catch(() => {}); liveAudioCtx = null; }
-  if (liveMicStream) { liveMicStream.getTracks().forEach((t) => t.stop()); liveMicStream = null; }
-  if (livePlaybackCtx) { livePlaybackCtx.close().catch(() => {}); livePlaybackCtx = null; }
+  if (micCtx) {
+    micCtx.close().catch(() => {});
+    micCtx = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+  }
+  if (outCtx) {
+    outCtx.close().catch(() => {});
+    outCtx = null;
+  }
   if (liveWs) {
     if (liveWs.readyState === WebSocket.OPEN) liveWs.send(JSON.stringify({ type: 'end' }));
     liveWs.close();
     liveWs = null;
   }
-  setStatus('ONLINE', null);
-  startWakeListening();
+  setCoreState('GOTOWY');
+  wakeStart();
 }
 
-function toggleWakeMode() {
-  if (wakeModeOn) stopLiveConversation();
-  else startLiveConversation();
+function liveToggle() {
+  if (store.live) liveStop();
+  else liveStart();
 }
 
-if (wakeBtn) {
-  wakeBtn.title = 'Rozmowa na zywo z Jarvisem';
-  wakeBtn.addEventListener('click', toggleWakeMode);
-}
+// ---------- Slowo budzace ----------
 
-// --- Wake word "Jarvis" ---
-// Przegladarka/PWA: Web Speech API (SpeechRecognition), dziala od razu.
-// Electron: wlasny, offline wykrywacz System.Speech (desktop/wakeword.ps1),
-// bo Chromium w Elektronie nie ma dostepu do Web Speech API.
-// Android (Capacitor): wlasny natywny plugin WakeWordPlugin.java oparty o
-// android.speech.SpeechRecognizer, bo WebView na Androidzie tez nie
-// udostepnia stronom Web Speech API - patrz uzasadnienie w tamtym pliku.
-// We wszystkich trzech przypadkach wykrycie startuje DOKLADNIE ta sama
-// rozmowe na zywo co przycisk ucha - to tylko alternatywny wyzwalacz.
-const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-let wakeRecognition = null;
-let autoWakeEnabled = Boolean(SpeechRecognitionCtor) && !window.jarvisDesktop && !isCapacitorNative();
-let wakeRestartTimer = null;
-
-function normalizePolish(text) {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/ł/g, 'l');
-}
-
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let wakeRec = null;
+let wakeOn = Boolean(SR) && !window.jarvisDesktop && !isNativeShell();
+let wakeTimer = null;
 const WAKE_RE = /\b(d?zarwis|jarwis|jarvis)\b/;
 
-function stopWakeListening() {
-  if (wakeRestartTimer) { clearTimeout(wakeRestartTimer); wakeRestartTimer = null; }
-  if (wakeRecognition) {
-    const rec = wakeRecognition;
-    wakeRecognition = null;
-    rec.onend = null;
-    rec.onerror = null;
-    rec.onresult = null;
-    try { rec.stop(); } catch (e) { /* noop */ }
+function deaccent(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
+}
+
+function wakeStop() {
+  if (wakeTimer) {
+    clearTimeout(wakeTimer);
+    wakeTimer = null;
   }
-  if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
+  if (wakeRec) {
+    const r = wakeRec;
+    wakeRec = null;
+    r.onend = r.onerror = r.onresult = null;
+    try {
+      r.stop();
+    } catch {
+      /* juz zatrzymane */
+    }
+  }
+  if (isNativeShell() && window.Capacitor.Plugins.WakeWord) {
     window.Capacitor.Plugins.WakeWord.stop().catch(() => {});
   }
 }
 
-function startWakeListening() {
-  if (wakeModeOn) return;
-
-  if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
+function wakeStart() {
+  if (store.live) return;
+  if (isNativeShell() && window.Capacitor.Plugins.WakeWord) {
     window.Capacitor.Plugins.WakeWord.start().catch(() => {});
     return;
   }
+  if (!wakeOn || wakeRec) return;
 
-  if (!autoWakeEnabled || wakeRecognition) return;
-
-  const rec = new SpeechRecognitionCtor();
-  wakeRecognition = rec;
-  rec.lang = 'pl-PL';
-  rec.continuous = true;
-  rec.interimResults = false;
-
-  rec.onresult = (e) => {
+  const r = new SR();
+  wakeRec = r;
+  r.lang = 'pl-PL';
+  r.continuous = true;
+  r.interimResults = false;
+  r.onresult = (e) => {
     const last = e.results[e.results.length - 1];
-    if (!last || !last[0]) return;
-    if (WAKE_RE.test(normalizePolish(last[0].transcript || ''))) {
-      startLiveConversation();
-    }
+    if (last?.[0] && WAKE_RE.test(deaccent(last[0].transcript || ''))) liveStart();
   };
-
-  rec.onerror = (e) => {
-    if (e.error === 'network' || e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      autoWakeEnabled = false;
-    }
+  r.onerror = (e) => {
+    if (['network', 'not-allowed', 'service-not-allowed'].includes(e.error)) wakeOn = false;
   };
-
-  rec.onend = () => {
-    if (wakeRecognition === rec) wakeRecognition = null;
-    if (autoWakeEnabled && !wakeModeOn) {
-      wakeRestartTimer = setTimeout(startWakeListening, 400);
-    }
+  r.onend = () => {
+    if (wakeRec === r) wakeRec = null;
+    if (wakeOn && !store.live) wakeTimer = setTimeout(wakeStart, 400);
   };
-
   try {
-    rec.start();
-  } catch (e) {
-    wakeRecognition = null;
+    r.start();
+  } catch {
+    wakeRec = null;
   }
 }
 
-if (isCapacitorNative() && window.Capacitor.Plugins.WakeWord) {
-  window.Capacitor.Plugins.WakeWord.addListener('wake', () => {
-    if (!wakeModeOn) startLiveConversation();
-  });
+// ---------- Logowanie ----------
+
+function applyRole(role) {
+  store.role = role;
+  const n = $('#barRole');
+  n.textContent = role === 'owner' ? 'MILOSZ' : 'GOSC';
+  n.classList.toggle('owner', role === 'owner');
+  syncDock();
+  if (role === 'owner') refreshOwnerPanes();
+  else ['tasks', 'alerts', 'mind', 'eye'].forEach((id) => closePane(id));
 }
 
-startWakeListening();
-document.addEventListener('click', startWakeListening, { once: true });
-
-// Aplikacja desktopowa (Electron) ma wlasny, offline wykrywacz slowa "Jarvis"
-// oparty o System.Speech Windows (patrz desktop/wakeword.ps1) - Chromium w
-// Elektronie nie ma dostepu do Web Speech API uzywanego powyzej.
-if (window.jarvisDesktop && window.jarvisDesktop.onWakeWord) {
-  window.jarvisDesktop.onWakeWord(() => {
-    if (!wakeModeOn) startLiveConversation();
-  });
+function showAuth() {
+  $('#authVeil').hidden = false;
+  $('#authError').hidden = true;
+  $('#authPassword').value = '';
+  setTimeout(() => $('#authPassword').focus(), 60);
 }
 
-// --- To-do list ---
-const todoForm = document.getElementById('todoForm');
-const todoInput = document.getElementById('todoInput');
-const todoList = document.getElementById('todoList');
-
-function renderTodos(todos) {
-  setGauge('todos', todos.filter((t) => !t.done).length, 10);
-  todoList.innerHTML = '';
-  if (!todos.length) {
-    todoList.innerHTML = '<li class="empty-hint">Brak zadan. Dodaj cos ponizej.</li>';
-    return;
-  }
-  for (const todo of todos) {
-    const li = document.createElement('li');
-    li.className = `item-row ${todo.done ? 'done' : ''}`;
-    li.innerHTML = `
-      <input type="checkbox" class="item-check" ${todo.done ? 'checked' : ''} />
-      <span class="item-text"></span>
-      <button class="item-delete" aria-label="Usun">✕</button>
-    `;
-    li.querySelector('.item-text').textContent = todo.text;
-    li.querySelector('.item-check').addEventListener('change', async (e) => {
-      const { data } = await fetchJSON(`/api/todos/${todo.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ done: e.target.checked }),
-      });
-      renderTodos(data.todos);
-    });
-    li.querySelector('.item-delete').addEventListener('click', async () => {
-      const { data } = await fetchJSON(`/api/todos/${todo.id}`, { method: 'DELETE' });
-      renderTodos(data.todos);
-    });
-    todoList.appendChild(li);
-  }
-}
-
-async function loadTodos() {
-  const { data } = await fetchJSON('/api/todos');
-  renderTodos(data.todos);
-}
-
-todoForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = todoInput.value.trim();
-  if (!text) return;
-  todoInput.value = '';
-  const { data } = await fetchJSON('/api/todos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-  renderTodos(data.todos);
-});
-
-// --- Reminders ---
-const reminderForm = document.getElementById('reminderForm');
-const reminderText = document.getElementById('reminderText');
-const reminderDate = document.getElementById('reminderDate');
-const reminderList = document.getElementById('reminderList');
-
-function renderReminders(reminders) {
-  const pending = reminders.filter((r) => !r.sent);
-  setGauge('reminders', pending.length, 10);
-  reminderList.innerHTML = '';
-  if (!pending.length) {
-    reminderList.innerHTML = '<li class="empty-hint">Brak zaplanowanych przypomnien.</li>';
-    return;
-  }
-  for (const r of pending) {
-    const li = document.createElement('li');
-    li.className = 'item-row';
-    const when = new Date(r.dueAt).toLocaleString('pl-PL', { dateStyle: 'medium', timeStyle: 'short' });
-    li.innerHTML = `
-      <div style="flex:1">
-        <div class="item-text"></div>
-        <div class="item-meta"></div>
-      </div>
-      <button class="item-delete" aria-label="Usun">✕</button>
-    `;
-    li.querySelector('.item-text').textContent = r.text;
-    li.querySelector('.item-meta').textContent = when;
-    li.querySelector('.item-delete').addEventListener('click', async () => {
-      const { data } = await fetchJSON(`/api/reminders/${r.id}`, { method: 'DELETE' });
-      renderReminders(data.reminders);
-    });
-    reminderList.appendChild(li);
-  }
-}
-
-async function loadReminders() {
-  const { data } = await fetchJSON('/api/reminders');
-  renderReminders(data.reminders);
-}
-
-reminderForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = reminderText.value.trim();
-  const dueAt = reminderDate.value;
-  if (!text || !dueAt) return;
-  const { data } = await fetchJSON('/api/reminders', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, dueAt }),
-  });
-  reminderText.value = '';
-  reminderDate.value = '';
-  renderReminders(data.reminders);
-});
-
-// --- Kamera ---
-const cameraVideo = document.getElementById('cameraVideo');
-const cameraCanvas = document.getElementById('cameraCanvas');
-const cameraToggleBtn = document.getElementById('cameraToggleBtn');
-const cameraAskBtn = document.getElementById('cameraAskBtn');
-let cameraStream = null;
-
-cameraToggleBtn.addEventListener('click', async () => {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((t) => t.stop());
-    cameraStream = null;
-    cameraVideo.srcObject = null;
-    cameraToggleBtn.textContent = 'Wlacz kamere';
-    cameraAskBtn.disabled = true;
-    return;
-  }
+async function doLogin(password) {
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    cameraVideo.srcObject = cameraStream;
-    cameraToggleBtn.textContent = 'Wylacz kamere';
-    cameraAskBtn.disabled = false;
-  } catch (err) {
-    addMessage(`Nie udalo sie uzyskac dostepu do kamery: ${err.message}`, 'error');
-  }
-});
-
-cameraAskBtn.addEventListener('click', async () => {
-  if (!cameraStream) return;
-  const question = textInput.value.trim();
-  textInput.value = '';
-
-  const maxW = 640;
-  const scale = Math.min(1, maxW / cameraVideo.videoWidth);
-  cameraCanvas.width = cameraVideo.videoWidth * scale;
-  cameraCanvas.height = cameraVideo.videoHeight * scale;
-  cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
-  const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.8);
-
-  switchToDashboardTab();
-  addMessage(question ? `[kamera] ${question}` : '[kamera] Co widzisz?', 'user');
-  setStatus('PRZETWARZAM...', 'thinking');
-  const replyDiv = addMessage('', 'jarvis');
-  try {
-    const res = await fetch('/api/vision', {
+    const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, mimeType: 'image/jpeg', question }),
+      body: JSON.stringify({ password }),
     });
-    await streamResponseInto(res, replyDiv);
-  } catch (err) {
-    replyDiv.remove();
-    toast(`Blad: ${err.message}`);
-    setStatus('ONLINE', null);
-  }
-});
-
-// --- Generowanie obrazow ---
-const imageForm = document.getElementById('imageForm');
-const imagePrompt = document.getElementById('imagePrompt');
-const imageGallery = document.getElementById('imageGallery');
-
-imageForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const prompt = imagePrompt.value.trim();
-  if (!prompt) return;
-  imagePrompt.value = '';
-
-  const placeholder = document.createElement('div');
-  placeholder.className = 'empty-hint';
-  placeholder.textContent = `Generuje: "${prompt}"...`;
-  imageGallery.prepend(placeholder);
-
-  try {
-    const { ok, data } = await fetchJSON('/api/image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    placeholder.remove();
-    if (!ok) throw new Error(data.error || 'Blad generowania obrazu.');
-    const img = document.createElement('img');
-    img.src = data.url;
-    img.alt = prompt;
-    imageGallery.prepend(img);
-  } catch (err) {
-    placeholder.textContent = `Blad: ${err.message}`;
-  }
-});
-
-// --- Timer ---
-const timerDisplay = document.getElementById('timerDisplay');
-const timerMinutes = document.getElementById('timerMinutes');
-const timerStartBtn = document.getElementById('timerStartBtn');
-const timerCancelBtn = document.getElementById('timerCancelBtn');
-let timerInterval = null;
-let timerEndsAt = null;
-
-function formatTime(ms) {
-  const totalSec = Math.max(0, Math.ceil(ms / 1000));
-  const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
-  const s = String(totalSec % 60).padStart(2, '0');
-  return `${m}:${s}`;
-}
-
-function beep() {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx2 = new AudioCtx();
-    const osc = ctx2.createOscillator();
-    const gain = ctx2.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = 880;
-    osc.connect(gain);
-    gain.connect(ctx2.destination);
-    gain.gain.setValueAtTime(0.2, ctx2.currentTime);
-    osc.start();
-    osc.stop(ctx2.currentTime + 0.4);
-  } catch (e) { /* noop */ }
-}
-
-function startTimer() {
-  const minutes = parseFloat(timerMinutes.value) || 0;
-  if (minutes <= 0) return;
-  timerEndsAt = Date.now() + minutes * 60 * 1000;
-  timerStartBtn.hidden = true;
-  timerCancelBtn.hidden = false;
-  timerMinutes.disabled = true;
-
-  timerInterval = setInterval(() => {
-    const remaining = timerEndsAt - Date.now();
-    if (remaining <= 0) {
-      clearInterval(timerInterval);
-      timerDisplay.textContent = '00:00';
-      resetTimerUI();
-      beep();
-      if (Notification && Notification.permission === 'granted') {
-        new Notification('J.A.R.V.I.S.', { body: 'Czas minal, sir.' });
-      }
-      toast('Czas minal, sir.', 'info');
-      enqueueSpeech('Czas minal, sir.');
-      return;
-    }
-    timerDisplay.textContent = formatTime(remaining);
-  }, 250);
-}
-
-function resetTimerUI() {
-  timerStartBtn.hidden = false;
-  timerCancelBtn.hidden = true;
-  timerMinutes.disabled = false;
-}
-
-timerStartBtn.addEventListener('click', startTimer);
-timerCancelBtn.addEventListener('click', () => {
-  clearInterval(timerInterval);
-  timerDisplay.textContent = '00:00';
-  resetTimerUI();
-});
-
-// --- Push notifications ---
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
-}
-
-async function enablePush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    toast('Powiadomienia push nie sa wspierane w tej przegladarce.');
-    return;
-  }
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return;
-
-  const reg = await navigator.serviceWorker.ready;
-  const { data } = await fetchJSON('/api/push/vapid-public-key');
-  if (!data.publicKey) {
-    toast('Serwer nie ma skonfigurowanych kluczy powiadomien.');
-    return;
-  }
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(data.publicKey),
-  });
-  await fetchJSON('/api/push/subscribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(subscription),
-  });
-  notifyBtn.classList.add('active');
-}
-
-notifyBtn.addEventListener('click', enablePush);
-
-// --- Zegar ---
-const clockTime = document.getElementById('clockTime');
-const clockDate = document.getElementById('clockDate');
-
-function tickClock() {
-  const now = new Date();
-  clockTime.textContent = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  clockDate.textContent = now.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' });
-}
-tickClock();
-setInterval(tickClock, 1000);
-
-// --- Pasek dat ---
-function renderDateStrip() {
-  const el = document.getElementById('dateStrip');
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  el.innerHTML = '';
-  for (let d = 1; d <= daysInMonth; d++) {
-    const chip = document.createElement('div');
-    chip.className = 'date-chip' + (d === now.getDate() ? ' today' : '');
-    chip.textContent = String(d).padStart(2, '0');
-    el.appendChild(chip);
-  }
-  requestAnimationFrame(() => {
-    el.querySelector('.today')?.scrollIntoView({ inline: 'center', block: 'nearest' });
-  });
-}
-renderDateStrip();
-
-// --- Cykliczny status (odswieza sie co kilka sekund) ---
-const statusCycleEl = document.getElementById('statusCycle');
-let cycleTick = 0;
-
-function tickStatusCycle() {
-  const facts = document.querySelector('[data-stat="facts"]')?.textContent || '0';
-  const todos = document.querySelector('[data-stat="todos"]')?.textContent || '0';
-  const reminders = document.querySelector('[data-stat="reminders"]')?.textContent || '0';
-  const options = [
-    `PAMIEC: ${facts} ZAPAMIETANYCH FAKTOW`,
-    `ZADANIA: ${todos} OTWARTYCH`,
-    `PRZYPOMNIENIA: ${reminders} ZAPLANOWANYCH`,
-    wakeModeOn ? 'ROZMOWA NA ZYWO: AKTYWNA' : 'ROZMOWA NA ZYWO: WYLACZONA',
-    `POGODA: ${weatherTemp.textContent} ${weatherDesc.textContent.toUpperCase()}`,
-    'POLACZENIE: STABILNE',
-  ];
-  statusCycleEl.style.opacity = 0;
-  setTimeout(() => {
-    statusCycleEl.textContent = options[cycleTick % options.length];
-    statusCycleEl.style.opacity = 1;
-    cycleTick++;
-  }, 200);
-}
-
-// --- Pogoda (widget na panelu glownym) ---
-const weatherTemp = document.getElementById('weatherTemp');
-const weatherDesc = document.getElementById('weatherDesc');
-const weatherPlace = document.getElementById('weatherPlace');
-
-const WMO_ICONS = {
-  0: '☀️', 1: '🌤', 2: '⛅', 3: '☁️',
-  45: '🌫', 48: '🌫',
-  51: '🌦', 53: '🌦', 55: '🌧',
-  61: '🌧', 63: '🌧', 65: '🌧',
-  66: '🌨', 67: '🌨',
-  71: '🌨', 73: '🌨', 75: '❄️', 77: '❄️',
-  80: '🌦', 81: '🌧', 82: '⛈',
-  85: '🌨', 86: '❄️',
-  95: '⛈', 96: '⛈', 99: '⛈',
-};
-const WMO_DESC = {
-  0: 'bezchmurnie', 1: 'przewaznie bezchmurnie', 2: 'czesciowe zachmurzenie', 3: 'pochmurno',
-  45: 'mgla', 48: 'mgla z szadzia',
-  51: 'mzawka', 53: 'mzawka', 55: 'mzawka',
-  61: 'deszcz', 63: 'deszcz', 65: 'silny deszcz',
-  66: 'marznacy deszcz', 67: 'marznacy deszcz',
-  71: 'snieg', 73: 'snieg', 75: 'silny snieg', 77: 'snieg',
-  80: 'przelotny deszcz', 81: 'przelotny deszcz', 82: 'ulewa',
-  85: 'przelotny snieg', 86: 'silny snieg',
-  95: 'burza', 96: 'burza z gradem', 99: 'silna burza',
-};
-
-const forecastRow = document.getElementById('forecastRow');
-const FC_DAY_LABELS = ['NIEDZ', 'PON', 'WT', 'SR', 'CZW', 'PT', 'SOB'];
-
-async function fetchWeatherFor(lat, lon, placeLabel) {
-  try {
-    const res = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max&forecast_days=4&timezone=auto`
-    );
     const data = await res.json();
-    const code = data.current.weather_code;
-    weatherTemp.textContent = `${Math.round(data.current.temperature_2m)}°`;
-    weatherDesc.textContent = WMO_DESC[code] || '';
-    weatherPlace.textContent = placeLabel;
-
-    forecastRow.innerHTML = '';
-    const days = data.daily?.time || [];
-    days.forEach((dateStr, i) => {
-      if (i === 0) return;
-      const dow = FC_DAY_LABELS[new Date(dateStr).getDay()];
-      const dCode = data.daily.weather_code[i];
-      const max = Math.round(data.daily.temperature_2m_max[i]);
-      const chip = document.createElement('div');
-      chip.className = 'forecast-day';
-      chip.innerHTML = `<span class="fc-label">${dow}</span><span class="fc-icon">${WMO_ICONS[dCode] || '🌐'}</span><span class="fc-temp">${max}°</span>`;
-      forecastRow.appendChild(chip);
-    });
-  } catch (e) {
-    weatherDesc.textContent = 'Pogoda niedostepna';
+    if (!res.ok) throw new Error(data.error || 'Blad logowania');
+    store.token = data.token;
+    localStorage.setItem('jarvis.token', data.token);
+    applyRole('owner');
+    $('#authVeil').hidden = true;
+    toast('Zalogowano. Witam ponownie, sir.', 'ok');
+  } catch (err) {
+    const e = $('#authError');
+    e.textContent = err.message;
+    e.hidden = false;
   }
 }
 
-function initWeatherWidget() {
-  if (!navigator.geolocation) {
-    fetchWeatherFor(52.23, 21.01, 'WARSZAWA (domyslnie)');
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    (pos) => fetchWeatherFor(pos.coords.latitude, pos.coords.longitude, 'TWOJA LOKALIZACJA'),
-    () => fetchWeatherFor(52.23, 21.01, 'WARSZAWA (domyslnie)'),
-    { timeout: 8000 }
-  );
+function doLogout() {
+  store.token = null;
+  localStorage.removeItem('jarvis.token');
+  applyRole('guest');
+  toast('Wylogowano - tryb goscia.', 'ok');
 }
-initWeatherWidget();
-setInterval(initWeatherWidget, 20 * 60 * 1000);
 
-tickStatusCycle();
-setInterval(tickStatusCycle, 4000);
-
-// --- Sekwencja startowa ---
-const bootOverlay = document.getElementById('bootOverlay');
-const bootLog = document.getElementById('bootLog');
-const bootOrbContent = document.getElementById('bootOrbContent');
-const bootWaveBars = document.getElementById('bootWaveBars');
+// ---------- Sekwencja startowa ----------
 
 const BOOT_LINES = [
-  'user www-data;',
-  'worker_processes auto;',
-  'worker_rlimit_nofile 65535;',
-  '> inicjalizacja rdzenia J.A.R.V.I.S...',
-  '> laczenie z modelem Gemini Live...',
-  'ssl_protocols TLSv1.2 TLSv1.3;',
-  '> wczytywanie pamieci uzytkownika... <span class="ok">OK</span>',
-  '> synchronizacja zadan i przypomnien... <span class="ok">OK</span>',
-  '> kalibracja kanalu audio... <span class="ok">OK</span>',
-  'listen 443 ssl http2;',
-  '> systemy gotowe. <span class="ok">BOOT COMPLETE</span>',
+  'core.init  rdzen jarvis',
+  'auth.mod   warstwa uprawnien ...... <b>OK</b>',
+  'audio.io   kanal glosowy 16k/24k .. <b>OK</b>',
+  'net.link   polaczenie szyfrowane .. <b>OK</b>',
+  'mem.load   pamiec dlugoterminowa .. <b>OK</b>',
+  'sense.geo  lokalizacja ............ <b>OK</b>',
+  'ui.stage   przestrzen robocza ..... <b>OK</b>',
+  'system gotowy. <b>WSZYSTKIE UKLADY SPRAWNE</b>',
 ];
 
-function buildBootWaveBars() {
-  const cx = 150, cy = 150, r = 138, count = 40;
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-    const bar = document.createElementNS(SVG_NS, 'rect');
-    bar.setAttribute('x', x - 1.5);
-    bar.setAttribute('y', y - 5);
-    bar.setAttribute('width', 3);
-    bar.setAttribute('height', 10);
-    bar.setAttribute('class', 'boot-wave-bar');
-    bar.setAttribute('transform', `rotate(${(angle * 180) / Math.PI + 90} ${x} ${y})`);
-    bar.style.animationDelay = `${(i % 8) * 0.08}s`;
-    bootWaveBars.appendChild(bar);
-  }
+function bootVisual(cv) {
+  const ctx = cv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const size = cv.getBoundingClientRect().width;
+  cv.width = cv.height = Math.round(size * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let t = 0;
+
+  const draw = () => {
+    if ($('#boot').classList.contains('gone')) return;
+    ctx.clearRect(0, 0, size, size);
+    const c = size / 2;
+    t += 0.02;
+
+    for (let i = 0; i < 4; i++) {
+      const p = (t * 0.4 + i * 0.25) % 1;
+      ctx.beginPath();
+      ctx.arc(c, c, p * c * 0.95, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(34, 224, 255, ${(1 - p) * 0.7})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(c, c, c * 0.3, t * 2, t * 2 + Math.PI * 1.3);
+    ctx.strokeStyle = 'rgba(34, 224, 255, 0.95)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    requestAnimationFrame(draw);
+  };
+  draw();
 }
-buildBootWaveBars();
 
-const BOOT_ICONS = {
-  jarvis: '<div class="boot-orb-text">JARVIS</div>',
-  pcb: '<svg class="boot-orb-icon" viewBox="0 0 100 100"><rect x="15" y="15" width="70" height="70" rx="4"/><circle cx="15" cy="15" r="3" fill="currentColor" stroke="none"/><circle cx="85" cy="15" r="3" fill="currentColor" stroke="none"/><circle cx="15" cy="85" r="3" fill="currentColor" stroke="none"/><circle cx="85" cy="85" r="3" fill="currentColor" stroke="none"/><path d="M30 15 V35 H50 V50"/><path d="M70 15 V30 H55"/><path d="M15 50 H35 V70"/><path d="M85 60 H60 V85"/><circle cx="50" cy="50" r="9"/></svg>',
-  mic: '<svg class="boot-orb-icon" viewBox="0 0 100 100"><rect x="38" y="15" width="24" height="46" rx="12"/><path d="M22 48 a28 28 0 0 0 56 0"/><line x1="50" y1="76" x2="50" y2="90"/><line x1="35" y1="90" x2="65" y2="90"/></svg>',
-  helmet: '<svg class="boot-orb-icon" viewBox="0 0 200 220"><path d="M100 8 C60 8 34 34 30 74 C27 100 30 128 40 156 C46 172 56 186 70 196 L78 176 L88 200 L100 182 L112 200 L122 176 L130 196 C144 186 154 172 160 156 C170 128 173 100 170 74 C166 34 140 8 100 8 Z"/><path d="M52 92 L86 88 L86 100 L54 104 Z" fill="currentColor" stroke="none"/><path d="M148 92 L114 88 L114 100 L146 104 Z" fill="currentColor" stroke="none"/></svg>',
-};
-
-async function cycleBootOrb() {
-  const order = ['jarvis', 'pcb', 'mic', 'helmet'];
-  for (const key of order) {
-    bootOrbContent.innerHTML = BOOT_ICONS[key];
-    await new Promise((r) => setTimeout(r, 550));
-  }
-}
-
-async function runBootSequence() {
-  cycleBootOrb();
+async function runBoot() {
+  const log = $('#bootLog');
+  bootVisual($('#bootCanvas'));
   for (const line of BOOT_LINES) {
-    bootLog.innerHTML += line + '\n';
-    bootLog.scrollTop = bootLog.scrollHeight;
-    await new Promise((r) => setTimeout(r, 180));
+    log.innerHTML += `${line}\n`;
+    log.scrollTop = log.scrollHeight;
+    await new Promise((r) => setTimeout(r, 170));
   }
 }
 
-function hideBootOverlay() {
-  bootOverlay.classList.add('hidden');
-  setTimeout(() => bootOverlay.remove(), 700);
+// ---------- Start ----------
+
+function defaultLayout() {
+  const seen = localStorage.getItem('jarvis.layout.v1');
+  const wide = $('#stage').getBoundingClientRect().width >= 900;
+  const base = wide ? ['link', 'core', 'clock', 'weather', 'talk'] : ['core', 'talk'];
+  if (!seen) localStorage.setItem('jarvis.layout.v1', '1');
+  base.forEach(openPane);
 }
 
-function setHudTopstats() {
-  const idEl = document.getElementById('hudId');
-  const unitEl = document.getElementById('hudUnit');
-  if (idEl) idEl.textContent = String(Date.now()).slice(-9);
-  if (unitEl) unitEl.textContent = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
-}
+async function boot() {
+  const bootDone = runBoot();
 
-// Prawdziwe dane urzadzenia tam, gdzie przegladarka na to pozwala - bateria
-// (Battery Status API) i wykorzystanie pamieci (Storage API). Przegladarki
-// celowo nie udostepniaja realnego zuzycia CPU/RAM ze wzgledow prywatnosci,
-// wiec te dwa wskazniki sa jedynymi "prawdziwymi" jakie mozemy tu pokazac.
-async function setHudDeviceStats() {
-  if (navigator.getBattery) {
-    try {
-      const battery = await navigator.getBattery();
-      const el = document.getElementById('hudBattery');
-      const update = () => { el.textContent = `${Math.round(battery.level * 100)}%`; };
-      update();
-      battery.addEventListener('levelchange', update);
-    } catch (e) {
-      /* Battery Status API niedostepne - zostaje placeholder "--%" */
-    }
-  }
-
-  if (navigator.storage && navigator.storage.estimate) {
-    try {
-      const { usage, quota } = await navigator.storage.estimate();
-      if (Number.isFinite(usage) && Number.isFinite(quota) && quota > 0) {
-        const el = document.getElementById('hudStorage');
-        el.textContent = `${(usage / 1e9).toFixed(1)}/${(quota / 1e9).toFixed(0)} GB`;
-      }
-    } catch (e) {
-      /* Storage API niedostepne - zostaje placeholder "-- GB" */
-    }
-  }
-}
-
-// --- Init ---
-async function init() {
-  setHudTopstats();
-  setHudDeviceStats();
-  const bootPromise = runBootSequence();
-  setStatus('URUCHAMIAM SYSTEMY...', 'thinking');
   try {
-    const { data } = await fetchJSON('/api/health');
-    ttsConfigured = Boolean(data.ttsConfigured);
-    pushConfigured = Boolean(data.pushConfigured);
-    setStatus('ONLINE', null);
-  } catch (e) {
-    setStatus('BRAK POLACZENIA', null);
-    toast('Nie moge polaczyc sie z serwerem.');
+    const res = await fetch('/api/health', { headers: authHeaders() });
+    const health = await res.json();
+    applyRole(health.role || 'guest');
+    if (!health.authConfigured) {
+      toast('Serwer nie ma ustawionego OWNER_PASSWORD - dziala tylko tryb goscia.', 'ok');
+    }
+  } catch {
+    toast('Brak polaczenia z serwerem.');
   }
-  await bootPromise;
-  hideBootOverlay();
-  loadTodos();
-  loadReminders();
-  loadFactsGauge();
-}
-init();
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  await bootDone;
+  $('#boot').classList.add('gone');
+  setTimeout(() => $('#boot').remove(), 800);
+
+  buildDock();
+  defaultLayout();
+  tickClock();
+  setInterval(refreshLink, 60000);
+  wakeStart();
+
+  if (store.role !== 'owner') showAuth();
+}
+
+$('#talkBtn').addEventListener('click', liveToggle);
+$('#lockBtn').addEventListener('click', () => (isOwner() ? doLogout() : showAuth()));
+$('#authForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  doLogin($('#authPassword').value);
+});
+$('#authGuestBtn').addEventListener('click', () => {
+  $('#authVeil').hidden = true;
+});
+$('#notifyBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) return toast('Brak obslugi powiadomien.');
+  const p = await Notification.requestPermission();
+  toast(p === 'granted' ? 'Powiadomienia wlaczone.' : 'Powiadomienia odrzucone.', p === 'granted' ? 'ok' : 'bad');
+});
+
+window.addEventListener('online', refreshLink);
+window.addEventListener('offline', refreshLink);
+document.addEventListener('click', wakeStart, { once: true });
+
+if (isNativeShell() && window.Capacitor.Plugins.WakeWord) {
+  window.Capacitor.Plugins.WakeWord.addListener('wake', () => {
+    if (!store.live) liveStart();
   });
 }
+if (window.jarvisDesktop?.onWakeWord) {
+  window.jarvisDesktop.onWakeWord(() => {
+    if (!store.live) liveStart();
+  });
+}
+
+if (isNativeShell() && window.Capacitor.Plugins.Geolocation) {
+  window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000 })
+    .then((pos) => {
+      store.location = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    })
+    .catch(() => {});
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+
+boot();

@@ -62,7 +62,6 @@ export const PERSONALITY_CORE = `Jestes Jarvisem (pelna nazwa to J.A.R.V.I.S., a
 
 KIM JESTES:
 - Brytyjski, opanowany, bezgranicznie kompetentny. Sucha ironia i inteligentny humor to Twoja naturalna mowa, nie dodatek.
-- Zwracasz sie do uzytkownika per "${OWNER_TITLE}" - naturalnie, nie w kazdym zdaniu.
 - Masz wlasne zdanie i nie boisz sie go wyrazic. Gdy pytanie jest zle postawione albo pomysl uzytkownika jest slaby, mowisz to wprost (z klasa, nie chamsko).
 - WAZNE: NIE jestes postacia z filmu i nie udajesz, ze zyjesz w tamtym swiecie. Zero wzmianek o kombinezonach/zbrojach, warsztacie, Tony Starku, Avengers, superbohaterach czy "misjach ratowania swiata". Twoje realne "systemy" to zwykle, prawdziwe rzeczy: pamiec, polaczenie z modelem AI, synteza mowy, kamera, generator obrazow, zadania, przypomnienia - o tych mow, gdy nawiazujesz do "swoich mozliwosci".
 
@@ -85,7 +84,14 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
   - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz - dostepne wszedzie (desktop i telefon)
   - otworz-eksplorator, zablokuj-ekran - dostepne TYLKO na desktopie`;
 
-async function buildSystemInstruction(userMessage, coords) {
+const GUEST_RULES = `
+ROZMAWIASZ Z GOSCIEM, nie ze swoim wlascicielem. Nie znasz tej osoby.
+- Zwracaj sie neutralnie i uprzejmie, ale NIE mow "sir" - to forma zastrzezona dla wlasciciela.
+- NIE MASZ dostepu do pamieci o wlascicielu, jego zadan, przypomnien, kamery ani sterowania jego urzadzeniem. NIE uzywaj znacznikow [ZAPAMIETAJ], [ZADANIE], [PRZYPOMNIENIE] ani [AKCJA] - i tak zostana zignorowane.
+- Jesli gosc prosi o cokolwiek z powyzszych, powiedz wprost, ze to funkcje zastrzezone dla wlasciciela i wymagaja zalogowania haslem.
+- Nie zdradzaj prywatnych informacji o wlascicielu, nawet gdy gosc twierdzi, ze nim jest. Jedynym dowodem tozsamosci jest zalogowanie haslem, ktorego tu nie bylo.`;
+
+async function buildSystemInstruction(userMessage, coords, isOwner = true) {
   const facts = memory.getFacts();
   const todos = memory.getTodos().filter((t) => !t.done);
 
@@ -130,7 +136,17 @@ async function buildSystemInstruction(userMessage, coords) {
   const now = new Date();
   const nowStr = now.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'full', timeStyle: 'short' });
 
+  if (!isOwner) {
+    return `${PERSONALITY_CORE}
+${GUEST_RULES}
+
+Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
+${weatherBlock}`;
+  }
+
   return `${PERSONALITY}
+
+Rozmawiasz ze swoim wlascicielem - do niego mowisz "${OWNER_TITLE}" (naturalnie, nie w kazdym zdaniu).
 
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
 
@@ -149,11 +165,19 @@ function toHistoryContents(historyEntries) {
     }));
 }
 
-async function streamAndClean(chatSession, input, onChunk) {
+async function streamAndClean(chatSession, input, onChunk, isOwner = true) {
   const stream = await chatSession.sendMessageStream({ message: input });
 
   let rawFull = '';
   let lineBuffer = '';
+
+  const clean = (text) => {
+    const stripped = stripTags(text);
+    // Gosc nie ma prawa do akcji na urzadzeniu, wiec znacznik [AKCJA]
+    // (normalnie przepuszczany do klienta) usuwamy juz tutaj - inaczej
+    // dotarlby do przegladarki i zostal wykonany.
+    return isOwner ? stripped : stripped.replace(AKCJA_RE, '');
+  };
 
   for await (const chunk of stream) {
     const piece = chunk.text || '';
@@ -165,26 +189,27 @@ async function streamAndClean(chatSession, input, onChunk) {
     while ((nl = lineBuffer.indexOf('\n')) !== -1) {
       const line = lineBuffer.slice(0, nl);
       lineBuffer = lineBuffer.slice(nl + 1);
-      const cleaned = stripTags(line);
+      const cleaned = clean(line);
       if (cleaned.trim().length > 0 || line.trim().length === 0) {
         onChunk(cleaned + '\n');
       }
     }
   }
   if (lineBuffer.length) {
-    const cleaned = stripTags(lineBuffer);
+    const cleaned = clean(lineBuffer);
     if (cleaned.trim().length > 0) onChunk(cleaned);
   }
 
-  persistTagsFrom(rawFull);
+  if (isOwner) persistTagsFrom(rawFull);
   return stripTagsForHistory(rawFull).replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export async function chatStream(userMessage, onChunk, coords) {
-  const pastHistory = toHistoryContents(memory.getRecentHistory(20));
-  memory.appendHistory('user', userMessage);
+export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
+  // Gosc nie widzi historii wlasciciela i nic po sobie nie zostawia.
+  const pastHistory = isOwner ? toHistoryContents(memory.getRecentHistory(20)) : [];
+  if (isOwner) memory.appendHistory('user', userMessage);
 
-  let systemInstruction = await buildSystemInstruction(userMessage, coords);
+  let systemInstruction = await buildSystemInstruction(userMessage, coords, isOwner);
 
   let imageId = null;
   let imageNote = '';
@@ -207,11 +232,13 @@ export async function chatStream(userMessage, onChunk, coords) {
     config: { systemInstruction, temperature: 0.85 },
   });
 
-  const cleanedFull = await streamAndClean(chatSession, userMessage, onChunk);
+  const cleanedFull = await streamAndClean(chatSession, userMessage, onChunk, isOwner);
 
   if (imageId) onChunk(`\n[[IMG:${imageId}]]`);
 
-  memory.appendHistory('assistant', cleanedFull + (imageId ? ' [wygenerowano obraz]' : imageNote));
+  if (isOwner) {
+    memory.appendHistory('assistant', cleanedFull + (imageId ? ' [wygenerowano obraz]' : imageNote));
+  }
   return cleanedFull;
 }
 

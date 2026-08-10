@@ -1,5 +1,5 @@
-const CACHE = 'jarvis-shell-v2';
-const SHELL = ['/', '/style.css', '/app.js', '/manifest.json'];
+const CACHE = 'jarvis-shell-v3';
+const SHELL = ['/', '/style.css', '/app.js', '/live-audio-processor.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
