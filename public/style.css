@@ -251,26 +251,113 @@ html, body {
   box-shadow: 0 0 12px var(--cyan-glow);
 }
 
-.core-view {
+.hud-frame {
+  position: relative;
   flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-areas:
+    "tl . tr"
+    "c c c"
+    "bl . br";
+  align-items: start;
+  column-gap: 8px;
+  row-gap: 10px;
+  padding: 10px 0 14px;
+}
+
+.hud-grid-bg {
+  position: absolute;
+  inset: -6px -16px;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0, 210, 255, 0.05) 0px, rgba(0, 210, 255, 0.05) 1px, transparent 1px, transparent 24px),
+    repeating-linear-gradient(90deg, rgba(0, 210, 255, 0.05) 0px, rgba(0, 210, 255, 0.05) 1px, transparent 1px, transparent 24px);
+  -webkit-mask: radial-gradient(ellipse at center, #000 45%, transparent 85%);
+  mask: radial-gradient(ellipse at center, #000 45%, transparent 85%);
+}
+
+.hud-corner {
+  min-width: 0;
+  padding: 8px 10px;
+  background: rgba(0, 15, 25, 0.5);
+}
+
+.hud-tl { grid-area: tl; }
+.hud-tr { grid-area: tr; text-align: right; }
+.hud-bl { grid-area: bl; }
+.hud-br { grid-area: br; text-align: right; }
+
+.hud-corner-title {
+  font-size: 8.5px;
+  letter-spacing: 2px;
+  color: var(--cyan-dim);
+  margin-bottom: 6px;
+}
+
+.hud-corner-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  padding: 2px 0;
+}
+
+.hud-tr .hud-corner-row,
+.hud-br .hud-corner-row {
+  flex-direction: row-reverse;
+}
+
+.hud-corner-row b {
+  color: var(--cyan-bright);
+  font-weight: 600;
+  text-shadow: 0 0 4px var(--cyan-glow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-center {
+  grid-area: c;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 6px 0 4px;
+  gap: 4px;
+  padding: 4px 0 0;
 }
 
-.core-view .holo-memory {
-  width: 100%;
-  padding: 10px 12px;
+.hud-title {
+  font-size: 12px;
+  letter-spacing: 6px;
+  color: var(--cyan);
+  text-shadow: 0 0 10px var(--cyan-glow);
+  font-weight: 600;
+}
+
+.hud-clock-time {
+  font-size: 22px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: var(--cyan);
+  text-shadow: 0 0 10px var(--cyan-glow);
+  letter-spacing: 1px;
+}
+
+.hud-clock-date {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-top: 2px;
 }
 
 .reactor {
   position: relative;
-  width: min(30vw, 160px);
-  height: min(30vw, 160px);
-  margin-bottom: 22px;
+  width: min(42vw, 190px);
+  height: min(42vw, 190px);
 }
 
 .reactor canvas {
@@ -333,19 +420,6 @@ html, body {
   animation: reticle-core-pulse 2.2s ease-in-out infinite;
 }
 
-.reticle-label {
-  position: absolute;
-  bottom: -22px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-size: 11px;
-  letter-spacing: 5px;
-  color: var(--cyan);
-  text-shadow: 0 0 10px var(--cyan-glow);
-  font-weight: 600;
-}
-
 @keyframes reticle-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes reticle-spin-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
 
@@ -359,89 +433,6 @@ html, body {
 .reactor.thinking .reticle-ring.outer { animation-duration: 5s; }
 .reactor.speaking .reticle-core { animation-duration: 0.6s; }
 .reactor.listening .reticle-core { animation-duration: 0.9s; }
-
-.hud-topstats {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 2px 6px;
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 10.5px;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-}
-
-.hud-topstats .hud-id,
-.hud-topstats .hud-unit,
-.hud-topstats .hud-stat {
-  border: 1px solid var(--cyan-dim);
-  border-radius: 3px;
-  padding: 2px 8px;
-  background: rgba(0, 210, 255, 0.05);
-  text-shadow: 0 0 6px var(--cyan-glow);
-}
-
-.hud-topstats .hud-id span,
-.hud-topstats .hud-unit span,
-.hud-topstats .hud-stat span {
-  color: var(--cyan-bright);
-}
-
-.gauges {
-  display: flex;
-  justify-content: space-around;
-  gap: 12px;
-}
-
-.gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.gauge svg {
-  width: 44px;
-  height: 44px;
-  transform: rotate(-90deg);
-}
-
-.gauge-track {
-  fill: none;
-  stroke: rgba(53, 230, 255, 0.12);
-  stroke-width: 4;
-}
-
-.gauge-value {
-  fill: none;
-  stroke: var(--cyan);
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-dasharray: 163.36;
-  stroke-dashoffset: 163.36;
-  filter: drop-shadow(0 0 4px var(--cyan-glow));
-  transition: stroke-dashoffset 0.6s ease;
-}
-
-.gauge-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.1;
-}
-
-.gauge-number {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cyan);
-}
-
-.gauge-label small {
-  font-size: 8px;
-  letter-spacing: 1px;
-  color: var(--text-dim);
-}
 
 .tick-ring {
   position: absolute;
@@ -604,75 +595,9 @@ html, body {
   color: var(--green);
 }
 
-@keyframes widget-scan {
-  from { transform: translateX(-40px); }
-  to { transform: translateX(0); }
-}
-
-.holo-weather {
-  background-image: repeating-linear-gradient(100deg, rgba(0, 210, 255, 0.04) 0px, rgba(0, 210, 255, 0.04) 1px, transparent 1px, transparent 26px);
-}
-
-.weather-main-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.weather-icon {
-  font-size: 40px;
-  filter: drop-shadow(0 0 10px var(--cyan-glow));
-  animation: weather-float 3.5s ease-in-out infinite;
-}
-
 @keyframes weather-float {
   0%, 100% { transform: translateY(0) rotate(-3deg); }
   50% { transform: translateY(-6px) rotate(3deg); }
-}
-
-.weather-main {
-  display: flex;
-  flex-direction: column;
-}
-
-.weather-temp {
-  font-size: 30px;
-  font-weight: 300;
-  color: var(--cyan);
-  text-shadow: 0 0 12px var(--cyan-glow);
-}
-
-.weather-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  letter-spacing: 0.5px;
-}
-
-.weather-place {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-}
-
-.holo-clock {
-  text-align: center;
-}
-
-.clock-time {
-  font-size: 40px;
-  font-weight: 300;
-  font-variant-numeric: tabular-nums;
-  color: var(--cyan);
-  text-shadow: 0 0 14px var(--cyan-glow);
-  letter-spacing: 2px;
-}
-
-.clock-date {
-  font-size: 12px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
 }
 
 .forecast-row {
@@ -1099,8 +1024,4 @@ html, body {
 
 .msg img {
   margin-top: 8px;
-}
-
-@media (max-width: 480px) {
-  .reactor { width: 44vw; height: 44vw; }
 }

@@ -36,14 +36,10 @@ function toast(text, kind = 'error') {
   setTimeout(() => el.remove(), 5000);
 }
 
-const GAUGE_CIRCUMFERENCE = 163.36;
-
-function setGauge(name, value, max) {
-  const el = document.querySelector(`.gauge[data-gauge="${name}"]`);
+function setGauge(name, value) {
+  const el = document.querySelector(`[data-stat="${name}"]`);
   if (!el) return;
-  const pct = max > 0 ? Math.min(1, value / max) : 0;
-  el.querySelector('.gauge-value').style.strokeDashoffset = String(GAUGE_CIRCUMFERENCE * (1 - pct));
-  el.querySelector('.gauge-number').textContent = value;
+  el.textContent = value;
 }
 
 async function loadFactsGauge() {
@@ -1010,9 +1006,9 @@ const statusCycleEl = document.getElementById('statusCycle');
 let cycleTick = 0;
 
 function tickStatusCycle() {
-  const facts = document.querySelector('.gauge[data-gauge="facts"] .gauge-number')?.textContent || '0';
-  const todos = document.querySelector('.gauge[data-gauge="todos"] .gauge-number')?.textContent || '0';
-  const reminders = document.querySelector('.gauge[data-gauge="reminders"] .gauge-number')?.textContent || '0';
+  const facts = document.querySelector('[data-stat="facts"]')?.textContent || '0';
+  const todos = document.querySelector('[data-stat="todos"]')?.textContent || '0';
+  const reminders = document.querySelector('[data-stat="reminders"]')?.textContent || '0';
   const options = [
     `PAMIEC: ${facts} ZAPAMIETANYCH FAKTOW`,
     `ZADANIA: ${todos} OTWARTYCH`,
@@ -1030,7 +1026,6 @@ function tickStatusCycle() {
 }
 
 // --- Pogoda (widget na panelu glownym) ---
-const weatherIcon = document.getElementById('weatherIcon');
 const weatherTemp = document.getElementById('weatherTemp');
 const weatherDesc = document.getElementById('weatherDesc');
 const weatherPlace = document.getElementById('weatherPlace');
@@ -1068,7 +1063,6 @@ async function fetchWeatherFor(lat, lon, placeLabel) {
     );
     const data = await res.json();
     const code = data.current.weather_code;
-    weatherIcon.textContent = WMO_ICONS[code] || '🌐';
     weatherTemp.textContent = `${Math.round(data.current.temperature_2m)}°`;
     weatherDesc.textContent = WMO_DESC[code] || '';
     weatherPlace.textContent = placeLabel;
