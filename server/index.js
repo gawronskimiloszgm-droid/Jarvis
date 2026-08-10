@@ -232,6 +232,24 @@ wss.on('connection', (ws, req) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Pamiec musi byc wczytana ZANIM przyjmiemy pierwsze zapytanie - inaczej
+// pusty cache moglby zostac zapisany na zdalny magazyn i skasowac historie.
+await memory.hydrate();
+
 server.listen(PORT, () => {
   console.log(`J.A.R.V.I.S. online at http://localhost:${PORT}`);
 });
+
+// Render wysyla SIGTERM przy restarcie/wdrozeniu - dopisujemy to, co jeszcze
+// czeka w buforze zapisu, zamiast zgubic ostatnie zmiany.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, async () => {
+    try {
+      await memory.flush();
+    } catch {
+      /* i tak konczymy */
+    }
+    process.exit(0);
+  });
+}

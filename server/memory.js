@@ -1,36 +1,28 @@
-import fs from 'fs';
-import fsp from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { nanoid } from 'nanoid';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const MEMORY_FILE = path.join(DATA_DIR, 'memory.json');
+import { readStore, writeStore, backendName, isRemote } from './store.js';
 
 const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [] };
 
-// Trzymamy stan w pamieci procesu i zapisujemy na dysk async/debounced, zamiast
-// synchronicznie odczytywac i zapisywac caly plik przy kazdym pojedynczym mutatorze
-// (na wolnym darmowym CPU kilka takich operacji na jedna wiadomosc realnie spowalniaja odpowiedz).
+// Stan trzymamy w pamieci procesu, a zapisujemy async/debounced, zamiast
+// przy kazdym pojedynczym mutatorze (na wolnym darmowym CPU to realnie
+// spowalnialo odpowiedzi). Trwalosc miedzy restartami zapewnia store.js.
 let cache = null;
 let saveTimer = null;
 
-function ensureStore() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(MEMORY_FILE)) {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify(EMPTY_STORE, null, 2));
-  }
-}
-
-function loadFromDisk() {
-  ensureStore();
-  const data = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
-  return { ...EMPTY_STORE, ...data };
+// Wczytanie stanu ZANIM serwer zacznie przyjmowac zapytania - inaczej
+// pierwsze wywolanie load() zobaczyloby pusta pamiec i mogloby ja nadpisac.
+export async function hydrate() {
+  const data = await readStore();
+  cache = { ...EMPTY_STORE, ...(data || {}) };
+  console.log(
+    `Pamiec: ${backendName()}, faktow: ${cache.facts.length}, zadan: ${cache.todos.length}` +
+      (isRemote ? '' : ' (UWAGA: bez zewnetrznego magazynu pamiec ginie przy restarcie na Renderze)')
+  );
+  return cache;
 }
 
 export function load() {
-  if (!cache) cache = loadFromDisk();
+  if (!cache) cache = { ...EMPTY_STORE };
   return cache;
 }
 
@@ -38,8 +30,17 @@ export function save(data) {
   cache = data;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fsp.writeFile(MEMORY_FILE, JSON.stringify(cache, null, 2)).catch(() => {});
+    writeStore(cache).catch(() => {});
   }, 150);
+}
+
+// Wymuszenie natychmiastowego zapisu (np. przy zamykaniu procesu).
+export async function flush() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (cache) await writeStore(cache);
 }
 
 export function addFacts(newFacts) {
