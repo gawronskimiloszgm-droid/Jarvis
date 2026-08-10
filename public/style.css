@@ -261,10 +261,16 @@ html, body {
   padding: 6px 0 4px;
 }
 
+.core-view .holo-memory {
+  width: 100%;
+  padding: 10px 12px;
+}
+
 .reactor {
   position: relative;
   width: min(30vw, 160px);
   height: min(30vw, 160px);
+  margin-bottom: 22px;
 }
 
 .reactor canvas {
@@ -274,52 +280,65 @@ html, body {
   height: 100%;
 }
 
-.brain-wrap {
+.reticle-svg {
   position: absolute;
   inset: 6%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.brain-svg {
-  width: 84%;
-  height: 84%;
+  width: 88%;
+  height: 88%;
   overflow: visible;
 }
 
-.brain-outline {
-  fill: rgba(53, 230, 255, 0.035);
-  stroke: var(--cyan);
-  stroke-width: 1.6;
-  filter: drop-shadow(0 0 8px var(--cyan-glow));
-  animation: brain-breathe 4s ease-in-out infinite;
-  transform-origin: center;
-}
-
-.brain-fissure {
+.reticle-ring {
   fill: none;
-  stroke: var(--cyan-dim);
-  stroke-width: 1;
-  opacity: 0.6;
-}
-
-.brain-node {
-  fill: var(--cyan);
-  filter: drop-shadow(0 0 4px var(--cyan));
-  animation: node-pulse 2.4s ease-in-out infinite;
-}
-
-.brain-line {
   stroke: var(--cyan);
-  stroke-width: 0.6;
-  opacity: 0.12;
-  animation: line-pulse 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px var(--cyan-glow));
 }
 
-.brain-label {
-  margin-top: 6px;
+.reticle-ring.outer {
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+  opacity: 0.55;
+  animation: reticle-spin 18s linear infinite;
+  transform-origin: 100px 100px;
+}
+
+.reticle-ring.mid {
+  stroke-width: 1.2;
+  opacity: 0.75;
+  animation: reticle-spin-rev 12s linear infinite;
+  transform-origin: 100px 100px;
+}
+
+.reticle-tick {
+  stroke: var(--cyan);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.reticle-tick.major {
+  stroke: var(--cyan-bright);
+  stroke-width: 1.6;
+  opacity: 0.9;
+}
+
+.reticle-cross {
+  stroke: var(--cyan-bright);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 4px var(--cyan-glow));
+}
+
+.reticle-core {
+  fill: var(--cyan-bright);
+  filter: drop-shadow(0 0 8px var(--cyan-glow));
+  animation: reticle-core-pulse 2.2s ease-in-out infinite;
+}
+
+.reticle-label {
+  position: absolute;
+  bottom: -22px;
+  left: 0;
+  right: 0;
+  text-align: center;
   font-size: 11px;
   letter-spacing: 5px;
   color: var(--cyan);
@@ -327,24 +346,19 @@ html, body {
   font-weight: 600;
 }
 
-.reactor.listening .brain-node, .reactor.listening .brain-line { animation-duration: 0.9s; }
-.reactor.speaking .brain-node, .reactor.speaking .brain-line { animation-duration: 0.6s; }
-.reactor.thinking .brain-outline { animation-duration: 1s; }
+@keyframes reticle-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes reticle-spin-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
 
-@keyframes brain-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.025); }
+@keyframes reticle-core-pulse {
+  0%, 100% { r: 5; opacity: 0.7; }
+  50% { r: 7; opacity: 1; }
 }
 
-@keyframes node-pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
-}
-
-@keyframes line-pulse {
-  0%, 100% { opacity: 0.08; }
-  50% { opacity: 0.55; }
-}
+.reactor.listening .reticle-ring.mid { animation-duration: 4s; }
+.reactor.speaking .reticle-ring.mid { animation-duration: 2s; }
+.reactor.thinking .reticle-ring.outer { animation-duration: 5s; }
+.reactor.speaking .reticle-core { animation-duration: 0.6s; }
+.reactor.listening .reticle-core { animation-duration: 0.9s; }
 
 .hud-topstats {
   display: flex;
@@ -376,7 +390,8 @@ html, body {
 
 .gauges {
   display: flex;
-  gap: 22px;
+  justify-content: space-around;
+  gap: 12px;
 }
 
 .gauge {
@@ -497,22 +512,96 @@ html, body {
   padding: 4px 2px;
 }
 
-.widget {
-  border: 1px solid var(--cyan-dim);
-  border-radius: 14px;
-  background: linear-gradient(160deg, rgba(53, 230, 255, 0.06), rgba(255, 255, 255, 0.02));
-  padding: 18px 20px;
+/* --- Holograficzne panele (bordowane rogi + skanujaca linia) --- */
+
+.holo-corners {
   position: relative;
+}
+
+.holo-corners::before,
+.holo-corners::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.holo-corners::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--cyan-bright);
+  border-left: 2px solid var(--cyan-bright);
+  filter: drop-shadow(0 0 4px var(--cyan-glow));
+}
+
+.holo-corners::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--cyan-bright);
+  border-right: 2px solid var(--cyan-bright);
+  filter: drop-shadow(0 0 4px var(--cyan-glow));
+}
+
+.holo-panel {
+  position: relative;
+  border: 1px solid var(--cyan-dim);
+  border-radius: 4px;
+  background: linear-gradient(160deg, rgba(0, 210, 255, 0.06), rgba(255, 255, 255, 0.015));
+  padding: 14px 16px;
   overflow: hidden;
 }
 
-.widget::before {
+.holo-panel::before,
+.holo-panel::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(100deg, rgba(53, 230, 255, 0.04) 0px, rgba(53, 230, 255, 0.04) 1px, transparent 1px, transparent 26px);
-  animation: widget-scan 6s linear infinite;
+  width: 12px;
+  height: 12px;
   pointer-events: none;
+}
+
+.holo-panel::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--cyan-bright);
+  border-left: 2px solid var(--cyan-bright);
+}
+
+.holo-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--cyan-bright);
+  border-right: 2px solid var(--cyan-bright);
+}
+
+.holo-panel-title {
+  font-size: 9.5px;
+  letter-spacing: 2.5px;
+  color: var(--cyan-dim);
+  margin-bottom: 10px;
+}
+
+.holo-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 210, 255, 0.08);
+  letter-spacing: 0.5px;
+}
+
+.holo-row:last-child { border-bottom: none; }
+
+.holo-row span:last-child {
+  color: var(--cyan-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.holo-row .ok {
+  color: var(--green);
 }
 
 @keyframes widget-scan {
@@ -520,7 +609,11 @@ html, body {
   to { transform: translateX(0); }
 }
 
-.weather-widget {
+.holo-weather {
+  background-image: repeating-linear-gradient(100deg, rgba(0, 210, 255, 0.04) 0px, rgba(0, 210, 255, 0.04) 1px, transparent 1px, transparent 26px);
+}
+
+.weather-main-row {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -556,14 +649,13 @@ html, body {
 }
 
 .weather-place {
-  margin-left: auto;
+  margin-top: 8px;
   font-size: 11px;
   color: var(--text-dim);
-  align-self: flex-start;
   letter-spacing: 1px;
 }
 
-.clock-widget {
+.holo-clock {
   text-align: center;
 }
 
@@ -617,50 +709,7 @@ html, body {
 }
 
 
-.ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px solid var(--cyan-dim);
-  box-shadow: inset 0 0 20px rgba(53, 230, 255, 0.08);
-}
-
-.ring-outer {
-  border-style: dashed;
-  animation: spin 14s linear infinite;
-}
-
-.ring-mid {
-  inset: 10%;
-  border-color: rgba(53, 230, 255, 0.35);
-  animation: spin-rev 9s linear infinite;
-}
-
-.ring-inner {
-  inset: 22%;
-  border-color: rgba(53, 230, 255, 0.6);
-  animation: spin 6s linear infinite;
-}
-
-.core {
-  position: absolute;
-  inset: 36%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, #eafeff 0%, var(--cyan) 30%, #0a3a44 75%);
-  box-shadow: 0 0 30px 6px var(--cyan-glow), 0 0 70px 20px rgba(53, 230, 255, 0.25);
-  animation: breathe 3.2s ease-in-out infinite;
-}
-
-.reactor.listening .core { animation: breathe 0.9s ease-in-out infinite; }
-.reactor.speaking .core { animation: breathe 0.6s ease-in-out infinite; }
-.reactor.thinking .ring-inner { animation: spin 1.2s linear infinite; }
-
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes spin-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
-@keyframes breathe {
-  0%, 100% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.08); filter: brightness(1.25); }
-}
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }

@@ -43,8 +43,6 @@
 
     <div class="hud-topstats">
       <span class="hud-id">STP-<span id="hudId">000000000</span></span>
-      <span class="hud-stat" id="hudBatteryWrap" hidden>BAT <span id="hudBattery">--</span>%</span>
-      <span class="hud-stat" id="hudStorageWrap" hidden><span id="hudStorage">--</span> GB</span>
       <span class="hud-unit">UNIT <span id="hudUnit">01</span></span>
     </div>
 
@@ -53,35 +51,40 @@
     <main class="core-view">
       <div class="reactor" id="reactor">
         <div class="tick-ring"></div>
-        <div class="ring ring-outer"></div>
-        <div class="brain-wrap">
-          <svg class="brain-svg" id="brainSvg" viewBox="0 0 200 200">
-            <path class="brain-outline" d="M100,18 C58,14 22,42 18,82 C14,118 34,148 54,162 C42,172 48,186 66,186 C80,186 86,176 100,176 C114,176 120,186 134,186 C152,186 158,172 146,162 C166,148 186,118 182,82 C178,42 142,14 100,18 Z"/>
-            <path class="brain-fissure" d="M100,20 C96,50 104,80 98,110 C94,135 102,155 100,178"/>
-            <g id="brainNodes"></g>
-          </svg>
-          <div class="brain-label">J.A.R.V.I.S.</div>
-        </div>
         <canvas id="wave" width="360" height="360"></canvas>
+        <svg class="reticle-svg" id="reticleSvg" viewBox="0 0 200 200">
+          <circle class="reticle-ring outer" cx="100" cy="100" r="90"/>
+          <circle class="reticle-ring mid" cx="100" cy="100" r="70"/>
+          <g class="reticle-ticks" id="reticleTicks"></g>
+          <line class="reticle-cross" x1="100" y1="14" x2="100" y2="30"/>
+          <line class="reticle-cross" x1="100" y1="170" x2="100" y2="186"/>
+          <line class="reticle-cross" x1="14" y1="100" x2="30" y2="100"/>
+          <line class="reticle-cross" x1="170" y1="100" x2="186" y2="100"/>
+          <circle class="reticle-core" cx="100" cy="100" r="5"/>
+        </svg>
+        <div class="reticle-label">J.A.R.V.I.S.</div>
       </div>
-      <div class="gauges" id="gauges">
-        <div class="gauge" data-gauge="facts">
-          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
-          <div class="gauge-label"><span class="gauge-number">0</span><small>PAMIĘĆ</small></div>
-        </div>
-        <div class="gauge" data-gauge="todos">
-          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
-          <div class="gauge-label"><span class="gauge-number">0</span><small>ZADANIA</small></div>
-        </div>
-        <div class="gauge" data-gauge="reminders">
-          <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
-          <div class="gauge-label"><span class="gauge-number">0</span><small>PRZYPOMN.</small></div>
+      <div class="holo-panel holo-memory">
+        <div class="holo-panel-title">PAMIĘĆ I ZADANIA</div>
+        <div class="gauges" id="gauges">
+          <div class="gauge" data-gauge="facts">
+            <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+            <div class="gauge-label"><span class="gauge-number">0</span><small>PAMIĘĆ</small></div>
+          </div>
+          <div class="gauge" data-gauge="todos">
+            <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+            <div class="gauge-label"><span class="gauge-number">0</span><small>ZADANIA</small></div>
+          </div>
+          <div class="gauge" data-gauge="reminders">
+            <svg viewBox="0 0 60 60"><circle class="gauge-track" cx="30" cy="30" r="26"></circle><circle class="gauge-value" cx="30" cy="30" r="26"></circle></svg>
+            <div class="gauge-label"><span class="gauge-number">0</span><small>PRZYPOMN.</small></div>
+          </div>
         </div>
       </div>
       <div class="status-cycle" id="statusCycle">SYSTEMY GOTOWE</div>
     </main>
 
-    <div class="console-panel">
+    <div class="console-panel holo-corners">
       <div class="console-helmet" aria-hidden="true"><svg viewBox="0 0 200 220"><path d="M100 8 C60 8 34 34 30 74 C27 100 30 128 40 156 C46 172 56 186 70 196 L78 176 L88 200 L100 182 L112 200 L122 176 L130 196 C144 186 154 172 160 156 C170 128 173 100 170 74 C166 34 140 8 100 8 Z"/><path d="M52 92 L86 88 L86 100 L54 104 Z" fill="currentColor" stroke="none"/><path d="M148 92 L114 88 L114 100 L146 104 Z" fill="currentColor" stroke="none"/></svg></div>
       <div class="console-head">
         <span>J.A.R.V.I.S. CONSOLE</span>
@@ -90,16 +93,26 @@
 
       <section class="panel active" id="panel-dashboard">
         <div class="dash-grid">
-          <div class="widget weather-widget" id="weatherWidget">
-            <div class="weather-icon" id="weatherIcon">🌐</div>
-            <div class="weather-main">
-              <div class="weather-temp" id="weatherTemp">--°</div>
-              <div class="weather-desc" id="weatherDesc">Lokalizuje pogode...</div>
+          <div class="holo-panel holo-system">
+            <div class="holo-panel-title">STATUS SYSTEMU</div>
+            <div class="holo-row"><span>BATERIA</span><span id="hudBattery">--%</span></div>
+            <div class="holo-row"><span>PAMIĘĆ MASOWA</span><span id="hudStorage">-- GB</span></div>
+            <div class="holo-row"><span>POŁĄCZENIE</span><span class="ok">SZYFROWANE</span></div>
+          </div>
+          <div class="holo-panel holo-weather" id="weatherWidget">
+            <div class="holo-panel-title">ANALIZA OTOCZENIA</div>
+            <div class="weather-main-row">
+              <div class="weather-icon" id="weatherIcon">🌐</div>
+              <div class="weather-main">
+                <div class="weather-temp" id="weatherTemp">--°</div>
+                <div class="weather-desc" id="weatherDesc">Lokalizuje pogode...</div>
+              </div>
             </div>
             <div class="weather-place" id="weatherPlace"></div>
             <div class="forecast-row" id="forecastRow"></div>
           </div>
-          <div class="widget clock-widget">
+          <div class="holo-panel holo-clock">
+            <div class="holo-panel-title">CZAS SYSTEMOWY</div>
             <div class="clock-time" id="clockTime">--:--:--</div>
             <div class="clock-date" id="clockDate"></div>
           </div>

@@ -162,52 +162,32 @@ function drawWave() {
 }
 drawWave();
 
-// --- Siec neuronowa (mozg) w reaktorze ---
+// --- Celownik/radar w reaktorze ---
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-function buildBrainNetwork() {
-  const g = document.getElementById('brainNodes');
+function buildReticleTicks() {
+  const g = document.getElementById('reticleTicks');
   if (!g) return;
-  const cx = 100, cy = 98, rx = 68, ry = 72;
-  const count = 24;
-  const points = [];
+  const cx = 100, cy = 100, r = 80, tickLen = 6;
+  const count = 36;
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * 0.85;
-    points.push({
-      x: cx + Math.cos(angle) * rx * r,
-      y: cy + Math.sin(angle) * ry * r,
-    });
+    const angle = (i / count) * Math.PI * 2;
+    const major = i % 3 === 0;
+    const outerR = r + (major ? tickLen * 1.6 : tickLen);
+    const x1 = cx + Math.cos(angle) * r;
+    const y1 = cy + Math.sin(angle) * r;
+    const x2 = cx + Math.cos(angle) * outerR;
+    const y2 = cy + Math.sin(angle) * outerR;
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', x1.toFixed(2));
+    line.setAttribute('y1', y1.toFixed(2));
+    line.setAttribute('x2', x2.toFixed(2));
+    line.setAttribute('y2', y2.toFixed(2));
+    line.setAttribute('class', major ? 'reticle-tick major' : 'reticle-tick');
+    g.appendChild(line);
   }
-  points.forEach((p, i) => {
-    const neighbours = points
-      .map((q, j) => ({ j, d: (p.x - q.x) ** 2 + (p.y - q.y) ** 2 }))
-      .filter((d) => d.j !== i)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 2);
-    neighbours.forEach(({ j }) => {
-      const q = points[j];
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', p.x);
-      line.setAttribute('y1', p.y);
-      line.setAttribute('x2', q.x);
-      line.setAttribute('y2', q.y);
-      line.setAttribute('class', 'brain-line');
-      line.style.animationDelay = `${(Math.random() * 3).toFixed(2)}s`;
-      g.appendChild(line);
-    });
-  });
-  points.forEach((p) => {
-    const c = document.createElementNS(SVG_NS, 'circle');
-    c.setAttribute('cx', p.x);
-    c.setAttribute('cy', p.y);
-    c.setAttribute('r', (1.6 + Math.random() * 1.3).toFixed(2));
-    c.setAttribute('class', 'brain-node');
-    c.style.animationDelay = `${(Math.random() * 2.4).toFixed(2)}s`;
-    g.appendChild(c);
-  });
 }
-buildBrainNetwork();
+buildReticleTicks();
 
 // --- Speech synthesis (browser fallback) ---
 function speakBrowser(text) {
@@ -1210,16 +1190,12 @@ async function setHudDeviceStats() {
   if (navigator.getBattery) {
     try {
       const battery = await navigator.getBattery();
-      const wrap = document.getElementById('hudBatteryWrap');
       const el = document.getElementById('hudBattery');
-      const update = () => {
-        el.textContent = Math.round(battery.level * 100);
-        wrap.hidden = false;
-      };
+      const update = () => { el.textContent = `${Math.round(battery.level * 100)}%`; };
       update();
       battery.addEventListener('levelchange', update);
     } catch (e) {
-      /* Battery Status API niedostepne - po prostu nie pokazujemy tego pola */
+      /* Battery Status API niedostepne - zostaje placeholder "--%" */
     }
   }
 
@@ -1227,13 +1203,11 @@ async function setHudDeviceStats() {
     try {
       const { usage, quota } = await navigator.storage.estimate();
       if (Number.isFinite(usage) && Number.isFinite(quota) && quota > 0) {
-        const wrap = document.getElementById('hudStorageWrap');
         const el = document.getElementById('hudStorage');
-        el.textContent = `${(usage / 1e9).toFixed(1)}/${(quota / 1e9).toFixed(0)}`;
-        wrap.hidden = false;
+        el.textContent = `${(usage / 1e9).toFixed(1)}/${(quota / 1e9).toFixed(0)} GB`;
       }
     } catch (e) {
-      /* Storage API niedostepne - po prostu nie pokazujemy tego pola */
+      /* Storage API niedostepne - zostaje placeholder "-- GB" */
     }
   }
 }
