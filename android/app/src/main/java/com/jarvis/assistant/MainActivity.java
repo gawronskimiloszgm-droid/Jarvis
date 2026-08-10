@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DeviceControlPlugin.class);
         registerPlugin(WakeWordPlugin.class);
+        registerPlugin(BubblePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

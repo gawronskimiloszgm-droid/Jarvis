@@ -484,9 +484,70 @@ const PANEL_DEFS = {
       if (lastSearch) drawHits(lastSearch.query, lastSearch.results);
     },
   },
+
+  bubble: {
+    title: 'TRYB W TLE',
+    glyph: '◐',
+    owner: true,
+    box: grid(4.2, 5.4, 3.9, 2.4),
+    build(body) {
+      body.innerHTML = '';
+      if (!isNativeShell()) {
+        const l = el('div', 'locked');
+        l.append(el('div', 'locked-mark', '◐'));
+        const p = el('p');
+        p.textContent = 'Dymek dziala tylko w aplikacji na Androida, nie w przegladarce.';
+        l.appendChild(p);
+        body.appendChild(l);
+        return;
+      }
+      const state = el('div', 'kv');
+      state.append(el('span', null, 'STAN'));
+      const b = el('b', null, '...');
+      b.id = 'bubbleState';
+      state.appendChild(b);
+
+      const perm = el('div', 'kv');
+      perm.append(el('span', null, 'ZGODA NA NAKLADKE'));
+      const pb = el('b', null, '...');
+      pb.id = 'bubblePerm';
+      perm.appendChild(pb);
+
+      const info = el('div', 'sub');
+      info.style.margin = '10px 0';
+      info.textContent =
+        'Jarvis zostaje na ekranie jako dymek i dziala po zamknieciu aplikacji. Wymaga zgody systemu na wyswietlanie nad innymi aplikacjami.';
+
+      const row = el('div', 'field');
+      const permBtn = el('button', 'btn', 'Daj zgode');
+      permBtn.id = 'bubblePermBtn';
+      permBtn.addEventListener('click', async () => {
+        await window.Capacitor.Plugins.Bubble.requestPermission();
+        toast('Wlacz zgode w ustawieniach, potem wroc tutaj.', 'ok');
+      });
+      const toggleBtn = el('button', 'btn primary', 'Wlacz');
+      toggleBtn.id = 'bubbleToggle';
+      toggleBtn.addEventListener('click', async () => {
+        const P = window.Capacitor.Plugins.Bubble;
+        try {
+          const s = await P.status();
+          if (s.running) await P.stop();
+          else await P.start();
+        } catch (err) {
+          toast(err.message || 'Nie udalo sie przelaczyc dymka.');
+        }
+        refreshBubble();
+      });
+      row.append(permBtn, toggleBtn);
+
+      body.append(state, perm, info, row);
+      refreshBubble();
+    },
+    refresh: () => refreshBubble(),
+  },
 };
 
-const DOCK_ORDER = ['core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find'];
+const DOCK_ORDER = ['core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble'];
 
 function buildDock() {
   const dock = $('#dock');
@@ -905,6 +966,31 @@ function refreshOwnerPanes() {
   loadAlerts();
   loadMind();
   refreshLink();
+}
+
+// ---------- Dymek / praca w tle ----------
+
+async function refreshBubble() {
+  if (!isNativeShell() || !window.Capacitor.Plugins.Bubble) return;
+  const stateEl = $('#bubbleState');
+  const permEl = $('#bubblePerm');
+  const toggle = $('#bubbleToggle');
+  const permBtn = $('#bubblePermBtn');
+  if (!stateEl) return;
+  try {
+    const s = await window.Capacitor.Plugins.Bubble.status();
+    stateEl.textContent = s.running ? 'AKTYWNY' : 'WYLACZONY';
+    stateEl.classList.toggle('good', Boolean(s.running));
+    permEl.textContent = s.hasPermission ? 'PRZYZNANA' : 'BRAK';
+    permEl.classList.toggle('good', Boolean(s.hasPermission));
+    if (toggle) {
+      toggle.textContent = s.running ? 'Wylacz' : 'Wlacz';
+      toggle.disabled = !s.hasPermission;
+    }
+    if (permBtn) permBtn.style.display = s.hasPermission ? 'none' : '';
+  } catch {
+    stateEl.textContent = 'BLAD';
+  }
 }
 
 // ---------- Wyszukiwanie ----------
@@ -1545,6 +1631,7 @@ async function boot() {
   wakeStart();
 
   if (store.role !== 'owner') showAuth();
+  else checkBubbleLaunch();
 }
 
 $('#talkBtn').addEventListener('click', liveToggle);
@@ -1576,6 +1663,24 @@ if (window.jarvisDesktop?.onWakeWord) {
     if (!store.live) liveStart();
   });
 }
+
+// Dotkniecie dymka otwiera aplikacje i od razu zaczyna rozmowe - bez tego
+// trzeba by jeszcze raz siegac po przycisk, co niweczy sens skrotu.
+async function checkBubbleLaunch() {
+  if (!isNativeShell() || !window.Capacitor.Plugins.Bubble) return;
+  try {
+    const { fromBubble } = await window.Capacitor.Plugins.Bubble.consumeLaunchFlag();
+    if (fromBubble && !store.live) liveStart();
+  } catch {
+    /* plugin niedostepny - dymek po prostu otworzy apke bez rozmowy */
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    checkBubbleLaunch();
+    refreshBubble();
+  }
+});
 
 if (isNativeShell() && window.Capacitor.Plugins.Geolocation) {
   window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000 })

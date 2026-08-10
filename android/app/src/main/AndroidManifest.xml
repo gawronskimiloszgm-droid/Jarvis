@@ -33,6 +33,18 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Usluga utrzymujaca Jarvisa w tle wraz z dymkiem na ekranie.
+             exported=false: uruchamia ja wylacznie ta aplikacja. -->
+        <service
+            android:name=".JarvisBubbleService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FOREGROUND_SERVICE_SUBTYPE"
+                android:value="Osobisty asystent glosowy dostepny z dymka nad innymi aplikacjami" />
+        </service>
     </application>
 
     <!-- Permissions -->
@@ -43,4 +55,12 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Dymek nad innymi aplikacjami + praca w tle.
+         SYSTEM_ALERT_WINDOW to uprawnienie "specjalne": uzytkownik musi je
+         wlaczyc recznie w ustawieniach, nie da sie o nie poprosic okienkiem. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wyglad dymka: ikona rdzenia Jarvisa na okraglym, ciemnym tle. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:padding="6dp">
+
+    <ImageView
+        android:id="@+id/bubbleIcon"
+        android:layout_width="58dp"
+        android:layout_height="58dp"
+        android:background="@drawable/bubble_bg"
+        android:padding="2dp"
+        android:src="@mipmap/ic_launcher"
+        android:contentDescription="J.A.R.V.I.S." />
+</FrameLayout>
