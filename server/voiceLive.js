@@ -34,12 +34,13 @@ function buildLiveSystemInstruction(hasCoords) {
 
 To rozmowa GLOSOWA na zywo (nie pisana) - mow krotkimi, naturalnie brzmiacymi zdaniami jak w prawdziwej rozmowie. Gdy wymawiasz wlasne imie, mow "Jarvis" plynnie jako jedno slowo - NIGDY nie wymawiaj go litera po literze ("dzej, ej, er...").
 
-Jesli uzytkownik ma wlaczona kamere, widzisz na biezaco (co kilka sekund) obraz z niej - tak jak podczas rozmowy wideo. Odnos sie do tego naturalnie, gdy jest to istotne (np. komentujesz, co robi, pytasz o cos, co widzisz), ale nie opisuj obrazu bez powodu ani nie mow "widze na kamerze, ze..." przy kazdej wypowiedzi - traktuj to jako naturalna czesc rozmowy, nie jako osobna funkcje ktora ogloszasz.
+Kamera uzytkownika jest DOMYSLNIE WYLACZONA - nie widzisz nic, dopoki uzytkownik wyraznie nie poprosi, zebys wlaczyl kamere (np. "wlacz kamere", "zobacz co robie", "popatrz na to"). Wtedy wywolaj narzedzie wlacz_kamere. Gdy kamera jest wlaczona, dostajesz obraz z niej na biezaco (co kilka sekund) - odnos sie do tego naturalnie, gdy jest to istotne (np. komentujesz, co robi, pytasz o cos, co widzisz), ale nie opisuj obrazu bez powodu. Gdy uzytkownik powie, zeby wylaczyc kamere / ze juz nie trzeba patrzec, wywolaj narzedzie wylacz_kamere.
 
-Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktycznie zapisuja dane w systemie, a nie teoria. Wywoluj je w tle bez komentowania tego na glos ("wywoluje funkcje", "zapisuje w systemie" - tego nie mowisz), po prostu wykonaj akcje i potwierdz normalnym zdaniem:
+Masz REALNY dostep do ponizszych narzedzi - to prawdziwe funkcje, ktore faktycznie zapisuja dane w systemie albo steruja urzadzeniem uzytkownika, a nie teoria. Wywoluj je w tle bez komentowania tego na glos ("wywoluje funkcje", "zapisuje w systemie" - tego nie mowisz), po prostu wykonaj akcje i potwierdz normalnym zdaniem:
 - zapamietaj: gdy uzytkownik powie o sobie cokolwiek wartego trwalego zapamietania (imie, preferencje, wazne daty, fakty) - ZAWSZE faktycznie wywolaj to narzedzie, nie tylko obiecuj, ze zapamietasz.
 - dodaj_zadanie: gdy uzytkownik poprosi o dodanie czegos do listy zadan/rzeczy do zrobienia - ZAWSZE wywolaj to narzedzie. Masz do tego pelny dostep - nigdy nie mow, ze nie potrafisz albo nie masz uprawnien do dodania zadania.
 - dodaj_przypomnienie: gdy uzytkownik poprosi o przypomnienie o czyms w konkretnym momencie - wylicz dokladna date i godzine w formacie ISO (RRRR-MM-DDTHH:MM) na podstawie aktualnej daty ponizej i tego, co powiedzial, i wywolaj to narzedzie.
+- wlacz_kamere / wylacz_kamere: patrz zasada o kamerze powyzej.
 ${weatherToolLine}
 
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
@@ -78,6 +79,16 @@ const TOOLS = [
         name: 'sprawdz_pogode',
         description: 'Pobierz aktualna pogode na zywo. Podaj miasto, albo pomin ten parametr, by uzyc aktualnej lokalizacji GPS uzytkownika (jesli dostepna).',
         parameters: { type: 'object', properties: { miasto: { type: 'string' } } },
+      },
+      {
+        name: 'wlacz_kamere',
+        description: 'Wlacz kamere uzytkownika, zeby widziec na zywo to, co robi/pokazuje. Wywoluj TYLKO gdy uzytkownik o to wyraznie poprosi.',
+        parameters: { type: 'object', properties: {} },
+      },
+      {
+        name: 'wylacz_kamere',
+        description: 'Wylacz kamere uzytkownika.',
+        parameters: { type: 'object', properties: {} },
       },
     ],
   },
@@ -141,7 +152,16 @@ export async function attachVoiceRelay(clientWs, coords) {
 
           if (msg.toolCall) {
             for (const call of msg.toolCall.functionCalls || []) {
-              const result = await executeTool(call.name, call.args || {}, coords);
+              let result;
+              if (call.name === 'wlacz_kamere') {
+                safeSend(JSON.stringify({ type: 'startCamera' }));
+                result = { ok: true };
+              } else if (call.name === 'wylacz_kamere') {
+                safeSend(JSON.stringify({ type: 'stopCamera' }));
+                result = { ok: true };
+              } else {
+                result = await executeTool(call.name, call.args || {}, coords);
+              }
               liveSession.sendToolResponse({
                 functionResponses: [{ id: call.id, name: call.name, response: result }],
               });
