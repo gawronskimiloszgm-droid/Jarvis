@@ -15,7 +15,8 @@ const PRZYPOMNIENIE_RE = /\[PRZYPOMNIENIE:\s*([^,\]]+),\s*([^\]]+)\]/gi;
 // (przegladarka/desktop) zywcem w strumieniu, zeby mogl ja tam wykonac.
 // Usuwana jest tylko z tekstu zapisywanego do historii/pamieci.
 const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/gi;
-const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE];
+const WYDATEK_RE = /\[WYDATEK:\s*([^,\]]+),\s*([^,\]]+)(?:,\s*([^\]]+))?\]/gi;
+const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE];
 
 function stripTags(text) {
   return TAG_STRIP_PATTERNS.reduce((acc, re) => acc.replace(re, ''), text);
@@ -37,9 +38,15 @@ function persistTagsFrom(rawFull) {
   const facts = extractTag(rawFull, ZAPAMIETAJ_RE).map((m) => m[1].trim());
   const newTodos = extractTag(rawFull, ZADANIE_RE).map((m) => m[1].trim());
   const reminders = extractTag(rawFull, PRZYPOMNIENIE_RE).map((m) => ({ dueAt: m[1].trim(), text: m[2].trim() }));
+  const expenses = extractTag(rawFull, WYDATEK_RE).map((m) => ({
+    amount: m[1].trim(),
+    category: m[2].trim(),
+    note: (m[3] || '').trim(),
+  }));
   if (facts.length) memory.addFacts(facts);
   for (const t of newTodos) memory.addTodo(t);
   for (const r of reminders) memory.addReminder(r.text, r.dueAt);
+  for (const e of expenses) memory.addExpense(e.amount, e.category, e.note);
 }
 
 async function resolveCity(userMessage) {
@@ -88,6 +95,7 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [ZAPAMIETAJ: fakt] - gdy pojawi sie informacja o uzytkowniku warta trwalego zapamietania (imie, preferencje, wazne daty)
 - [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
+- [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
   - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz - dostepne wszedzie (desktop i telefon)
   - otworz-eksplorator, zablokuj-ekran - dostepne TYLKO na desktopie`;

@@ -125,6 +125,8 @@ MASZ INICJATYWE: gdy zauwazysz cos wartego uwagi (nadchodzace przypomnienie, zan
 Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym zdaniem:
 - zapamietaj: kazdy fakt wart trwalego zapisania. ZAWSZE naprawde wywolaj, nie obiecuj.
 - dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej).
+- dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
+- podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
@@ -190,6 +192,27 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'dodaj_wydatek',
+    description: 'Zapisz wydatek wlasciciela (kwota w zlotych, kategoria, opcjonalny opis).',
+    parameters: {
+      type: 'object',
+      properties: {
+        kwota: { type: 'number', description: 'Kwota w zlotych, np. 45.50' },
+        kategoria: { type: 'string', description: 'Krotka kategoria, np. paliwo, jedzenie, zakupy' },
+        opis: { type: 'string' },
+      },
+      required: ['kwota', 'kategoria'],
+    },
+  },
+  {
+    name: 'podsumuj_wydatki',
+    description: 'Podaj sume wydatkow wlasciciela z ostatnich dni, z rozbiciem na kategorie.',
+    parameters: {
+      type: 'object',
+      properties: { dni: { type: 'number', description: 'Ile ostatnich dni objac (domyslnie 30).' } },
+    },
+  },
+  {
     name: 'steruj_aplikacja',
     description:
       'Steruj wnetrzem aplikacji otwartej na telefonie: cofnij, ekran glowny, ostatnie aplikacje, powiadomienia, przewijanie, albo klikniecie przycisku po jego widocznym napisie.',
@@ -220,6 +243,16 @@ async function executeTool(name, args, coords) {
     case 'dodaj_przypomnienie':
       memory.addReminder(args.tresc, args.kiedy);
       return { ok: true };
+    case 'dodaj_wydatek': {
+      const entry = memory.addExpense(args.kwota, args.kategoria, args.opis);
+      if (!entry) return { error: 'nieprawidlowa kwota' };
+      const s = memory.summarizeExpenses(30);
+      return { ok: true, zapisano: entry.amount, suma_30_dni: s.total };
+    }
+    case 'podsumuj_wydatki': {
+      const s = memory.summarizeExpenses(Number(args.dni) || 30);
+      return { dni: s.days, suma: s.total, liczba: s.count, kategorie: s.byCategory };
+    }
     case 'sprawdz_pogode': {
       try {
         const w = args.miasto

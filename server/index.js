@@ -128,6 +128,24 @@ app.delete('/api/reminders/:id', requireOwner, (req, res) => {
   res.json({ reminders });
 });
 
+// --- Wydatki --- tylko wlasciciel
+app.get('/api/expenses', requireOwner, (req, res) => {
+  const days = Number(req.query.days) || 30;
+  res.json({ expenses: memory.getExpenses(), summary: memory.summarizeExpenses(days) });
+});
+
+app.post('/api/expenses', requireOwner, (req, res) => {
+  const { amount, category, note } = req.body;
+  const entry = memory.addExpense(amount, category, note);
+  if (!entry) return res.status(400).json({ error: 'Nieprawidlowa kwota.' });
+  res.json({ expenses: memory.getExpenses(), summary: memory.summarizeExpenses(30) });
+});
+
+app.delete('/api/expenses/:id', requireOwner, (req, res) => {
+  memory.removeExpense(req.params.id);
+  res.json({ expenses: memory.getExpenses(), summary: memory.summarizeExpenses(30) });
+});
+
 // --- Push notifications ---
 app.get('/api/push/vapid-public-key', (req, res) => {
   res.json({ publicKey: push.getPublicKey() });

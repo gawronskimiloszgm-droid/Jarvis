@@ -546,6 +546,55 @@ const PANEL_DEFS = {
     refresh: () => refreshBubble(),
   },
 
+  money: {
+    title: 'WYDATKI',
+    glyph: '▦',
+    owner: true,
+    box: grid(8.2, 5.4, 3.6, 2.4),
+    build(body) {
+      body.innerHTML = '';
+      const sum = el('div', 'big-num', '-- zl');
+      sum.id = 'moneySum';
+      const sub = el('div', 'sub', 'OSTATNIE 30 DNI');
+      const cats = el('div');
+      cats.id = 'moneyCats';
+      cats.style.margin = '10px 0';
+
+      const f = el('form', 'field');
+      const amt = el('input', 'inp');
+      amt.placeholder = 'Kwota';
+      amt.inputMode = 'decimal';
+      amt.style.maxWidth = '90px';
+      const cat = el('input', 'inp');
+      cat.placeholder = 'Kategoria';
+      const b = el('button', 'btn', '+');
+      b.type = 'submit';
+      f.append(amt, cat, b);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!amt.value.trim()) return;
+        try {
+          await api('/api/expenses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: amt.value, category: cat.value || 'inne' }),
+          });
+          amt.value = '';
+          cat.value = '';
+          loadMoney();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      const ul = el('ul', 'list');
+      ul.id = 'moneyList';
+      body.append(sum, sub, cats, f, ul);
+      loadMoney();
+    },
+    refresh: () => loadMoney(),
+  },
+
   grip: {
     title: 'STEROWANIE APLIKACJAMI',
     glyph: '✥',
@@ -591,7 +640,7 @@ const PANEL_DEFS = {
 };
 
 const DOCK_ORDER = [
-  'core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble', 'grip',
+  'core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble', 'grip', 'money',
 ];
 
 function buildDock() {
@@ -1007,6 +1056,7 @@ async function loadMind() {
 }
 
 function refreshOwnerPanes() {
+  loadMoney();
   loadTasks();
   loadAlerts();
   loadMind();
@@ -1035,6 +1085,55 @@ async function refreshBubble() {
     if (permBtn) permBtn.style.display = s.hasPermission ? 'none' : '';
   } catch {
     stateEl.textContent = 'BLAD';
+  }
+}
+
+async function loadMoney() {
+  if (!isOwner() || !PANES.has('money')) return;
+  try {
+    const { expenses, summary } = await api('/api/expenses');
+    const sum = $('#moneySum');
+    const cats = $('#moneyCats');
+    const ul = $('#moneyList');
+    if (sum) sum.textContent = `${summary.total.toFixed(2)} zl`;
+
+    if (cats) {
+      cats.innerHTML = '';
+      const top = Object.entries(summary.byCategory).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      if (!top.length) cats.appendChild(el('div', 'sub', 'Brak wydatkow.'));
+      top.forEach(([name, value]) => {
+        const r = el('div', 'kv');
+        r.append(el('span', null, name.toUpperCase()));
+        r.append(el('b', null, `${value.toFixed(2)} zl`));
+        cats.appendChild(r);
+      });
+    }
+
+    if (ul) {
+      ul.innerHTML = '';
+      // Najnowsze na gorze, ograniczamy liste zeby panel byl czytelny.
+      [...expenses].reverse().slice(0, 12).forEach((e) => {
+        const li = el('li', 'row');
+        const when = new Date(e.ts).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+        const x = el('button', 'row-x', '×');
+        x.addEventListener('click', async () => {
+          try {
+            await api(`/api/expenses/${e.id}`, { method: 'DELETE' });
+            loadMoney();
+          } catch (err) {
+            toast(err.message);
+          }
+        });
+        li.append(
+          el('span', 'row-text', `${e.amount.toFixed(2)} zl - ${e.category}`),
+          el('span', 'row-meta', when),
+          x
+        );
+        ul.appendChild(li);
+      });
+    }
+  } catch {
+    /* brak uprawnien albo brak sieci */
   }
 }
 

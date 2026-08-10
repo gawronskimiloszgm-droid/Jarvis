@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { readStore, writeStore, backendName, isRemote } from './store.js';
 
-const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [] };
+const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [], expenses: [] };
 
 // Stan trzymamy w pamieci procesu, a zapisujemy async/debounced, zamiast
 // przy kazdym pojedynczym mutatorze (na wolnym darmowym CPU to realnie
@@ -165,4 +165,63 @@ export function removePushSubscription(endpoint) {
 
 export function getPushSubscriptions() {
   return load().pushSubscriptions;
+}
+
+// --- Wydatki ---
+
+// Kwota przychodzi z modelu, ktory rozpoznaje ja z mowy ("czterdziesci
+// piec zlotych") - moze wiec przyjsc jako tekst, z przecinkiem zamiast
+// kropki albo ze slowem "zl". Normalizujemy zamiast ufac formatowi.
+function parseAmount(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const cleaned = String(value || '')
+    .replace(',', '.')
+    .replace(/[^\d.]/g, '');
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function getExpenses() {
+  return load().expenses;
+}
+
+export function addExpense(amount, category, note) {
+  const value = parseAmount(amount);
+  if (value === null || value <= 0) return null;
+  const data = load();
+  const entry = {
+    id: nanoid(8),
+    amount: Math.round(value * 100) / 100,
+    category: String(category || 'inne').trim().toLowerCase(),
+    note: String(note || '').trim(),
+    ts: Date.now(),
+  };
+  data.expenses.push(entry);
+  save(data);
+  return entry;
+}
+
+export function removeExpense(id) {
+  const data = load();
+  data.expenses = data.expenses.filter((e) => e.id !== id);
+  save(data);
+  return data.expenses;
+}
+
+// Podsumowanie za ostatnie N dni, z rozbiciem na kategorie.
+export function summarizeExpenses(days = 30) {
+  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+  const items = load().expenses.filter((e) => e.ts >= since);
+  const byCategory = {};
+  let total = 0;
+  for (const e of items) {
+    total += e.amount;
+    byCategory[e.category] = Math.round(((byCategory[e.category] || 0) + e.amount) * 100) / 100;
+  }
+  return {
+    days,
+    count: items.length,
+    total: Math.round(total * 100) / 100,
+    byCategory,
+  };
 }
