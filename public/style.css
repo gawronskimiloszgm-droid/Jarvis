@@ -176,11 +176,20 @@ html, body {
   font-size: 14px;
 }
 
-.btn.icon.mic.live {
-  background: rgba(53, 255, 176, 0.18);
-  border-color: var(--good);
+/* Wskaznik rozmowy w gornej belce. Nie jest przyciskiem - rozmowa startuje
+   sama, a wyciszenie jest pod klinieciem w rdzen. */
+.bar-live {
+  font-size: 13px;
+  color: var(--ink-dim);
+  opacity: 0.5;
+  transition: color 0.2s, opacity 0.2s, text-shadow 0.2s;
+}
+
+.bar-live.on {
   color: var(--good);
-  box-shadow: 0 0 16px rgba(53, 255, 176, 0.4);
+  opacity: 1;
+  text-shadow: 0 0 10px rgba(53, 255, 176, 0.6);
+  animation: nameIn 2s ease-in-out infinite;
 }
 
 /* --- Gorna belka --- */

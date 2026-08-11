@@ -15,6 +15,7 @@ const store = {
   role: 'guest',
   audioLevel: 0,
   live: false,
+  wantLive: false,
   location: null,
 };
 
@@ -263,6 +264,11 @@ const PANEL_DEFS = {
       wrap.append(cv, st);
       body.appendChild(wrap);
       startCoreVisual(cv);
+      // Rdzen przejmuje role usunietego przycisku: klikniecie wycisza i
+      // przywraca rozmowe, zeby dalo sie ja przerwac gdy trzeba.
+      cv.style.cursor = 'pointer';
+      cv.title = 'Kliknij, zeby wyciszyc / wznowic rozmowe';
+      cv.addEventListener('click', liveToggle);
     },
   },
 
@@ -1513,16 +1519,20 @@ function playChunk(buf) {
 async function liveStart() {
   wakeStop();
   store.live = true;
-  $('#talkBtn').classList.add('live');
+  $('#barLive')?.classList.add('on');
   setCoreState('LACZE');
 
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
   } catch {
-    toast('Brak dostepu do mikrofonu.');
+    // Odmowa mikrofonu to nie usterka polaczenia - ponawianie nic nie da,
+    // dopoki uzytkownik nie zmieni zgody. Konczymy uczciwie i mowimy jak
+    // wrocic, skoro nie ma juz przycisku startu.
+    store.wantLive = false;
     store.live = false;
-    $('#talkBtn').classList.remove('live');
-    setCoreState('GOTOWY');
+    $('#barLive')?.classList.remove('on');
+    setCoreState('BRAK MIKROFONU');
+    toast('Brak dostepu do mikrofonu. Przyznaj zgode i kliknij rdzen.');
     wakeStart();
     return;
   }
@@ -1568,7 +1578,10 @@ async function liveStart() {
     } catch {
       return;
     }
-    if (m.type === 'ready') setCoreState('SLUCHAM');
+    if (m.type === 'ready') {
+      relinkTries = 0; // udalo sie polaczyc - zerujemy opoznienie ponowien
+      setCoreState('SLUCHAM');
+    }
     else if (m.type === 'interrupted') stopOut();
     else if (m.type === 'turnComplete') {
       if (m.userText) pushSaid('me', m.userText);
@@ -1584,18 +1597,25 @@ async function liveStart() {
     else if (m.type === 'error') {
       toast(`Rozmowa: ${m.message}`);
       liveStop();
-    } else if (m.type === 'closed') liveStop();
+      relinkSoon();
+    } else if (m.type === 'closed') {
+      liveStop();
+      relinkSoon();
+    }
   };
 
-  liveWs.onerror = () => toast('Blad polaczenia glosowego.');
+  liveWs.onerror = () => {
+    // Bez halasu - onclose i tak zaraz zadziala i wznowi polaczenie.
+  };
   liveWs.onclose = () => {
     if (store.live) liveStop();
+    relinkSoon();
   };
 }
 
 function liveStop() {
   store.live = false;
-  $('#talkBtn').classList.remove('live');
+  $('#barLive')?.classList.remove('on');
   stopOut();
   camOff();
   if (micNode) {
@@ -1625,9 +1645,37 @@ function liveStop() {
   wakeStart();
 }
 
+// Rozmowa startuje sama i ma sie NIE konczyc. store.wantLive to intencja
+// uzytkownika (wyciszyl czy nie) - oddzielona od stanu polaczenia, ktore
+// moze paść z przyczyn sieciowych. Dopoki intencja trwa, wracamy.
 function liveToggle() {
-  if (store.live) liveStop();
-  else liveStart();
+  if (store.live) {
+    store.wantLive = false;
+    liveStop();
+    toast('Wyciszony. Kliknij rdzen, zeby wrocic.', 'ok');
+  } else {
+    store.wantLive = true;
+    liveStart();
+  }
+}
+
+let relinkTimer = null;
+let relinkTries = 0;
+
+// Wywolywane, gdy polaczenie padlo, a uzytkownik NIE wyciszyl rozmowy.
+function relinkSoon() {
+  if (!store.wantLive || relinkTimer) return;
+  relinkTries++;
+  // Rosnace opoznienie do 30 s i BEZ limitu prob: asystent ma byc ciagle
+  // dostepny, wiec po powrocie sieci ma wrocic sam, nawet po dluzszej
+  // przerwie. 30 s to kompromis miedzy tym a zuzyciem baterii.
+  const delay = Math.min(1000 * relinkTries, 30000);
+  setCoreState('WZNAWIAM');
+  relinkTimer = setTimeout(async () => {
+    relinkTimer = null;
+    if (!store.wantLive || store.live) return;
+    await liveStart();
+  }, delay);
 }
 
 // ---------- Slowo budzace ----------
@@ -1726,6 +1774,8 @@ async function doLogin(password) {
     applyRole('owner');
     $('#authVeil').hidden = true;
     toast('Zalogowano. Witam ponownie, sir.', 'ok');
+    store.wantLive = true;
+    liveStart();
   } catch (err) {
     const e = $('#authError');
     e.textContent = err.message;
@@ -1834,11 +1884,19 @@ async function boot() {
   setInterval(refreshLink, 60000);
   wakeStart();
 
-  if (store.role !== 'owner') showAuth();
-  else checkBubbleLaunch();
+  if (store.role !== 'owner') {
+    showAuth();
+  } else {
+    checkBubbleLaunch();
+    // Rozmowa startuje sama razem z aplikacja - bez szukania przycisku.
+    // Jesli przegladarka nie ma jeszcze zgody na mikrofon, liveStart sam
+    // to zglosi i uzytkownik przyzna ja raz.
+    store.wantLive = true;
+    liveStart();
+  }
 }
 
-$('#talkBtn').addEventListener('click', liveToggle);
+
 $('#lockBtn').addEventListener('click', () => (isOwner() ? doLogout() : showAuth()));
 $('#authForm').addEventListener('submit', (e) => {
   e.preventDefault();

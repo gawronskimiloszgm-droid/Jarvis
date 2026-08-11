@@ -398,8 +398,18 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
     }, PROACTIVE_IDLE_MS);
   };
 
-  try {
-    liveSession = await ai.live.connect({
+  // Sesje Gemini Live maja ograniczony czas zycia - serwer zapowiada koniec
+  // komunikatem goAway i zamyka polaczenie. Wczesniej konczylo sie to
+  // wylaczeniem rozmowy i koniecznoscia ponownego nacisniecia przycisku.
+  // Teraz przepinamy sesje po cichu, po stronie SERWERA: polaczenie z
+  // przegladarka zostaje otwarte, mikrofon dziala bez przerwy, a uzytkownik
+  // niczego nie zauwaza. Uchwyt wznowienia pozwala zachowac kontekst rozmowy.
+  let resumeHandle = null;
+  let reconnecting = false;
+  let reconnectAttempts = 0;
+
+  async function openSession() {
+    return ai.live.connect({
       model: LIVE_MODEL,
       config: {
         responseModalities: [Modality.AUDIO],
@@ -408,6 +418,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
         outputAudioTranscription: {},
         inputAudioTranscription: {},
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
+        // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
+        // wracamy do tej samej rozmowy zamiast zaczynac od zera.
+        sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
         // Domyslnie model czeka dlugo na cisze, zanim uzna ze skonczyles
         // mowic - to bylo glowne zrodlo odczuwalnego opoznienia.
         // HIGH + krotka cisza = zaczyna odpowiadac zauwazalnie szybciej.
@@ -421,7 +434,10 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
         },
       },
       callbacks: {
-        onopen: () => safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest' })),
+        onopen: () => {
+          reconnectAttempts = 0;
+          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest' }));
+        },
         onmessage: async (msg) => {
           if (closed) return;
 
@@ -521,11 +537,62 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
             assistantTranscript = '';
             scheduleProactive();
           }
+
+          // Uchwyt do wznowienia - zapamietujemy najswiezszy, zeby po
+          // przepieciu wrocic do tej samej rozmowy.
+          if (msg.sessionResumptionUpdate?.resumable && msg.sessionResumptionUpdate.newHandle) {
+            resumeHandle = msg.sessionResumptionUpdate.newHandle;
+          }
+
+          // Zapowiedz konca sesji - przepinamy sie z wyprzedzeniem, zanim
+          // polaczenie faktycznie padnie.
+          if (msg.goAway) {
+            reconnect('goAway');
+          }
         },
         onerror: (e) => safeSend(JSON.stringify({ type: 'error', message: e.message || String(e) })),
-        onclose: () => safeSend(JSON.stringify({ type: 'closed' })),
+        onclose: () => {
+          // Jesli klient wciaz jest podlaczony, to nie koniec rozmowy -
+          // tylko wygasla sesja modelu. Wracamy po cichu.
+          if (!closed && clientWs.readyState === clientWs.OPEN) reconnect('close');
+          else safeSend(JSON.stringify({ type: 'closed' }));
+        },
       },
     });
+  }
+
+  const MAX_RECONNECTS = 8;
+
+  async function reconnect(reason) {
+    if (closed || reconnecting) return;
+    if (reconnectAttempts >= MAX_RECONNECTS) {
+      safeSend(JSON.stringify({ type: 'error', message: 'Nie udalo sie wznowic rozmowy.' }));
+      return;
+    }
+    reconnecting = true;
+    reconnectAttempts++;
+    const delay = Math.min(500 * reconnectAttempts, 4000);
+    console.log(`Wznawiam sesje glosowa (${reason}), proba ${reconnectAttempts}`);
+    setTimeout(async () => {
+      try {
+        const old = liveSession;
+        liveSession = await openSession();
+        try {
+          old?.close();
+        } catch {
+          /* stara sesja moze byc juz zamknieta */
+        }
+      } catch (err) {
+        console.error('Wznowienie nieudane:', err.message);
+        reconnecting = false;
+        return reconnect('retry');
+      }
+      reconnecting = false;
+    }, delay);
+  }
+
+  try {
+    liveSession = await openSession();
   } catch (err) {
     safeSend(JSON.stringify({ type: 'error', message: err.message }));
     clientWs.close();
