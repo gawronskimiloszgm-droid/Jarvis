@@ -85,7 +85,7 @@ function createWindow() {
   startWakeWordListener(win);
 }
 
-ipcMain.handle('jarvis-action', (event, name) => runAction(name));
+ipcMain.handle('jarvis-action', (event, name, params) => runAction(name, params));
 
 app.whenReady().then(() => {
   // Zezwalaj automatycznie na kamere/mikrofon/powiadomienia dla wlasnej aplikacji

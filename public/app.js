@@ -1307,6 +1307,32 @@ async function runAppAction(action, text) {
   }
 }
 
+// Operacje na plikach wykonuje aplikacja desktopowa (tylko ona ma dostep
+// do dysku) i odsyla wynik serwerowi, ktory przekazuje go modelowi.
+async function handleFileAction(msg) {
+  const reply = (data) => {
+    if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+      liveWs.send(JSON.stringify({ type: 'response', requestId: msg.requestId, data }));
+    }
+  };
+
+  if (!isOwner()) return reply({ ok: false, error: 'brak uprawnien' });
+  if (!window.jarvisDesktop) {
+    return reply({ ok: false, error: 'pliki dzialaja tylko w aplikacji desktopowej na komputerze' });
+  }
+
+  try {
+    const result = await window.jarvisDesktop.runAction(msg.action, {
+      nazwa: msg.nazwa,
+      tresc: msg.tresc,
+    });
+    if (result?.ok && msg.action === 'zapisz-plik') toast(`Zapisano: ${msg.nazwa}`, 'ok');
+    reply(result);
+  } catch (err) {
+    reply({ ok: false, error: err.message || 'blad zapisu' });
+  }
+}
+
 // ---------- Transkrypcja rozmowy ----------
 
 function pushSaid(who, text) {
@@ -1554,6 +1580,7 @@ async function liveStart() {
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
     else if (m.type === 'deviceAction') runDeviceAction(m.action);
     else if (m.type === 'appAction') runAppAction(m.action, m.text);
+    else if (m.type === 'fileAction') handleFileAction(m);
     else if (m.type === 'error') {
       toast(`Rozmowa: ${m.message}`);
       liveStop();

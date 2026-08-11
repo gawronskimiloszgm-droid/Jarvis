@@ -137,6 +137,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry.
+- plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
 ${searchLine}
@@ -221,6 +222,20 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'plik',
+    description:
+      'Operacje na plikach w folderze Jarvisa na komputerze (Dokumenty\\Jarvis). Tylko aplikacja desktopowa.',
+    parameters: {
+      type: 'object',
+      properties: {
+        operacja: { type: 'string', enum: ['zapisz', 'dopisz', 'czytaj', 'lista', 'otworz-folder'] },
+        nazwa: { type: 'string', description: 'Nazwa pliku z rozszerzeniem: .txt .md .csv .json .log. Bez folderow.' },
+        tresc: { type: 'string' },
+      },
+      required: ['operacja'],
+    },
+  },
+  {
     name: 'steruj_aplikacja',
     description:
       'Steruj wnetrzem aplikacji otwartej na telefonie: cofnij, ekran glowny, ostatnie aplikacje, powiadomienia, przewijanie, albo klikniecie przycisku po jego widocznym napisie.',
@@ -291,6 +306,29 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
   const safeSend = (payload) => {
     if (clientWs.readyState === clientWs.OPEN) clientWs.send(payload);
   };
+
+  // Operacje na plikach wykonuje KLIENT (aplikacja desktopowa), bo tylko
+  // on ma dostep do dysku uzytkownika - serwer nie ma i nie powinien miec.
+  // Wysylamy zadanie i czekamy na odpowiedz z pasujacym identyfikatorem.
+  const pendingRequests = new Map();
+  let requestSeq = 0;
+
+  function requestFromClient(payload, timeoutMs = 8000) {
+    if (clientWs.readyState !== clientWs.OPEN) return Promise.resolve(null);
+    const id = `r${++requestSeq}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        pendingRequests.delete(id);
+        resolve(null);
+      }, timeoutMs);
+      pendingRequests.set(id, (data) => {
+        clearTimeout(timer);
+        pendingRequests.delete(id);
+        resolve(data);
+      });
+      safeSend(JSON.stringify({ ...payload, requestId: id }));
+    });
+  }
 
   // Jarvis odzywa sie sam po dluzszej ciszy - wysylamy mu ciche
   // przypomnienie kontekstowe (uzytkownik tego nie widzi), a on decyduje
@@ -412,6 +450,24 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
                 } else {
                   result = { error: 'nieznana akcja' };
                 }
+              } else if (call.name === 'plik') {
+                const { operacja, nazwa, tresc } = call.args || {};
+                const map = {
+                  zapisz: 'zapisz-plik',
+                  dopisz: 'dopisz-do-pliku',
+                  czytaj: 'czytaj-plik',
+                  lista: 'lista-plikow',
+                  'otworz-folder': 'otworz-folder-jarvisa',
+                };
+                const action = map[operacja];
+                if (!action) {
+                  result = { error: 'nieznana operacja' };
+                } else {
+                  // Klient wykonuje operacje i odsyla wynik - serwer nie ma
+                  // dostepu do dysku uzytkownika i nie powinien go miec.
+                  const reply = await requestFromClient({ type: 'fileAction', action, nazwa, tresc });
+                  result = reply || { error: 'brak odpowiedzi z urzadzenia' };
+                }
               } else if (call.name === 'steruj_aplikacja') {
                 const { akcja, tekst } = call.args || {};
                 if (APP_ACTIONS.includes(akcja)) {
@@ -488,6 +544,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
           liveSession.close();
         } else if (msg.type === 'video' && msg.data) {
           liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
+        } else if (msg.type === 'response' && msg.requestId) {
+          const resolve = pendingRequests.get(msg.requestId);
+          if (resolve) resolve(msg.data);
         }
       } catch {
         /* noop */

@@ -50,7 +50,29 @@ const ACTIONS = {
   wycisz: async () => sendMediaKey(0xad, 1),
 };
 
-async function runAction(name) {
+// Operacje na plikach sa osobno, bo jako jedyne przyjmuja parametry.
+// Kazda z nich i tak jest zamknieta w folderze Dokumenty\Jarvis - patrz
+// uzasadnienie w files.js.
+const files = require('./files');
+
+const FILE_ACTIONS = {
+  'zapisz-plik': (p) => files.writeFile(p.nazwa, p.tresc),
+  'dopisz-do-pliku': (p) => files.appendFile(p.nazwa, p.tresc),
+  'czytaj-plik': (p) => files.readFile(p.nazwa),
+  'lista-plikow': () => files.listFiles(),
+  'otworz-folder-jarvisa': () => files.openFolder(),
+};
+
+async function runAction(name, params = {}) {
+  const fileFn = FILE_ACTIONS[name];
+  if (fileFn) {
+    try {
+      return await fileFn(params || {});
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
   const fn = ACTIONS[name];
   if (!fn) return { ok: false, error: 'Nieznana akcja' };
   try {
@@ -60,4 +82,7 @@ async function runAction(name) {
   }
 }
 
-module.exports = { runAction, actionNames: Object.keys(ACTIONS) };
+module.exports = {
+  runAction,
+  actionNames: [...Object.keys(ACTIONS), ...Object.keys(FILE_ACTIONS)],
+};
