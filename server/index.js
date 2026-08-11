@@ -16,6 +16,7 @@ import * as push from './push.js';
 import * as image from './image.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
+import { startUpkeep } from './upkeep.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -257,6 +258,7 @@ await memory.hydrate();
 
 server.listen(PORT, () => {
   console.log(`J.A.R.V.I.S. online at http://localhost:${PORT}`);
+  startUpkeep();
 });
 
 // Render wysyla SIGTERM przy restarcie/wdrozeniu - dopisujemy to, co jeszcze

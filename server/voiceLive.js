@@ -41,6 +41,7 @@ const DEVICE_ACTIONS = [
   'glosniej',
   'ciszej',
   'wycisz',
+  'pobudka',
 ];
 
 // Sterowanie WNETRZEM aplikacji (usluga dostepnosci, tylko Android).
@@ -128,7 +129,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
-- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}.
+- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
 ${searchLine}

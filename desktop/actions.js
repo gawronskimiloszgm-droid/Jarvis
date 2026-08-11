@@ -19,9 +19,20 @@ function sendMediaKey(keyCode, times = 1) {
   return runWindowsCommand(`powershell -NoProfile -Command "${script}"`);
 }
 
+// AC/DC - "Back in Black". Identyfikator sprawdzony, nie zgadywany.
+const WAKE_TRACK_ID = process.env.JARVIS_WAKE_TRACK || '08mG3Y1vljYA6bvDt4Wqkj';
+
 const ACTIONS = {
   'otworz-spotify': async () => {
     await shell.openExternal('spotify:').catch(() => shell.openExternal('https://open.spotify.com'));
+    return { ok: true };
+  },
+  // "Jarvis, pobudka" - najpierw probujemy schematu spotify:, ktory otwiera
+  // aplikacje i od razu odtwarza; gdy jej nie ma, ladujemy w przegladarce.
+  pobudka: async () => {
+    await shell
+      .openExternal(`spotify:track:${WAKE_TRACK_ID}`)
+      .catch(() => shell.openExternal(`https://open.spotify.com/track/${WAKE_TRACK_ID}`));
     return { ok: true };
   },
   'otworz-youtube-music': async () => {

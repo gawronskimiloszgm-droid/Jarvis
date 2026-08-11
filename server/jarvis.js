@@ -97,7 +97,7 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
 - [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
-  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz - dostepne wszedzie (desktop i telefon)
+  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz, pobudka - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka").
   - otworz-eksplorator, zablokuj-ekran - dostepne TYLKO na desktopie`;
 
 const GUEST_RULES = `
@@ -278,3 +278,55 @@ export async function visionStream(base64Data, mimeType, question, onChunk) {
   return cleanedFull;
 }
 
+
+// Porzadkowanie pamieci - raz na dobe, w czasie gdy serwer i tak sie
+// rozgrzewa. Model scala duplikaty i sprzecznosci ("mieszka w Krakowie" +
+// "przeprowadzil sie do Warszawy" -> jeden aktualny fakt).
+//
+// Pamiec uzytkownika jest cenna i nieodwracalna, wiec wynik przyjmujemy
+// tylko gdy przejdzie kontrole: musi byc poprawna lista, niepusta, nie
+// dluzsza niz wejscie i nie moze scinac wiecej niz polowy faktow. Przy
+// jakimkolwiek odchyleniu zostawiamy stara wersje nietknieta.
+export async function consolidateFacts() {
+  const before = memory.getFacts();
+  if (before.length < 4) return { changed: false, before: before.length, after: before.length };
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents:
+      'Ponizej lista faktow o uzytkowniku, zbierana przez asystenta. Uporzadkuj ja:\n' +
+      '- SCAL W JEDEN WPIS wszystkie fakty mowiace o tym samym, nawet innymi slowami.\n' +
+      '  Przyklad: "Ma na imie Jan" + "Uzytkownik nazywa sie Jan" -> jeden wpis "Ma na imie Jan".\n' +
+      '  Przyklad: "Lubi kawe" + "Uwielbia kawe" -> jeden wpis.\n' +
+      '- przy sprzecznosciach zostaw wersje nowsza (nizej na liscie = nowsza)\n' +
+      '- usun rzeczy bez wartosci na przyszlosc (jednorazowe, chwilowe)\n' +
+      '- NIE dodawaj niczego, czego nie ma na liscie\n' +
+      '- zachowaj oryginalny jezyk zapisu\n\n' +
+      'Zwroc WYLACZNIE tablice JSON stringow, bez komentarza i bez znacznikow markdown.\n\n' +
+      JSON.stringify(before, null, 1),
+  });
+
+  const raw = (res.text || '').trim().replace(/^```(?:json)?|```$/g, '').trim();
+  let after;
+  try {
+    after = JSON.parse(raw);
+  } catch {
+    return { changed: false, before: before.length, after: before.length, reason: 'zla odpowiedz' };
+  }
+
+  const valid =
+    Array.isArray(after) &&
+    after.length > 0 &&
+    after.length <= before.length &&
+    after.length >= Math.ceil(before.length / 2) &&
+    after.every((f) => typeof f === 'string' && f.trim().length > 0);
+
+  if (!valid) {
+    return { changed: false, before: before.length, after: before.length, reason: 'odrzucone przez kontrole' };
+  }
+
+  const data = memory.load();
+  data.facts = after.map((f) => f.trim());
+  memory.save(data);
+  return { changed: after.length !== before.length, before: before.length, after: after.length };
+}

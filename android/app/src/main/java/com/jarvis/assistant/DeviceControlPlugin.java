@@ -17,6 +17,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "DeviceControl")
 public class DeviceControlPlugin extends Plugin {
 
+    // AC/DC - "Back in Black". Identyfikator sprawdzony, nie zgadywany.
+    private static final String WAKE_TRACK_ID = "08mG3Y1vljYA6bvDt4Wqkj";
+
     @PluginMethod
     public void runAction(PluginCall call) {
         String name = call.getString("name", "");
@@ -26,6 +29,12 @@ public class DeviceControlPlugin extends Plugin {
         switch (name) {
             case "otworz-spotify":
                 ok = openApp("com.spotify.music", "https://open.spotify.com");
+                break;
+            case "pobudka":
+                // AC/DC - "Back in Black". Schemat spotify: otwiera aplikacje
+                // i od razu odtwarza; bez niej ladujemy w przegladarce.
+                ok = openUrl("spotify:track:" + WAKE_TRACK_ID);
+                if (!ok) ok = openUrl("https://open.spotify.com/track/" + WAKE_TRACK_ID);
                 break;
             case "otworz-youtube-music":
                 ok = openApp("com.google.android.apps.youtube.music", "https://music.youtube.com");
