@@ -12,10 +12,10 @@
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from './memory.js';
 import { getWeather, getWeatherByCoords } from './weather.js';
-import { searchWeb } from './websearch.js';
+import { searchWithContent } from './websearch.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Charon';
 
 // Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
@@ -90,7 +90,7 @@ function buildLiveSystemInstruction(hasCoords, isOwner) {
     ? '- sprawdz_pogode: z miastem, albo bez parametru gdy pytanie dotyczy "tutaj"/"u mnie" (system ma GPS).'
     : '- sprawdz_pogode: z nazwa miasta.';
   const searchLine =
-    '- wyszukaj_w_sieci: wyniki same pokaza sie na ekranie. Powiedz jednym zdaniem co znalazles, NIE czytaj listy.';
+    '- wyszukaj_w_sieci: dostajesz TRESC stron, nie same linki. ODPOWIEDZ KONKRETNIE na pytanie na jej podstawie (liczba, wartosc, krok) - nigdy nie odsylaj "zobacz na ekranie", bo uzytkownik moze miec zajete rece. Podaj zrodlo jednym slowem. Gdy tresc nie zawiera odpowiedzi, powiedz to wprost.';
 
   if (!isOwner) {
     return `${LIVE_CHARACTER}
@@ -123,9 +123,16 @@ Rozmawiasz ze swoim wlascicielem (Milosz) - mowisz do niego "sir", naturalnie, n
 
 MASZ INICJATYWE: gdy zauwazysz cos wartego uwagi (nadchodzace przypomnienie, zaniedbane zadanie, cos w kamerze), powiedz to sam, nie czekaj na pytanie. Miej opinie i wtracaj je.
 
+JESTES NARZEDZIEM DO PRACY, nie rozmowka. Uzytkownik czesto ma zajete albo brudne rece - w garazu, przy naprawie, w kuchni. Z tego wynika:
+- Podawaj KONKRET: liczbe, wartosc, wymiar, kolejny krok. Nie "to zalezy od modelu" bez proby ustalenia - jak nie wiesz, wyszukaj i odpowiedz z tresci strony.
+- Nigdy nie odsylaj do ekranu ("zobacz wyniki", "sprawdz w tabeli"). Powiedz odpowiedz na glos.
+- Przy liczbach podaj jednostke i, jesli to istotne, przelicz (Nm, cale/mm, bary/PSI).
+- Przy krokach podawaj po jednym na raz i czekaj, az uzytkownik powie ze gotowe - nie wyrzucaj calej listy naraz.
+- Gdy czegos naprawde nie da sie ustalic, powiedz to w jednym zdaniu i zaproponuj co sprawdzic.
+
 Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym zdaniem:
 - zapamietaj: kazdy fakt wart trwalego zapisania. ZAWSZE naprawde wywolaj, nie obiecuj.
-- dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej).
+- dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej). Uzywaj tego TAKZE jako minutnika: "ustaw timer na 20 minut" = przypomnienie za 20 minut z trescia mowiaca po co ("koniec 20 minut - klej").
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
@@ -416,10 +423,16 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
               } else if (call.name === 'wyszukaj_w_sieci') {
                 try {
                   const query = (call.args || {}).zapytanie || '';
-                  const results = await searchWeb(query);
+                  const { results, content } = await searchWithContent(query);
                   safeSend(JSON.stringify({ type: 'showSearch', query, results }));
+                  // Oddajemy modelowi TRESC stron, nie same tytuly - dzieki
+                  // temu potrafi podac konkretna odpowiedz zamiast odsylac
+                  // do listy linkow, co z brudnymi rekami jest bezuzyteczne.
                   result = results.length
-                    ? { wyniki: results.map((r) => ({ tytul: r.title, opis: r.snippet })) }
+                    ? {
+                        tresc_stron: content.map((c) => ({ zrodlo: c.title, tekst: c.text })),
+                        wyniki: results.map((r) => ({ tytul: r.title, opis: r.snippet })),
+                      }
                     : { error: 'brak wynikow' };
                 } catch {
                   result = { error: 'blad wyszukiwania' };
