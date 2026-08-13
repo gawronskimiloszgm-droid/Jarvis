@@ -16,7 +16,11 @@ import { searchWithContent } from './websearch.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
-const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Charon';
+// Orion - nizszy, glebszy glos niz Charon (zmierzone: ~106 Hz vs ~118 Hz).
+// UWAGA: dokumentacja API dla programistow go nie wymienia, ale dziala.
+// Nieznana nazwa glosu nie powoduje bledu polaczenia - sesja wstaje, tylko
+// nie przychodzi zadne audio. Zmieniajac ten glos, sprawdz ze cos slychac.
+const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orion';
 
 // Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
 // NAJWIEKSZY pojedynczy skladnik odczuwalnego opoznienia - dokumentacja

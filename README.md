@@ -92,6 +92,10 @@ W wersji desktopowej Jarvis moze wykonac ograniczona, z gory zdefiniowana liste 
 - "Otworz przegladarke" / "Otworz eksplorator plikow"
 - "Zablokuj ekran"
 - "Zwieksz/zmniejsz glosnosc", "Wycisz"
+- "Zatrzymaj/wznow muzyke", "Nastepny utwor", "Poprzedni utwor" — dzialaja z dowolnym odtwarzaczem, ktory akurat gra (takze na telefonie)
+- "Zrob zrzut ekranu" — zapisuje obraz w folderze `Dokumenty\Jarvis`
+- "Zamknij okno", "Pokaz pulpit"
+- "Uspij komputer" — Jarvis upewni sie krotko, zanim to zrobi
 
 To dziala TYLKO w oknie desktopowym (Electron ma dostep do systemu), nie w przegladarce/PWA na telefonie — tam Jarvis powie, ze ta funkcja jest niedostepna. Celowo nie ma tu mozliwosci wykonania dowolnej komendy - lista akcji jest na sztywno zapisana w `desktop/actions.js`, wiec nawet gdyby ktos probowal "przekonac" Jarvisa przez rozmowe do zrobienia czegos innego, nie ma takiej opcji technicznie.
 

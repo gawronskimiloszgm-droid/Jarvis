@@ -12,6 +12,8 @@ services:
         value: gemini-flash-lite-latest
       - key: TTS_VOICE
         value: pl-PL-MarekNeural
+      - key: GEMINI_LIVE_VOICE
+        value: Orion
       - key: OWNER_TITLE
         value: sir
       - key: VAPID_PUBLIC_KEY
