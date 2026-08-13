@@ -52,10 +52,22 @@ html, body {
   to { background-position: 0 46px; }
 }
 
-.vignette {
+/* Galaktyka - wolno obracajacy sie dysk gwiazd za rdzeniem. Rysowana na
+   canvasie (patrz startGalaxy), lezy nad siatka a pod winieta, zeby jej
+   brzegi gasly razem z reszta tla. */
+.galaxy {
   position: fixed;
   inset: 0;
   z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
   background: radial-gradient(ellipse at 50% 45%, transparent 30%, rgba(2, 6, 13, 0.85) 100%);
 }
@@ -237,121 +249,218 @@ html, body {
   .bar-stat#barClock { display: inline; }
 }
 
-/* --- Przestrzen robocza --- */
+/* --- Rdzen i pierscien zakladek ---
+   Rdzen jest tlem calej aplikacji: siedzi na srodku, pulsuje i nigdy nie
+   znika. Zakladki lezą na luku NAD nim (dol kola zostaje wolny, bo
+   przyslania go panel tresci). Wysokosc panelu jest jedna zmienna, zeby
+   uklad dalo sie przestroic w jednym miejscu. */
 
-.stage {
-  position: fixed;
-  top: 46px;
-  left: 0;
-  right: 0;
-  bottom: 62px;
-  z-index: 10;
-  overflow: hidden;
-}
-
-/* --- Panel (okno) --- */
-
-.pane {
-  position: absolute;
-  min-width: 190px;
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--edge);
-  background: var(--pane-bg);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
-  animation: paneIn 0.22s ease-out;
-}
+:root { --sheet-h: 42vh; }
 
 @keyframes paneIn {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
 
-.pane::before, .pane::after {
-  content: '';
+/* Rdzen siega az na sam dol ekranu (dolna czesc kola chowa sie za panelem
+   tresci - stad wrazenie, ze tresc lezy NA nim). Ale srodek podnosimy
+   wyzej niz polowa, inaczej gorny luk zakladek wchodzi na belke. */
+.core-field {
+  position: fixed;
+  top: 46px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: calc(var(--sheet-h) * 0.55);
+  pointer-events: none;
+  transition: padding-bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Zadna zakladka nie jest otwarta - rdzen wraca na srodek ekranu. */
+body.no-tab .core-field { padding-bottom: 0; }
+
+.core-holder {
+  position: relative;
+  width: min(44vh, 62vw, 370px);
+  height: min(44vh, 62vw, 370px);
+}
+
+.core-bg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0.85;
+  transition: opacity 0.4s ease;
+}
+
+/* Poza zakladka glowna rdzen sciemnia sie, zeby nie walczyl z trescia. */
+body.tab-away .core-bg { opacity: 0.42; }
+
+.core-hit {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  left: 22%;
+  top: 22%;
+  width: 56%;
+  height: 56%;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* Pod wordmarkiem, w wolnym pasie miedzy pierscieniem wewnetrznym a
+   segmentowym - inaczej naklada sie na napis JARVIS. */
+.core-state {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 77%;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--ink-dim);
   pointer-events: none;
 }
 
-.pane::before { top: -1px; left: -1px; border-top: 2px solid var(--hot); border-left: 2px solid var(--hot); }
-.pane::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--hot); border-right: 2px solid var(--hot); }
+/* --- Pierscien zakladek --- */
 
-.pane.focus { border-color: var(--hot); box-shadow: 0 6px 34px rgba(34, 224, 255, 0.22); }
+.ring { position: absolute; inset: 0; pointer-events: none; }
 
-.pane-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border-bottom: 1px solid var(--edge);
-  cursor: grab;
-  user-select: none;
-  flex: 0 0 auto;
-}
-
-.pane-bar:active { cursor: grabbing; }
-
-.pane-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--hot);
-  box-shadow: 0 0 8px var(--hot);
-  flex: 0 0 auto;
-}
-
-.pane-title {
-  flex: 1;
-  font-size: 9.5px;
-  letter-spacing: 2.2px;
-  color: var(--ink-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pane-tools { display: flex; gap: 4px; }
-
-.pane-btn {
-  width: 20px;
-  height: 18px;
-  background: transparent;
-  border: 1px solid transparent;
+.ringbtn {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  background: rgba(4, 16, 26, 0.86);
   color: var(--ink-dim);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.16s, border-color 0.16s, box-shadow 0.16s, transform 0.16s;
 }
 
-.pane-btn:hover { color: var(--hot); border-color: var(--edge); }
+.ringbtn:hover { color: var(--ink); border-color: var(--hot); transform: scale(1.12); }
 
-.pane-body {
+.ringbtn.on {
+  color: var(--hot);
+  border-color: var(--hot);
+  background: rgba(34, 224, 255, 0.16);
+  box-shadow: 0 0 16px rgba(34, 224, 255, 0.4);
+  transform: scale(1.12);
+}
+
+/* NIE nazywaj tego "locked" - taka klasa istnieje juz nizej dla tresci
+   panelu i ma height:100%, co rozciagalo przyciski na cala wysokosc. */
+.ringbtn.off { opacity: 0.35; }
+
+/* Podpis pokazujemy tylko przy aktywnej zakladce - osiem etykiet naraz
+   zamienia pierscien w kase. */
+.ringbtn .lbl {
+  position: absolute;
+  top: 46px;
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+  color: var(--hot);
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+
+.ringbtn.on .lbl { opacity: 1; }
+
+/* --- Panel tresci --- */
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--sheet-h);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--edge);
+  background: rgba(3, 11, 19, 0.82);
+  backdrop-filter: blur(9px);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Ponowne klikniecie w otwarta zakladke zjezdza panelem w dol - zostaje
+   sam rdzen na tle galaktyki. */
+body.no-tab .sheet {
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+.sheet-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.sheet-glyph { font-size: 13px; color: var(--hot); }
+
+.sheet-title {
+  font-size: 10px;
+  letter-spacing: 3.5px;
+  color: var(--hot);
+}
+
+.sheet-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 11px 12px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
   font-size: 12px;
   line-height: 1.55;
   scrollbar-width: thin;
   scrollbar-color: var(--edge) transparent;
 }
 
-.pane.min .pane-body, .pane.min .pane-grip { display: none; }
-.pane.min { min-height: 0; height: auto !important; }
+/* Zakladka zlozona z kilku kart - kazda dawny panel. */
+.card { border: 1px solid var(--edge); background: rgba(4, 16, 26, 0.5); margin-bottom: 10px; }
+.card:last-child { margin-bottom: 0; }
 
-.pane-grip {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 20px;
-  height: 20px;
-  cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 48%, var(--edge) 48%, var(--edge) 60%, transparent 60%);
-  touch-action: none;
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 9px;
+  letter-spacing: 2.2px;
+  color: var(--ink-dim);
+}
+
+.card-head .gl { color: var(--hot); font-size: 11px; }
+.card-body { padding: 11px 12px; }
+
+/* Zakladka z jedna karta nie potrzebuje ramki w ramce - tytul niesie juz
+   naglowek panelu. */
+.tab-sec.solo .card { border: none; background: none; margin: 0; }
+.tab-sec.solo .card-head { display: none; }
+.tab-sec.solo .card-body { padding: 0; }
+
+/* Na szerokim ekranie karty ukladaja sie obok siebie zamiast jedna pod druga. */
+@media (min-width: 900px) {
+  .tab-sec.multi { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; align-items: start; }
+  .tab-sec.multi .card { margin: 0; }
 }
 
 /* --- Tresc paneli --- */
@@ -371,10 +480,6 @@ html, body {
 }
 
 .sub { font-size: 10.5px; color: var(--ink-dim); letter-spacing: 1px; }
-
-.core-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; }
-.core-canvas { width: 100%; flex: 1; min-height: 0; }
-.core-state { font-size: 10px; letter-spacing: 3px; color: var(--ink-dim); }
 
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
@@ -448,58 +553,12 @@ html, body {
 .locked-mark { font-size: 26px; color: var(--ink-dim); }
 .locked p { margin: 0; font-size: 11.5px; color: var(--ink-dim); line-height: 1.6; }
 
-/* --- Dok --- */
-
-.dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 62px;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  overflow-x: auto;
-  border-top: 1px solid var(--edge);
-  background: rgba(2, 8, 15, 0.9);
-  backdrop-filter: blur(6px);
-  scrollbar-width: none;
-}
-
-.dock::-webkit-scrollbar { display: none; }
-
-.dock-btn {
-  flex: 0 0 auto;
-  min-width: 62px;
-  height: 44px;
-  background: rgba(34, 224, 255, 0.04);
-  border: 1px solid var(--edge);
-  color: var(--ink-dim);
-  font-family: inherit;
-  font-size: 8.5px;
-  letter-spacing: 1px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 0 8px;
-  transition: all 0.15s;
-}
-
-.dock-btn .gl { font-size: 14px; line-height: 1; }
-.dock-btn:hover { color: var(--ink); border-color: var(--hot); }
-.dock-btn.on { color: var(--hot); border-color: var(--hot); background: rgba(34, 224, 255, 0.13); box-shadow: 0 0 12px rgba(34, 224, 255, 0.25); }
-.dock-btn.locked { opacity: 0.45; }
-
 /* --- Powiadomienia --- */
 
 .toasts {
+  transition: bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1);
   position: fixed;
-  bottom: 74px;
+  bottom: calc(var(--sheet-h) + 14px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 120;
@@ -523,3 +582,6 @@ html, body {
 }
 
 .toast.ok { border-color: var(--edge); color: var(--ink); }
+
+/* Bez otwartej zakladki komunikaty schodza na dol ekranu. */
+body.no-tab .toasts { bottom: 24px; }

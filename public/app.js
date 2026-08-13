@@ -34,6 +34,7 @@ const el = (tag, cls, text) => {
 function toast(msg, kind = 'bad') {
   const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
   $('#toasts').appendChild(n);
+  window.SFX?.play(kind === 'ok' ? 'ok' : 'err');
   setTimeout(() => n.remove(), 4800);
 }
 
@@ -56,226 +57,170 @@ function setState(text) {
   if (n) n.textContent = text;
 }
 
-// ---------- Menedzer paneli ----------
+// ---------- Zakladki ----------
+//
+// Zamiast okien do przesuwania: jeden panel tresci na dole i pierscien
+// zakladek rozlozony lukiem nad rdzeniem.
+//
+// Zakladka budowana jest przy pierwszym wejsciu i ZOSTAJE w DOM (chowamy
+// ja, nie kasujemy). To celowe: kamera nie gasnie przy zajrzeniu w inna
+// zakladke, a czat nie traci przewiniecia ani wpisanego tekstu.
 
-const PANES = new Map();
-let zTop = 10;
+const MOUNTED = new Map();
+const LIVE_PANELS = new Set();
+let activeTab = null;
 
-function savedBox(id) {
-  try {
-    return JSON.parse(localStorage.getItem(`jarvis.pane.${id}`) || 'null');
-  } catch {
-    return null;
-  }
-}
+const panelLive = (id) => LIVE_PANELS.has(id);
 
-function saveBox(id, box) {
-  localStorage.setItem(`jarvis.pane.${id}`, JSON.stringify(box));
-}
+const TABS = [
+  { id: 'main', title: 'GLOWNY', glyph: '◉', panels: ['talk'] },
+  { id: 'sys', title: 'SYSTEM', glyph: '▤', panels: ['link', 'clock', 'weather'] },
+  { id: 'mind', title: 'PAMIEC', glyph: '❖', owner: true, panels: ['mind'] },
+  { id: 'todo', title: 'ZADANIA', glyph: '☰', owner: true, panels: ['tasks', 'alerts'] },
+  { id: 'eye', title: 'KAMERA', glyph: '◎', owner: true, panels: ['eye'] },
+  { id: 'find', title: 'SZUKAJ', glyph: '⌕', panels: ['find'] },
+  { id: 'money', title: 'WYDATKI', glyph: '▦', owner: true, panels: ['money'] },
+  { id: 'dev', title: 'URZADZENIE', glyph: '✥', owner: true, panels: ['grip', 'bubble'] },
+];
 
-function clampBox(box) {
-  const stage = $('#stage').getBoundingClientRect();
-  const w = Math.min(box.w, stage.width - 8);
-  const h = Math.min(box.h, stage.height - 8);
-  return {
-    x: Math.max(0, Math.min(box.x, stage.width - w)),
-    y: Math.max(0, Math.min(box.y, stage.height - h)),
-    w,
-    h,
-  };
-}
+const tabById = (id) => TABS.find((t) => t.id === id);
 
-function focusPane(pane) {
-  document.querySelectorAll('.pane.focus').forEach((p) => p.classList.remove('focus'));
-  pane.classList.add('focus');
-  pane.style.zIndex = String(++zTop);
-}
-
-function makeDraggable(pane, handle, id) {
-  let start = null;
-
-  const down = (e) => {
-    if (e.target.closest('.pane-btn')) return;
-    const pt = e.touches ? e.touches[0] : e;
-    const r = pane.getBoundingClientRect();
-    const stage = $('#stage').getBoundingClientRect();
-    start = { px: pt.clientX, py: pt.clientY, x: r.left - stage.left, y: r.top - stage.top };
-    focusPane(pane);
-    e.preventDefault();
-  };
-
-  const move = (e) => {
-    if (!start) return;
-    const pt = e.touches ? e.touches[0] : e;
-    const box = clampBox({
-      x: start.x + (pt.clientX - start.px),
-      y: start.y + (pt.clientY - start.py),
-      w: pane.offsetWidth,
-      h: pane.offsetHeight,
-    });
-    pane.style.left = `${box.x}px`;
-    pane.style.top = `${box.y}px`;
-  };
-
-  const up = () => {
-    if (!start) return;
-    start = null;
-    const r = pane.getBoundingClientRect();
-    const stage = $('#stage').getBoundingClientRect();
-    saveBox(id, { x: r.left - stage.left, y: r.top - stage.top, w: pane.offsetWidth, h: pane.offsetHeight });
-  };
-
-  handle.addEventListener('mousedown', down);
-  handle.addEventListener('touchstart', down, { passive: false });
-  window.addEventListener('mousemove', move);
-  window.addEventListener('touchmove', move, { passive: false });
-  window.addEventListener('mouseup', up);
-  window.addEventListener('touchend', up);
-}
-
-function makeResizable(pane, grip, id) {
-  let start = null;
-
-  const down = (e) => {
-    const pt = e.touches ? e.touches[0] : e;
-    start = { px: pt.clientX, py: pt.clientY, w: pane.offsetWidth, h: pane.offsetHeight };
-    focusPane(pane);
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const move = (e) => {
-    if (!start) return;
-    const pt = e.touches ? e.touches[0] : e;
-    pane.style.width = `${Math.max(190, start.w + (pt.clientX - start.px))}px`;
-    pane.style.height = `${Math.max(120, start.h + (pt.clientY - start.py))}px`;
-    e.preventDefault();
-  };
-
-  const up = () => {
-    if (!start) return;
-    start = null;
-    const r = pane.getBoundingClientRect();
-    const stage = $('#stage').getBoundingClientRect();
-    saveBox(id, { x: r.left - stage.left, y: r.top - stage.top, w: pane.offsetWidth, h: pane.offsetHeight });
-  };
-
-  grip.addEventListener('mousedown', down);
-  grip.addEventListener('touchstart', down, { passive: false });
-  window.addEventListener('mousemove', move);
-  window.addEventListener('touchmove', move, { passive: false });
-  window.addEventListener('mouseup', up);
-  window.addEventListener('touchend', up);
-}
-
-function openPane(id) {
-  const def = PANEL_DEFS[id];
-  if (!def) return null;
-  if (def.owner && !isOwner()) {
-    toast('Ta funkcja wymaga zalogowania haslem.');
-    return null;
-  }
-  if (PANES.has(id)) {
-    const pane = PANES.get(id);
-    pane.classList.remove('min');
-    focusPane(pane);
-    return pane;
-  }
-
-  const frag = $('#panelTpl').content.cloneNode(true);
-  const pane = frag.querySelector('.pane');
-  pane.dataset.pane = id;
-  $('.pane-title', pane).textContent = def.title;
-
-  const box = clampBox(savedBox(id) || def.box());
-  pane.style.left = `${box.x}px`;
-  pane.style.top = `${box.y}px`;
-  pane.style.width = `${box.w}px`;
-  pane.style.height = `${box.h}px`;
-
-  const body = $('.pane-body', pane);
-  $('[data-act="close"]', pane).addEventListener('click', () => closePane(id));
-  $('[data-act="min"]', pane).addEventListener('click', () => {
-    pane.classList.toggle('min');
-    syncDock();
+function buildRing() {
+  const ring = $('#ring');
+  ring.innerHTML = '';
+  TABS.forEach((t) => {
+    const b = el('button', 'ringbtn');
+    b.dataset.tab = t.id;
+    b.title = t.title;
+    b.append(el('span', 'gl', t.glyph), el('span', 'lbl', t.title));
+    b.addEventListener('click', () => showTab(t.id));
+    ring.appendChild(b);
   });
-  pane.addEventListener('mousedown', () => focusPane(pane));
-
-  makeDraggable(pane, $('.pane-bar', pane), id);
-  makeResizable(pane, $('[data-grip]', pane), id);
-
-  $('#stage').appendChild(pane);
-  PANES.set(id, pane);
-  focusPane(pane);
-
-  def.build(body, pane);
-  if (def.refresh) def.refresh();
-  syncDock();
-  return pane;
+  layoutRing();
+  syncRing();
 }
 
-function closePane(id) {
-  const pane = PANES.get(id);
-  if (!pane) return;
-  if (PANEL_DEFS[id]?.onClose) PANEL_DEFS[id].onClose();
-  pane.remove();
-  PANES.delete(id);
-  syncDock();
+// Zakladki lezą na luku od 190 do -10 stopni, czyli GORA kola. Dol
+// zostawiamy wolny, bo zaslania go panel tresci.
+function layoutRing() {
+  const holder = $('#coreHolder');
+  if (!holder) return;
+  const size = holder.clientWidth;
+  if (!size) return;
+
+  const radius = size / 2 + 26;
+  const btns = [...document.querySelectorAll('.ringbtn')];
+  const FROM = 190;
+  const TO = -10;
+
+  btns.forEach((b, i) => {
+    const deg = btns.length < 2 ? 90 : FROM + ((TO - FROM) * i) / (btns.length - 1);
+    const rad = (deg * Math.PI) / 180;
+    b.style.left = `${size / 2 + Math.cos(rad) * radius}px`;
+    b.style.top = `${size / 2 - Math.sin(rad) * radius}px`;
+  });
 }
 
-function togglePane(id) {
-  if (PANES.has(id)) closePane(id);
-  else openPane(id);
+// Zbudowanie zakladki BEZ pokazywania jej. Dzieki temu transkrypcja rozmowy
+// ma gdzie sie odkladac, nawet gdy panel jest zwiniety i widac sam rdzen.
+function mountTab(id) {
+  const tab = tabById(id);
+  if (!tab) return null;
+  if (tab.owner && !isOwner()) return null;
+
+  const existing = MOUNTED.get(id);
+  if (existing) return existing;
+
+  const section = el('div', `tab-sec ${tab.panels.length > 1 ? 'multi' : 'solo'}`);
+  tab.panels.forEach((pid) => {
+    const def = PANEL_DEFS[pid];
+    if (!def) return;
+    const card = el('div', 'card');
+    const head = el('div', 'card-head');
+    head.append(el('span', 'gl', def.glyph), el('span', null, def.title));
+    const cardBody = el('div', 'card-body');
+    card.append(head, cardBody);
+    section.appendChild(card);
+    LIVE_PANELS.add(pid);
+    def.build(cardBody);
+  });
+  section.hidden = true;
+  $('#sheetBody').appendChild(section);
+  MOUNTED.set(id, section);
+  return section;
 }
 
-function paneBody(id) {
-  const pane = PANES.get(id);
-  return pane ? $('.pane-body', pane) : null;
+// Zwiniecie panelu - zostaje sam rdzen na tle galaktyki.
+function closeSheet() {
+  activeTab = null;
+  MOUNTED.forEach((sec) => {
+    sec.hidden = true;
+  });
+  document.body.classList.add('no-tab');
+  document.body.classList.remove('tab-away');
+  syncRing();
+}
+
+function showTab(id) {
+  const tab = tabById(id);
+  if (!tab) return;
+  if (tab.owner && !isOwner()) {
+    toast('Ta funkcja wymaga zalogowania haslem.');
+    return;
+  }
+
+  // Klikniecie w JUZ OTWARTA zakladke zamyka panel zamiast otwierac kolejna.
+  if (activeTab === id) return closeSheet();
+
+  const section = mountTab(id);
+  if (!section) return;
+  tab.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
+
+  MOUNTED.forEach((sec, key) => {
+    sec.hidden = key !== id;
+  });
+
+  $('#sheetGlyph').textContent = tab.glyph;
+  $('#sheetTitle').textContent = tab.title;
+  document.body.classList.remove('no-tab');
+  // Poza glowna zakladka rdzen przygasa, zeby nie walczyl z trescia.
+  document.body.classList.toggle('tab-away', id !== 'main');
+  activeTab = id;
+  syncRing();
+}
+
+function syncRing() {
+  document.querySelectorAll('[data-tab]').forEach((b) => {
+    const tab = tabById(b.dataset.tab);
+    b.classList.toggle('on', b.dataset.tab === activeTab);
+    b.classList.toggle('off', Boolean(tab?.owner) && !isOwner());
+  });
+}
+
+// Po wylogowaniu zakladki wlasciciela musza zniknac razem z trescia, ktora
+// zdazyly wczytac - inaczej gosc zobaczylby cudze zadania czy pamiec.
+function dropOwnerTabs() {
+  TABS.filter((t) => t.owner).forEach((t) => {
+    const sec = MOUNTED.get(t.id);
+    if (!sec) return;
+    if (t.id === 'eye') camOff();
+    sec.remove();
+    MOUNTED.delete(t.id);
+    t.panels.forEach((p) => LIVE_PANELS.delete(p));
+  });
+  // Tylko gdy wlasnie ogladana zakladka zniknela - jesli panel byl zwiniety,
+  // zostawiamy go zwinietego.
+  if (activeTab && tabById(activeTab)?.owner) showTab('main');
 }
 
 // ---------- Definicje paneli ----------
 
-function grid(col, row, w, h) {
-  return () => {
-    const stage = $('#stage').getBoundingClientRect();
-    const unitW = stage.width / 12;
-    const unitH = stage.height / 8;
-    return {
-      x: Math.round(col * unitW),
-      y: Math.round(row * unitH),
-      w: Math.round(w * unitW),
-      h: Math.round(h * unitH),
-    };
-  };
-}
-
+// Rdzen nie jest juz panelem - siedzi na stale w HTML jako tlo aplikacji
+// (patrz startCoreVisual w boot()). Ponizsze definicje to tresc zakladek.
 const PANEL_DEFS = {
-  core: {
-    title: 'RDZEN',
-    glyph: '◉',
-    box: grid(4, 0.2, 4, 4),
-    build(body) {
-      body.style.padding = '6px';
-      const wrap = el('div', 'core-wrap');
-      const cv = el('canvas', 'core-canvas');
-      cv.id = 'coreCanvas';
-      const st = el('div', 'core-state', 'GOTOWY');
-      st.id = 'coreState';
-      wrap.append(cv, st);
-      body.appendChild(wrap);
-      startCoreVisual(cv);
-      // Rdzen przejmuje role usunietego przycisku: klikniecie wycisza i
-      // przywraca rozmowe, zeby dalo sie ja przerwac gdy trzeba.
-      cv.style.cursor = 'pointer';
-      cv.title = 'Kliknij, zeby wyciszyc / wznowic rozmowe';
-      cv.addEventListener('click', liveToggle);
-    },
-  },
-
   link: {
     title: 'SYSTEM',
     glyph: '▤',
-    box: grid(0.2, 0.2, 3.6, 2.2),
     build(body) {
       body.innerHTML = '';
       const rows = [
@@ -300,7 +245,6 @@ const PANEL_DEFS = {
   clock: {
     title: 'CZAS',
     glyph: '◷',
-    box: grid(8.2, 0.2, 3.6, 2.2),
     build(body) {
       body.innerHTML = '';
       const t = el('div', 'big-num', '--:--:--');
@@ -315,7 +259,6 @@ const PANEL_DEFS = {
   weather: {
     title: 'OTOCZENIE',
     glyph: '◍',
-    box: grid(0.2, 2.6, 3.6, 2.6),
     build(body) {
       body.innerHTML = '';
       const t = el('div', 'big-num', '--°');
@@ -336,7 +279,6 @@ const PANEL_DEFS = {
   talk: {
     title: 'ROZMOWA',
     glyph: '❐',
-    box: grid(8.2, 2.6, 3.6, 5.2),
     build(body) {
       body.innerHTML = '';
       const feed = el('div', 'feed');
@@ -366,7 +308,6 @@ const PANEL_DEFS = {
     title: 'ZADANIA',
     glyph: '☰',
     owner: true,
-    box: grid(0.2, 5.4, 3.9, 2.4),
     build(body) {
       body.innerHTML = '';
       const f = el('form', 'field');
@@ -403,7 +344,6 @@ const PANEL_DEFS = {
     title: 'PRZYPOMNIENIA',
     glyph: '◔',
     owner: true,
-    box: grid(4.2, 5.4, 3.9, 2.4),
     build(body) {
       body.innerHTML = '';
       const f = el('form', 'field col');
@@ -443,7 +383,6 @@ const PANEL_DEFS = {
     title: 'PAMIEC',
     glyph: '❖',
     owner: true,
-    box: grid(4.2, 0.2, 3.6, 2.2),
     build(body) {
       body.innerHTML = '';
       const ul = el('ul', 'list');
@@ -458,7 +397,6 @@ const PANEL_DEFS = {
     title: 'KAMERA',
     glyph: '◎',
     owner: true,
-    box: grid(4.2, 2.6, 3.9, 2.6),
     build(body) {
       body.innerHTML = '';
       const v = el('video', 'cam-feed');
@@ -478,7 +416,6 @@ const PANEL_DEFS = {
   find: {
     title: 'WYSZUKIWANIE',
     glyph: '⌕',
-    box: grid(0.2, 2.6, 7.9, 5.2),
     build(body) {
       body.innerHTML = '';
       const q = el('div', 'sub', 'Powiedz Jarvisowi, czego poszukac.');
@@ -495,7 +432,6 @@ const PANEL_DEFS = {
     title: 'TRYB W TLE',
     glyph: '◐',
     owner: true,
-    box: grid(4.2, 5.4, 3.9, 2.4),
     build(body) {
       body.innerHTML = '';
       if (!isNativeShell()) {
@@ -556,7 +492,6 @@ const PANEL_DEFS = {
     title: 'WYDATKI',
     glyph: '▦',
     owner: true,
-    box: grid(8.2, 5.4, 3.6, 2.4),
     build(body) {
       body.innerHTML = '';
       const sum = el('div', 'big-num', '-- zl');
@@ -605,7 +540,6 @@ const PANEL_DEFS = {
     title: 'STEROWANIE APLIKACJAMI',
     glyph: '✥',
     owner: true,
-    box: grid(0.2, 5.4, 3.9, 2.4),
     build(body) {
       body.innerHTML = '';
       if (!isNativeShell()) {
@@ -645,46 +579,140 @@ const PANEL_DEFS = {
   },
 };
 
-const DOCK_ORDER = [
-  'core', 'link', 'clock', 'weather', 'talk', 'mind', 'tasks', 'alerts', 'eye', 'find', 'bubble', 'grip', 'money',
-];
+// ---------- Galaktyka w tle ----------
+//
+// Dysk gwiazd w trzech ramionach spiralnych, ogladany pod katem (stad
+// splaszczenie w pionie). Obrot jest ROZNICZKOWY - srodek krazy szybciej
+// niz obrzeza, tak jak w prawdziwej galaktyce - dzieki czemu ramiona
+// powoli sie zwijaja i obraz nigdy nie wyglada na zapetlony.
+//
+// Rysujemy w polowie klatek (co druga), bo to tylko tlo, a na slabszym
+// telefonie kazda zaoszczedzona klatka idzie na plynnosc rdzenia.
 
-function buildDock() {
-  const dock = $('#dock');
-  dock.innerHTML = '';
-  DOCK_ORDER.forEach((id) => {
-    const def = PANEL_DEFS[id];
-    const b = el('button', 'dock-btn');
-    b.dataset.dock = id;
-    b.append(el('span', 'gl', def.glyph), el('span', null, def.title));
-    b.addEventListener('click', () => togglePane(id));
-    dock.appendChild(b);
-  });
-  syncDock();
-}
+const GALAXY_STARS = 340;
+let galaxyRaf = null;
 
-function syncDock() {
-  document.querySelectorAll('[data-dock]').forEach((b) => {
-    const id = b.dataset.dock;
-    b.classList.toggle('on', PANES.has(id));
-    b.classList.toggle('locked', Boolean(PANEL_DEFS[id].owner) && !isOwner());
-  });
+function startGalaxy(cv) {
+  const ctx = cv.getContext('2d');
+  const stars = [];
+
+  for (let i = 0; i < GALAXY_STARS; i++) {
+    // Pierwiastek zageszcza gwiazdy blizej srodka.
+    const r = Math.sqrt(Math.random());
+    const arm = i % 3;
+    stars.push({
+      r,
+      ang: arm * ((Math.PI * 2) / 3) + r * 2.9 + (Math.random() - 0.5) * 0.55,
+      sp: 0.16 / (0.28 + r),
+      size: Math.random() * 1.4 + 0.35,
+      base: 0.18 + Math.random() * 0.55,
+      tw: Math.random() * Math.PI * 2,
+      warm: Math.random() < 0.1,
+    });
+  }
+
+  let w = 0;
+  let h = 0;
+  let dpr = 1;
+  let t = 0;
+  let frame = 0;
+
+  const fit = () => {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = window.innerWidth;
+    h = window.innerHeight;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  };
+  fit();
+  window.addEventListener('resize', fit);
+
+  const draw = () => {
+    galaxyRaf = requestAnimationFrame(draw);
+    frame++;
+    if (frame % 2) return;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h * 0.44;
+    const R = Math.max(w, h) * 0.66;
+    const flat = 0.4; // splaszczenie dysku - dysk widziany pod katem
+    t += 0.0022;
+    const lvl = store.audioLevel;
+
+    // Mglawica - trzy plamy krazace wolniej niz gwiazdy
+    for (let i = 0; i < 3; i++) {
+      const a = t * 0.5 + (i * Math.PI * 2) / 3;
+      const nx = cx + Math.cos(a) * R * 0.3;
+      const ny = cy + Math.sin(a) * R * 0.3 * flat;
+      const rad = R * (0.34 + i * 0.06);
+      const g = ctx.createRadialGradient(nx, ny, 0, nx, ny, rad);
+      g.addColorStop(0, `rgba(34, 224, 255, ${0.05 + lvl * 0.03})`);
+      g.addColorStop(1, 'rgba(34, 224, 255, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(nx, ny, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Gwiazdy
+    for (const s of stars) {
+      const ang = s.ang + t * s.sp * 5;
+      const x = cx + Math.cos(ang) * s.r * R;
+      const y = cy + Math.sin(ang) * s.r * R * flat;
+      if (x < -8 || x > w + 8 || y < -8 || y > h + 8) continue;
+
+      const twinkle = 0.62 + Math.sin(t * 26 + s.tw) * 0.38;
+      const a = Math.min(1, s.base * twinkle * (1 + lvl * 0.5));
+      ctx.beginPath();
+      ctx.arc(x, y, s.size, 0, Math.PI * 2);
+      ctx.fillStyle = s.warm ? `rgba(255, 179, 71, ${a * 0.8})` : `rgba(150, 232, 255, ${a})`;
+      ctx.fill();
+    }
+  };
+
+  if (galaxyRaf) cancelAnimationFrame(galaxyRaf);
+  draw();
 }
 
 // ---------- Wizualizacja rdzenia ----------
 
 let coreRaf = null;
 
-// Rdzen: wielowarstwowy, reagujacy na dzwiek. Warstwy od zewnatrz:
-// pierscien podzialki, sektory danych, orbity satelitow, wykres widma,
-// obrotowe luki, przeciwbiezne trojkaty, rdzen z poswiata i sweep radaru.
-const CORE_SPECTRUM = 72;
+// Emblemat J.A.R.V.I.S.: koncentryczne pierscienie i napis w srodku.
+// Warstwy od zewnatrz: poswiata, pierscien podzialki, wykres widma,
+// obrotowy pierscien segmentowy, przeciwbiezne luki, pierscien wewnetrzny
+// i wordmark. Ukladem rzadzi jedna liczba - "base" (promien) - wiec calosc
+// skaluje sie do kazdego rozmiaru bez poprawek.
+const CORE_SPECTRUM = 64;
 const coreBands = new Float32Array(CORE_SPECTRUM);
-const CORE_SATS = [
-  { r: 0.86, sp: 0.42, size: 2.6, tilt: 0.0 },
-  { r: 0.7, sp: -0.63, size: 2.0, tilt: 1.1 },
-  { r: 0.55, sp: 0.95, size: 1.6, tilt: 2.2 },
-];
+
+// Napis rysujemy litera po literze. ctx.letterSpacing jest nowe i nie
+// wszedzie dziala, a odstep miedzy literami to tu polowa charakteru.
+function drawWordmark(ctx, cx, cy, base, lvl) {
+  const word = 'JARVIS';
+  const size = base * 0.23;
+  ctx.font = `600 ${size}px 'Consolas', 'SF Mono', 'Roboto Mono', monospace`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  const gap = size * 0.34;
+  const widths = [...word].map((ch) => ctx.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
+
+  ctx.save();
+  ctx.shadowColor = `rgba(34, 224, 255, ${0.75 + lvl * 0.25})`;
+  ctx.shadowBlur = base * (0.09 + lvl * 0.07);
+  ctx.fillStyle = `rgba(190, 246, 255, ${0.9 + lvl * 0.1})`;
+  let x = cx - total / 2;
+  for (let i = 0; i < word.length; i++) {
+    ctx.fillText(word[i], x, cy);
+    x += widths[i] + gap;
+  }
+  ctx.restore();
+}
 
 function startCoreVisual(cv) {
   const ctx = cv.getContext('2d');
@@ -713,129 +741,97 @@ function startCoreVisual(cv) {
     t += 0.016;
 
     const ink = (a) => `rgba(34, 224, 255, ${a})`;
-    const warm = (a) => `rgba(255, 179, 71, ${a})`;
+    const ring = (r, a, lw) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * r, 0, Math.PI * 2);
+      ctx.strokeStyle = ink(a);
+      ctx.lineWidth = lw;
+      ctx.stroke();
+    };
 
-    // 1. Zewnetrzny pierscien podzialki - co 12. kreska dluzsza
-    const ticks = 96;
+    // 1. Poswiata calosci - oddycha powoli, mocniej gdy Jarvis mowi
+    const halo = ctx.createRadialGradient(cx, cy, base * 0.1, cx, cy, base);
+    const breathe = 0.5 + Math.sin(t * 0.9) * 0.5;
+    halo.addColorStop(0, ink(0.1 + lvl * 0.16 + breathe * 0.03));
+    halo.addColorStop(0.72, ink(0.05 + lvl * 0.07));
+    halo.addColorStop(1, 'rgba(34, 224, 255, 0)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, base, 0, Math.PI * 2);
+    ctx.fillStyle = halo;
+    ctx.fill();
+
+    // 2. Pierscien zewnetrzny z podzialka
+    ring(0.99, 0.5, 1.4);
+    const ticks = 120;
     for (let i = 0; i < ticks; i++) {
-      const ang = (i / ticks) * Math.PI * 2 + t * 0.05;
-      const major = i % 12 === 0;
-      const len = major ? base * 0.09 : base * 0.045;
-      const r0 = base * 0.99 - len;
+      const ang = (i / ticks) * Math.PI * 2 + t * 0.04;
+      const major = i % 10 === 0;
+      const len = major ? base * 0.06 : base * 0.028;
+      const r0 = base * 0.985 - len;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
       ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
-      ctx.strokeStyle = ink(major ? 0.85 : 0.28);
+      ctx.strokeStyle = ink(major ? 0.8 : 0.22);
       ctx.lineWidth = major ? 1.6 : 1;
       ctx.stroke();
     }
 
-    // 2. Sektory danych - grube luki w przeciwnym kierunku
-    for (let i = 0; i < 4; i++) {
-      const from = (i / 4) * Math.PI * 2 - t * 0.22;
-      ctx.beginPath();
-      ctx.arc(cx, cy, base * 0.9, from, from + 0.42);
-      ctx.strokeStyle = ink(0.5);
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-
-    // 3. Wykres widma - wartosci plyna, dzwiek je wybija
+    // 3. Widmo dzwieku - wieniec kreseczek, cichy w spoczynku
     for (let i = 0; i < CORE_SPECTRUM; i++) {
-      const noise = Math.sin(t * 2.1 + i * 0.55) * 0.5 + Math.sin(t * 3.7 + i * 1.3) * 0.5;
-      const target = 0.18 + Math.abs(noise) * 0.22 + lvl * (0.55 + Math.abs(noise) * 0.9);
-      coreBands[i] += (target - coreBands[i]) * 0.25;
+      const noise = Math.sin(t * 1.9 + i * 0.6) * 0.5 + Math.sin(t * 3.3 + i * 1.4) * 0.5;
+      const target = 0.06 + Math.abs(noise) * 0.08 + lvl * (0.5 + Math.abs(noise) * 0.8);
+      coreBands[i] += (target - coreBands[i]) * 0.22;
       const ang = (i / CORE_SPECTRUM) * Math.PI * 2 - Math.PI / 2;
-      const r0 = base * 0.42;
-      const r1 = r0 + coreBands[i] * base * 0.42;
+      const r0 = base * 0.79;
+      const r1 = r0 + coreBands[i] * base * 0.15;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
       ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
-      ctx.strokeStyle = ink(0.25 + coreBands[i] * 0.95);
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = ink(0.2 + coreBands[i] * 1.1);
+      ctx.lineWidth = 1.8;
       ctx.stroke();
     }
 
-    // 4. Obrotowe luki na roznych promieniach
+    // 4. Pierscien segmentowy - 14 krechek jadacych w prawo
+    const seg = 14;
+    for (let i = 0; i < seg; i++) {
+      const from = (i / seg) * Math.PI * 2 + t * 0.16;
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * 0.72, from, from + (Math.PI * 2) / seg - 0.13);
+      ctx.strokeStyle = ink(0.42);
+      ctx.lineWidth = 3.4;
+      ctx.stroke();
+    }
+
+    // 5. Przeciwbiezne luki - luzniejszy, zywy pierscien
     [
-      { r: 0.8, from: 0.4, len: 1.7, sp: -0.4, a: 0.6 },
-      { r: 0.8, from: 3.6, len: 1.2, sp: -0.4, a: 0.6 },
-      { r: 0.33, from: 1.0, len: 2.6, sp: 0.7, a: 0.85 },
+      { r: 0.63, from: 0.3, len: 1.9, sp: -0.34, a: 0.62, lw: 1.5 },
+      { r: 0.63, from: 3.7, len: 1.4, sp: -0.34, a: 0.62, lw: 1.5 },
+      { r: 0.56, from: 1.4, len: 2.4, sp: 0.5, a: 0.4, lw: 1.2 },
+      { r: 0.56, from: 4.9, len: 1.1, sp: 0.5, a: 0.4, lw: 1.2 },
     ].forEach((a) => {
       ctx.beginPath();
       ctx.arc(cx, cy, base * a.r, a.from + t * a.sp, a.from + a.len + t * a.sp);
       ctx.strokeStyle = ink(a.a);
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = a.lw;
       ctx.stroke();
     });
 
-    // 5. Satelity na eliptycznych orbitach
-    CORE_SATS.forEach((s) => {
-      const ang = t * s.sp + s.tilt;
-      const sx = cx + Math.cos(ang) * base * s.r;
-      const sy = cy + Math.sin(ang) * base * s.r * 0.42;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, base * s.r, base * s.r * 0.42, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = ink(0.1);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(sx, sy, s.size + lvl * 2, 0, Math.PI * 2);
-      ctx.fillStyle = ink(0.95);
-      ctx.fill();
-    });
+    // 6. Pierscien wewnetrzny - rama napisu, pulsuje z glosem
+    ring(0.46 + lvl * 0.015, 0.75, 2);
+    ring(0.4, 0.22, 1);
 
-    // 6. Przeciwbiezne trojkaty
-    [
-      { n: 3, r: 0.26, sp: -0.5, a: 0.8 },
-      { n: 3, r: 0.2, sp: 0.85, a: 0.55 },
-    ].forEach((p) => {
-      const pr = base * p.r * (1 + lvl * 0.35);
-      ctx.beginPath();
-      for (let i = 0; i <= p.n; i++) {
-        const ang = (i / p.n) * Math.PI * 2 + t * p.sp;
-        const px = cx + Math.cos(ang) * pr;
-        const py = cy + Math.sin(ang) * pr;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = ink(p.a);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    });
-
-    // 7. Sweep radaru
-    const sweep = t * 1.15;
-    const grad = ctx.createLinearGradient(
-      cx,
-      cy,
-      cx + Math.cos(sweep) * base * 0.9,
-      cy + Math.sin(sweep) * base * 0.9
-    );
-    grad.addColorStop(0, 'rgba(34, 224, 255, 0)');
-    grad.addColorStop(1, 'rgba(34, 224, 255, 0.55)');
+    // 7. Poswiata pod napisem, zeby litery nie wisialy w prozni
+    const inner = ctx.createRadialGradient(cx, cy, 0, cx, cy, base * 0.44);
+    inner.addColorStop(0, ink(0.16 + lvl * 0.2));
+    inner.addColorStop(1, 'rgba(34, 224, 255, 0)');
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.cos(sweep) * base * 0.9, cy + Math.sin(sweep) * base * 0.9);
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // 8. Rdzen z poswiata - bursztynowy przy glosnym dzwieku
-    const cr = base * 0.11 * (1 + lvl * 0.75);
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr * 3.4);
-    glow.addColorStop(0, ink(0.85));
-    glow.addColorStop(0.35, ink(0.2 + lvl * 0.3));
-    glow.addColorStop(1, 'rgba(34, 224, 255, 0)');
-    ctx.beginPath();
-    ctx.arc(cx, cy, cr * 3.4, 0, Math.PI * 2);
-    ctx.fillStyle = glow;
+    ctx.arc(cx, cy, base * 0.44, 0, Math.PI * 2);
+    ctx.fillStyle = inner;
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
-    ctx.fillStyle = lvl > 0.45 ? warm(0.95) : ink(0.98);
-    ctx.fill();
+
+    // 8. Napis
+    drawWordmark(ctx, cx, cy, base, lvl);
 
     store.audioLevel *= 0.92;
     coreRaf = requestAnimationFrame(draw);
@@ -986,7 +982,7 @@ function drawTasks(todos) {
 }
 
 async function loadTasks() {
-  if (!isOwner() || !PANES.has('tasks')) return;
+  if (!isOwner() || !panelLive('tasks')) return;
   try {
     const { todos } = await api('/api/todos');
     drawTasks(todos);
@@ -1022,7 +1018,7 @@ function drawAlerts(reminders) {
 }
 
 async function loadAlerts() {
-  if (!isOwner() || !PANES.has('alerts')) return;
+  if (!isOwner() || !panelLive('alerts')) return;
   try {
     const { reminders } = await api('/api/reminders');
     drawAlerts(reminders);
@@ -1032,7 +1028,7 @@ async function loadAlerts() {
 }
 
 async function loadMind() {
-  if (!isOwner() || !PANES.has('mind')) return;
+  if (!isOwner() || !panelLive('mind')) return;
   const ul = $('#mindList');
   if (!ul) return;
   try {
@@ -1095,7 +1091,7 @@ async function refreshBubble() {
 }
 
 async function loadMoney() {
-  if (!isOwner() || !PANES.has('money')) return;
+  if (!isOwner() || !panelLive('money')) return;
   try {
     const { expenses, summary } = await api('/api/expenses');
     const sum = $('#moneySum');
@@ -1193,7 +1189,7 @@ function drawHits(query, results) {
 
 function showSearch(query, results) {
   lastSearch = { query, results };
-  openPane('find');
+  showTab('find');
   drawHits(query, results);
 }
 
@@ -1211,7 +1207,7 @@ async function camOn() {
     toast('Brak dostepu do kamery.');
     return;
   }
-  openPane('eye');
+  showTab('eye');
   const v = $('#camFeed');
   const note = $('#camNote');
   if (v) {
@@ -1264,7 +1260,9 @@ function camOff() {
   if (note) note.style.display = 'block';
 }
 
-PANEL_DEFS.eye.onClose = () => camOff();
+// Kamera CELOWO nie gasnie przy zmianie zakladki - podglad leci dalej do
+// rozmowy na zywo. Wylacza ja dopiero Jarvis (wylacz_kamere) albo
+// wylogowanie.
 
 // ---------- Sterowanie urzadzeniem ----------
 
@@ -1343,7 +1341,9 @@ async function handleFileAction(msg) {
 
 function pushSaid(who, text) {
   if (!text) return;
-  openPane('talk');
+  // Tylko budujemy czat, NIE otwieramy go. Rozmowa na zywo sypie replikami
+  // bez przerwy - wymuszanie widoku odbieraloby mozliwosc ogladania rdzenia.
+  mountTab('main');
   const feed = $('#talkFeed');
   if (!feed) return;
   const d = el('div', `said ${who === 'me' ? 'me' : 'jv'}`);
@@ -1360,6 +1360,7 @@ const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
 const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
 
 async function sendTyped(text) {
+  window.SFX?.play('send');
   pushSaid('me', text);
   setCoreState('MYSLE');
   const node = pushSaid('jv', '');
@@ -1537,6 +1538,10 @@ async function liveStart() {
     return;
   }
 
+  // Dopiero tutaj mikrofon naprawde dziala - przy odmowie zgody wyzej
+  // wychodzimy, wiec dzwiek nie zagra "na pusto".
+  window.SFX?.play('micOn');
+
   outCtx = new (window.AudioContext || window.webkitAudioContext)();
   outAt = 0;
   liveWs = new WebSocket(wsUrl());
@@ -1614,6 +1619,7 @@ async function liveStart() {
 }
 
 function liveStop() {
+  if (store.live) window.SFX?.play('micOff');
   store.live = false;
   $('#barLive')?.classList.remove('on');
   stopOut();
@@ -1682,7 +1688,22 @@ function relinkSoon() {
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let wakeRec = null;
-let wakeOn = Boolean(SR) && !window.jarvisDesktop && !isNativeShell();
+
+// Nasluch slowa "Jarvis" w PRZEGLADARCE jest domyslnie wylaczony, bo
+// Web Speech API to mechanizm Google i przegladarka gra przy kazdym jego
+// starcie wlasny sygnal, ktorego NIE DA SIE wyciszyc z poziomu strony.
+// A restartuje sie co 400 ms, wiec te piknieciа wracaly bez konca.
+//
+// Nic realnie nie tracimy: rozmowa startuje sama przy wejsciu, a recznie
+// wznawia sie klinieciem w rdzen. Aplikacja desktopowa i Android maja
+// wlasny nasluch (wakeword.ps1 / plugin) - bez dzwiekow Google - i tych
+// dwoch ponizsza flaga nie dotyczy.
+// Chcesz wrocic do nasluchu w przegladarce: localStorage.setItem('jarvis.wake','on')
+let wakeOn =
+  Boolean(SR) &&
+  !window.jarvisDesktop &&
+  !isNativeShell() &&
+  localStorage.getItem('jarvis.wake') === 'on';
 let wakeTimer = null;
 const WAKE_RE = /\b(d?zarwis|jarwis|jarvis)\b/;
 
@@ -1748,9 +1769,9 @@ function applyRole(role) {
   const n = $('#barRole');
   n.textContent = role === 'owner' ? 'MILOSZ' : 'GOSC';
   n.classList.toggle('owner', role === 'owner');
-  syncDock();
   if (role === 'owner') refreshOwnerPanes();
-  else ['tasks', 'alerts', 'mind', 'eye'].forEach((id) => closePane(id));
+  else dropOwnerTabs();
+  syncRing();
 }
 
 function showAuth() {
@@ -1852,14 +1873,6 @@ async function runBoot() {
 
 // ---------- Start ----------
 
-function defaultLayout() {
-  const seen = localStorage.getItem('jarvis.layout.v1');
-  const wide = $('#stage').getBoundingClientRect().width >= 900;
-  const base = wide ? ['link', 'core', 'clock', 'weather', 'talk'] : ['core', 'talk'];
-  if (!seen) localStorage.setItem('jarvis.layout.v1', '1');
-  base.forEach(openPane);
-}
-
 async function boot() {
   const bootDone = runBoot();
 
@@ -1878,8 +1891,20 @@ async function boot() {
   $('#boot').classList.add('gone');
   setTimeout(() => $('#boot').remove(), 800);
 
-  buildDock();
-  defaultLayout();
+  // Rdzen zyje przez caly czas dzialania aplikacji, niezaleznie od zakladek.
+  startCoreVisual($('#coreCanvas'));
+  $('#coreHit').addEventListener('click', liveToggle);
+
+  startGalaxy($('#galaxyCanvas'));
+
+  buildRing();
+  // Startujemy ze zwinietym panelem - pierwsze, co widac, to rdzen.
+  mountTab('main');
+  closeSheet();
+  // Pozycje zakladek licza sie z rozmiaru rdzenia, wiec przy zmianie okna
+  // (albo obrocie telefonu) trzeba je przeliczyc.
+  window.addEventListener('resize', layoutRing);
+
   tickClock();
   setInterval(refreshLink, 60000);
   wakeStart();
@@ -1909,6 +1934,18 @@ $('#notifyBtn').addEventListener('click', async () => {
   if (!('Notification' in window)) return toast('Brak obslugi powiadomien.');
   const p = await Notification.requestPermission();
   toast(p === 'granted' ? 'Powiadomienia wlaczone.' : 'Powiadomienia odrzucone.', p === 'granted' ? 'ok' : 'bad');
+});
+
+// Dzwiek klikniecia podpinamy w JEDNYM miejscu, na pointerdown - reagowanie
+// dopiero na 'click' slychac jako opoznienie. Zakladki dostaja inny sygnal
+// niz zwykle przyciski.
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  // Rdzen pomijamy - ma wlasny sygnal wlaczenia/wylaczenia mikrofonu i
+  // "tap" tuz przed nim brzmialby jak zacinka.
+  if (b.id === 'coreHit') return;
+  window.SFX?.play(b.classList.contains('ringbtn') ? 'swap' : 'tap');
 });
 
 window.addEventListener('online', refreshLink);
