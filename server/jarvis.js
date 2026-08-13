@@ -97,8 +97,8 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
 - [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
-  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz, pobudka - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka").
-  - otworz-eksplorator, zablokuj-ekran - dostepne TYLKO na desktopie`;
+  - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz, pobudka, odtworz-pauza, nastepny-utwor, poprzedni-utwor - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka"). Klawisze medialne dzialaja z dowolnym odtwarzaczem, ktory akurat gra.
+  - otworz-eksplorator, zablokuj-ekran, zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer - dostepne TYLKO na desktopie. "zrzut-ekranu" zapisuje obraz ekranu w folderze Dokumenty\\Jarvis. "uspij-komputer" uzywaj wylacznie na jednoznaczna prosbe - upewnij sie krotko, zanim to zrobisz.`;
 
 const GUEST_RULES = `
 ROZMAWIASZ Z GOSCIEM, nie ze swoim wlascicielem. Nie znasz tej osoby.

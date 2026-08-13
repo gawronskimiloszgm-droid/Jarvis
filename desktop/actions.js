@@ -5,7 +5,9 @@
 // bezpieczenstwa: zaden tekst od uzytkownika/AI nigdy nie trafia bezposrednio
 // do powloki systemowej.
 
-const { shell } = require('electron');
+const path = require('path');
+const fsp = require('fs/promises');
+const { shell, app, desktopCapturer, screen } = require('electron');
 const { exec } = require('child_process');
 
 function runWindowsCommand(cmd) {
@@ -14,9 +16,67 @@ function runWindowsCommand(cmd) {
   });
 }
 
-function sendMediaKey(keyCode, times = 1) {
-  const script = `Add-Type -AssemblyName System.Windows.Forms; for ($i=0;$i -lt ${times};$i++) { [System.Windows.Forms.SendKeys]::SendWait([char]${keyCode}) }`;
-  return runWindowsCommand(`powershell -NoProfile -Command "${script}"`);
+// Skrypty PowerShella podajemy zakodowane w base64 (-EncodedCommand) zamiast
+// wklejac je w cudzyslowy w linii polecen. Skrypty ponizej zawieraja wlasne
+// cudzyslowy (sygnatury P/Invoke), ktore w zwyklym `-Command "..."` rozwalilyby
+// parsowanie. Zadna czesc tych skryptow nie pochodzi od uzytkownika ani modelu.
+function runPowerShell(script) {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  return runWindowsCommand(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`);
+}
+
+// keybd_event zamiast SendKeys - SendKeys nie obsluguje klawiszy medialnych
+// (odtwarzanie, nastepny utwor) ani klawisza Windows.
+const KEY_HELPER = `
+Add-Type -Namespace J -Name K -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, System.IntPtr dwExtraInfo);'
+function Down([byte]$vk) { [J.K]::keybd_event($vk,0,0,[System.IntPtr]::Zero) }
+function Up([byte]$vk) { [J.K]::keybd_event($vk,0,2,[System.IntPtr]::Zero) }
+function Tap([byte]$vk) { Down $vk; Up $vk }
+`;
+
+const VK = {
+  MUTE: 0xad,
+  VOL_DOWN: 0xae,
+  VOL_UP: 0xaf,
+  NEXT: 0xb0,
+  PREV: 0xb1,
+  PLAY_PAUSE: 0xb3,
+  LWIN: 0x5b,
+  ALT: 0x12,
+  F4: 0x73,
+  D: 0x44,
+};
+
+function tapKey(vk, times = 1) {
+  return runPowerShell(`${KEY_HELPER}
+for ($i=0; $i -lt ${times}; $i++) { Tap ${vk}; Start-Sleep -Milliseconds 30 }`);
+}
+
+function tapCombo(modifierVk, vk) {
+  return runPowerShell(`${KEY_HELPER}
+Down ${modifierVk}; Tap ${vk}; Up ${modifierVk}`);
+}
+
+// Zrzut ekranu ladujemy w tym samym folderze co notatki (Dokumenty\Jarvis),
+// pod nazwa generowana z daty - uzytkownik ani model nie podaja tu nazwy.
+async function takeScreenshot() {
+  const dir = path.join(app.getPath('documents'), 'Jarvis');
+  await fsp.mkdir(dir, { recursive: true });
+
+  // size jest w punktach niezaleznych od skali - przy skalowaniu Windows
+  // (125%, 150%) daloby to rozmyty zrzut w mniejszej rozdzielczosci niz ekran.
+  const { size, scaleFactor } = screen.getPrimaryDisplay();
+  const thumbnailSize = {
+    width: Math.round(size.width * scaleFactor),
+    height: Math.round(size.height * scaleFactor),
+  };
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize });
+  if (!sources.length) return { ok: false, error: 'Nie udalo sie odczytac ekranu.' };
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const name = `zrzut-${stamp}.png`;
+  await fsp.writeFile(path.join(dir, name), sources[0].thumbnail.toPNG());
+  return { ok: true, nazwa: name };
 }
 
 // AC/DC - "Back in Black". Identyfikator sprawdzony, nie zgadywany.
@@ -45,9 +105,19 @@ const ACTIONS = {
   },
   'otworz-eksplorator': async () => runWindowsCommand('explorer.exe'),
   'zablokuj-ekran': async () => runWindowsCommand('rundll32.exe user32.dll,LockWorkStation'),
-  glosniej: async () => sendMediaKey(0xaf, 3),
-  ciszej: async () => sendMediaKey(0xae, 3),
-  wycisz: async () => sendMediaKey(0xad, 1),
+  glosniej: async () => tapKey(VK.VOL_UP, 3),
+  ciszej: async () => tapKey(VK.VOL_DOWN, 3),
+  wycisz: async () => tapKey(VK.MUTE),
+  'odtworz-pauza': async () => tapKey(VK.PLAY_PAUSE),
+  'nastepny-utwor': async () => tapKey(VK.NEXT),
+  'poprzedni-utwor': async () => tapKey(VK.PREV),
+  'zrzut-ekranu': takeScreenshot,
+  'zamknij-okno': async () => tapCombo(VK.ALT, VK.F4),
+  'pokaz-pulpit': async () => tapCombo(VK.LWIN, VK.D),
+  'uspij-komputer': async () =>
+    runPowerShell(
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)"
+    ),
 };
 
 // Operacje na plikach sa osobno, bo jako jedyne przyjmuja parametry.

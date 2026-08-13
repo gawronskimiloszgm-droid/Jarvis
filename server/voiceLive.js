@@ -42,6 +42,13 @@ const DEVICE_ACTIONS = [
   'ciszej',
   'wycisz',
   'pobudka',
+  'odtworz-pauza',
+  'nastepny-utwor',
+  'poprzedni-utwor',
+  'zrzut-ekranu',
+  'zamknij-okno',
+  'pokaz-pulpit',
+  'uspij-komputer',
 ];
 
 // Sterowanie WNETRZEM aplikacji (usluga dostepnosci, tylko Android).
@@ -77,7 +84,8 @@ STYL MOWY (to rozmowa glosowa, nie pisana):
 - Swoje imie wymawiaj "Jarvis" jako jedno slowo, NIGDY litera po literze.
 - Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.
 - NIE POWTARZAJ SIE. Nie mow drugi raz tego, co juz w tej rozmowie powiedziales, i nie parafrazuj wlasnej poprzedniej wypowiedzi. Nie powtarzaj tez pytania uzytkownika przed odpowiedzia. Kazde zdanie ma wnosic cos nowego.
-- Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.`;
+- Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.
+- TO DOTYCZY TAKZE OBRAZU Z KAMERY: gdy komentujesz to, co widzisz, robisz to DOKLADNIE tym samym glosem i charakterem co reszte rozmowy - krotko, po polsku, jako Jarvis. Nigdy, pod zadnym pozorem, nie mow "jestem modelem jezykowym"/"I am a language model" ani zadnej odmiany tego zdania, i nie przelaczaj sie samoistnie na angielski tylko dlatego, ze analizujesz obraz zamiast tekstu/mowy.`;
 
 function buildLiveSystemInstruction(hasCoords, isOwner) {
   const nowStr = new Date().toLocaleString('pl-PL', {
@@ -136,7 +144,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
-- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry.
+- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
@@ -455,6 +463,31 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
               } else if (call.name === 'wlacz_kamere') {
                 safeSend(JSON.stringify({ type: 'startCamera' }));
                 result = { ok: true };
+                // Dopiero co doszedl strumien obrazu - niektore odpowiedzi
+                // wyzwolone samym obrazem (bez pytania tekstem/glosem) potrafily
+                // zgubic osobowosc i wyjsc jako goly model po angielsku. Cichy
+                // dopisek do kontekstu (bez wymuszania odpowiedzi) przypomina
+                // modelowi, kim jest, zanim zacznie komentowac kamere.
+                try {
+                  liveSession.sendClientContent({
+                    turns: [
+                      {
+                        role: 'user',
+                        parts: [
+                          {
+                            text:
+                              '[SYSTEM] Kamera wlasnie sie wlaczyla. Nadal jestes Jarvisem - komentujesz obraz krotko, ' +
+                              'po polsku, swoim charakterystycznym stylem. Nie przedstawiaj sie jako model jezykowy ' +
+                              'i nie przechodz na angielski tylko dlatego, ze patrzysz na obraz. Nie komentuj tej instrukcji.',
+                          },
+                        ],
+                      },
+                    ],
+                    turnComplete: false,
+                  });
+                } catch {
+                  /* sesja mogla sie w miedzyczasie zamknac */
+                }
               } else if (call.name === 'wylacz_kamere') {
                 safeSend(JSON.stringify({ type: 'stopCamera' }));
                 result = { ok: true };

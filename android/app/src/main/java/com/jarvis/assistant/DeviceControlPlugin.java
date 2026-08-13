@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.view.KeyEvent;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -51,6 +52,15 @@ public class DeviceControlPlugin extends Plugin {
             case "wycisz":
                 ok = adjustVolume(AudioManager.ADJUST_MUTE);
                 break;
+            case "odtworz-pauza":
+                ok = mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+                break;
+            case "nastepny-utwor":
+                ok = mediaKey(KeyEvent.KEYCODE_MEDIA_NEXT);
+                break;
+            case "poprzedni-utwor":
+                ok = mediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+                break;
             default:
                 ok = false;
         }
@@ -58,6 +68,16 @@ public class DeviceControlPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("ok", ok);
         call.resolve(ret);
+    }
+
+    // Klawisz medialny trafia do aplikacji, ktora aktualnie odtwarza dzwiek -
+    // dziala tak samo ze Spotify, YouTube Music czy czymkolwiek innym.
+    private boolean mediaKey(int keyCode) {
+        AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return false;
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
+        return true;
     }
 
     private boolean adjustVolume(int direction) {
