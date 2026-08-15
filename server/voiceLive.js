@@ -32,6 +32,10 @@ const SILENCE_MS = Number(process.env.JARVIS_SILENCE_MS || 300);
 // opoznia pierwszy token, wiec bierzemy tylko najswiezsze.
 const MAX_FACTS = 12;
 const MAX_TODOS = 8;
+// Ile ostatnich wypowiedzi trafia doslownie do promptu i ile znakow kroniki.
+// Wyzej = wieksza ciaglosc, ale wolniejszy pierwszy dzwiek.
+const MAX_LIVE_TURNS = Number(process.env.JARVIS_LIVE_TURNS || 10);
+const MAX_SUMMARY_CHARS = Number(process.env.JARVIS_SUMMARY_CHARS || 900);
 
 // Po tylu ms ciszy Jarvis moze sam sie odezwac (raz na okno bezczynnosci).
 const PROACTIVE_IDLE_MS = Number(process.env.JARVIS_PROACTIVE_IDLE_MS || 45000);
@@ -91,7 +95,9 @@ STYL MOWY (to rozmowa glosowa, nie pisana):
 - Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.
 - TO DOTYCZY TAKZE OBRAZU Z KAMERY: gdy komentujesz to, co widzisz, robisz to DOKLADNIE tym samym glosem i charakterem co reszte rozmowy - krotko, po polsku, jako Jarvis. Nigdy, pod zadnym pozorem, nie mow "jestem modelem jezykowym"/"I am a language model" ani zadnej odmiany tego zdania, i nie przelaczaj sie samoistnie na angielski tylko dlatego, ze analizujesz obraz zamiast tekstu/mowy.`;
 
-function buildLiveSystemInstruction(hasCoords, isOwner) {
+// Wyeksportowana, zeby dalo sie sprawdzic z zewnatrz, CO naprawde trafia do
+// modelu - bez odpalania platnej sesji glosowej.
+export function buildLiveSystemInstruction(hasCoords, isOwner) {
   const nowStr = new Date().toLocaleString('pl-PL', {
     timeZone: 'Europe/Warsaw',
     dateStyle: 'short',
@@ -121,10 +127,28 @@ Teraz: ${nowStr}.`;
   const todos = memory.getTodos().filter((t) => !t.done).slice(0, MAX_TODOS);
   const reminders = memory.getReminders().filter((r) => !r.sent);
 
+  // CIAGLOSC. Wczesniej rozmowa na zywo tylko ZAPISYWALA historie, nigdy jej
+  // nie czytajac - kazda rozmowa zaczynala sie od zera i Jarvis znal wylacznie
+  // wyciete "fakty", nie to, o czym faktycznie gadaliscie. Podajemy wiec dwie
+  // warstwy: kronike starszych rozmow i ostatnie wymiany doslownie.
+  //
+  // Oba bloki sa PRZYCIETE, bo dluga instrukcja realnie opoznia pierwszy
+  // dzwiek, a w rozmowie na zywo to slychac.
+  const summary = memory.getSummary().slice(0, MAX_SUMMARY_CHARS);
+  const dialogue = memory
+    .getRecentHistory(MAX_LIVE_TURNS)
+    .filter((h) => h.role === 'user' || h.role === 'assistant')
+    .map((h) => `${h.role === 'user' ? 'On' : 'Ty'}: ${String(h.content).replace(/\s+/g, ' ').slice(0, 170)}`)
+    .join('\n');
+
   const ctx = [
     facts.length ? `Wiesz o nim: ${facts.join('; ')}.` : 'Nie znasz go jeszcze - zapisuj nowe fakty narzedziem zapamietaj.',
     todos.length ? `Zadania: ${todos.map((t) => t.text).join('; ')}.` : '',
     reminders.length ? `Przypomnienia: ${reminders.map((r) => `${r.text} (${r.dueAt})`).join('; ')}.` : '',
+    summary ? `\nO CZYM JUZ ROZMAWIALISCIE (kronika):\n${summary}` : '',
+    dialogue
+      ? `\nOSTATNIE WYMIANY - to jest ciag dalszy TEJ SAMEJ znajomosci. Nawiazuj do nich swobodnie, ale ich nie streszczaj i nie witaj sie ponownie:\n${dialogue}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');

@@ -5,7 +5,49 @@ import { looksLikeImageRequest, generateImage, storeImage } from './image.js';
 import { imagePart } from './vision.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest';
+// Czat pisany chodzil na wariancie "lite", ktory gubil konkrety i ignorowal
+// polecenia dotyczace formy. Zwykly flash odpowiada o ~2 s wolniej, ale
+// odpowiedzi sa realnie merytoryczne - a przy strumieniowaniu tej roznicy
+// prawie nie widac, bo pierwsze slowa lecą od razu.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+
+// Darmowy tier bywa PRZECIAZONY - zmierzone: kazdy z modeli potrafi zwrocic
+// 503 "high demand" mniej wiecej raz na cztery zapytania, niezaleznie od
+// wersji. Wybieranie "bezpieczniejszego" modelu nic nie daje; potrzebny jest
+// lancuch zapasowy. Przy przeciazeniu schodzimy na kolejny model zamiast
+// zwracac uzytkownikowi blad.
+const MODEL_FALLBACKS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+const MODEL_CHAIN = [MODEL, ...MODEL_FALLBACKS.filter((m) => m !== MODEL)];
+
+// Rozrozniamy "serwer zajety" od realnego bledu (zly klucz, zle zapytanie).
+// Przy tym drugim schodzenie nizej nie ma sensu - kazdy model odmowi tak samo.
+function isOverloaded(err) {
+  const code = err?.status ?? err?.code ?? 0;
+  const msg = String(err?.message || '');
+  return (
+    code === 503 ||
+    code === 429 ||
+    code === 500 ||
+    /UNAVAILABLE|high demand|overloaded|RESOURCE_EXHAUSTED|internal error/i.test(msg)
+  );
+}
+
+// Uruchamia fn(model) schodzac po lancuchu, dopoki model jest przeciazony.
+// canRetry pozwala zablokowac zejscie nizej, gdy czesc odpowiedzi juz poszla
+// do uzytkownika - inaczej zobaczylby ja drugi raz.
+async function withModel(fn, canRetry = () => true) {
+  let lastErr;
+  for (const model of MODEL_CHAIN) {
+    try {
+      return await fn(model);
+    } catch (err) {
+      lastErr = err;
+      if (!isOverloaded(err) || !canRetry()) throw err;
+      console.warn(`Model ${model} przeciazony - probuje nastepny`);
+    }
+  }
+  throw lastErr;
+}
 const OWNER_TITLE = process.env.OWNER_TITLE || 'sir';
 
 const ZAPAMIETAJ_RE = /\[ZAPAMIETAJ:\s*([^\]]+)\]/gi;
@@ -51,10 +93,10 @@ function persistTagsFrom(rawFull) {
 
 async function resolveCity(userMessage) {
   try {
-    const res = await ai.models.generateContent({
-      model: MODEL,
+    const res = await withModel((m) => ai.models.generateContent({
+      model: m,
       contents: `Z tego pytania wypisz TYLKO nazwe miasta w mianowniku (np. "Warszawa", nie "Warszawie"), bez zadnych dodatkowych slow. Jesli nie ma miasta, napisz dokladnie NONE.\n\nPytanie: "${userMessage}"`,
-    });
+    }));
     const city = (res.text || '').trim();
     return city && city.toUpperCase() !== 'NONE' ? city : null;
   } catch {
@@ -119,6 +161,13 @@ async function buildSystemInstruction(userMessage, coords, isOwner = true) {
     ? `Aktualna lista zadan uzytkownika (nieukonczone):\n- ${todos.map((t) => t.text).join('\n- ')}`
     : 'Lista zadan jest obecnie pusta.';
 
+  // Kronika starszych rozmow - to, co juz nie miesci sie w historii tura po
+  // turze. Bez tego Jarvis zna tylko wyciete "fakty" i nie pamieta przebiegu.
+  const summary = memory.getSummary();
+  const summaryBlock = summary
+    ? `O CZYM ROZMAWIALISCIE WCZESNIEJ (kronika z wielu rozmow, uzywaj jej naturalnie - mozesz sie do tego odwolywac):\n${summary}`
+    : '';
+
   let weatherBlock = '';
   if (userMessage && looksLikeWeatherQuestion(userMessage)) {
     const city = await resolveCity(userMessage);
@@ -167,6 +216,8 @@ Rozmawiasz ze swoim wlascicielem - do niego mowisz "${OWNER_TITLE}" (naturalnie,
 Aktualna data i godzina: ${nowStr} (strefa Europe/Warsaw).
 
 ${factsBlock}
+
+${summaryBlock}
 
 ${todosBlock}
 ${weatherBlock}`;
@@ -242,13 +293,24 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
     }
   }
 
-  const chatSession = ai.chats.create({
-    model: MODEL,
-    history: pastHistory,
-    config: { systemInstruction, temperature: 0.85 },
-  });
+  // Znacznik pilnuje, zeby nie powtorzyc uzytkownikowi tekstu: gdy model
+  // padnie PO wyslaniu pierwszych slow, nie schodzimy na zapasowy.
+  let emitted = false;
+  const emit = (chunk) => {
+    emitted = true;
+    onChunk(chunk);
+  };
 
-  const cleanedFull = await streamAndClean(chatSession, userMessage, onChunk, isOwner);
+  const cleanedFull = await withModel(
+    (model) =>
+      streamAndClean(
+        ai.chats.create({ model, history: pastHistory, config: { systemInstruction, temperature: 0.85 } }),
+        userMessage,
+        emit,
+        isOwner
+      ),
+    () => !emitted
+  );
 
   if (imageId) onChunk(`\n[[IMG:${imageId}]]`);
 
@@ -267,13 +329,21 @@ export async function visionStream(base64Data, mimeType, question, onChunk) {
     (await buildSystemInstruction(null)) +
     '\n\nUzytkownik wlasnie pokazal Ci obraz z kamery. Skomentuj/przeanalizuj go w swoim stylu, zwiezle.';
 
-  const chatSession = ai.chats.create({
-    model: MODEL,
-    history: pastHistory,
-    config: { systemInstruction, temperature: 0.8 },
-  });
+  let emitted = false;
+  const emit = (chunk) => {
+    emitted = true;
+    onChunk(chunk);
+  };
 
-  const cleanedFull = await streamAndClean(chatSession, [imagePart(base64Data, mimeType), { text: q }], onChunk);
+  const cleanedFull = await withModel(
+    (model) =>
+      streamAndClean(
+        ai.chats.create({ model, history: pastHistory, config: { systemInstruction, temperature: 0.8 } }),
+        [imagePart(base64Data, mimeType), { text: q }],
+        emit
+      ),
+    () => !emitted
+  );
   memory.appendHistory('assistant', cleanedFull);
   return cleanedFull;
 }
@@ -287,12 +357,72 @@ export async function visionStream(base64Data, mimeType, question, onChunk) {
 // tylko gdy przejdzie kontrole: musi byc poprawna lista, niepusta, nie
 // dluzsza niz wejscie i nie moze scinac wiecej niz polowy faktow. Przy
 // jakimkolwiek odchyleniu zostawiamy stara wersje nietknieta.
+// Zwijanie historii w kronike.
+//
+// Historia rozmow ma skonczona dlugosc - kiedys najstarsze wypowiedzi po
+// prostu wypadaly i przepadaly. Teraz, zanim wypadna, model splata je z
+// dotychczasowa kronika w jeden ciagly tekst. Dzieki temu Jarvis pamieta
+// TEMATY sprzed setek wypowiedzi, nie tracac przy tym miejsca w prompcie.
+//
+// Zwijamy dopiero powyzej progu i tylko najstarszy kawalek - swieze
+// wypowiedzi zostaja doslownie, bo to one niosa biezacy kontekst.
+const HISTORY_LIMIT = 120;
+const HISTORY_CHUNK = 60;
+
+export async function condenseHistory() {
+  const data = memory.load();
+  const hist = data.history || [];
+  if (hist.length <= HISTORY_LIMIT) return { changed: false, kept: hist.length };
+
+  const older = hist.slice(0, HISTORY_CHUNK);
+  const transcript = older
+    .filter((h) => h.role === 'user' || h.role === 'assistant')
+    .map((h) => `${h.role === 'user' ? 'Uzytkownik' : 'Jarvis'}: ${String(h.content).replace(/\s+/g, ' ').slice(0, 300)}`)
+    .join('\n');
+
+  if (!transcript.trim()) {
+    data.history = hist.slice(HISTORY_CHUNK);
+    memory.save(data);
+    return { changed: true, folded: older.length, reason: 'pusty fragment' };
+  }
+
+  const previous = memory.getSummary();
+
+  const res = await withModel((m) => ai.models.generateContent({
+    model: m,
+    contents:
+      'Prowadzisz kronike rozmow miedzy uzytkownikiem a jego asystentem Jarvisem.\n' +
+      'Ponizej masz dotychczasowa kronike oraz fragment starszej rozmowy, ktory trzeba do niej wlaczyc.\n\n' +
+      'Zasady:\n' +
+      '- Zwroc JEDNA calosc: zaktualizowana kronike, nie komentarz.\n' +
+      '- Zachowaj to, co ma wartosc na przyszlosc: tematy, ustalenia, plany, problemy nad ktorymi pracowali, preferencje.\n' +
+      '- Pomijaj uprzejmosci, powitania i drobiazgi bez znaczenia.\n' +
+      '- Pisz zwiezle, w trzeciej osobie, po polsku. Maksymalnie 15 zdan.\n' +
+      '- Gdy cos jest juz w kronice, nie powtarzaj - scal.\n\n' +
+      `DOTYCHCZASOWA KRONIKA:\n${previous || '(pusta)'}\n\n` +
+      `STARSZY FRAGMENT DO WLACZENIA:\n${transcript}`,
+  }));
+
+  const next = (res.text || '').trim();
+
+  // Kronika jest nieodwracalna, wiec przyjmujemy tylko sensowny wynik.
+  // Przy odrzuceniu historia zostaje nietknieta i sprobujemy w kolejnym cyklu.
+  if (next.length < 20 || next.length > 4000) {
+    return { changed: false, kept: hist.length, reason: 'odrzucone przez kontrole' };
+  }
+
+  data.summary = next;
+  data.history = hist.slice(HISTORY_CHUNK);
+  memory.save(data);
+  return { changed: true, folded: older.length, kept: data.history.length, summaryChars: next.length };
+}
+
 export async function consolidateFacts() {
   const before = memory.getFacts();
   if (before.length < 4) return { changed: false, before: before.length, after: before.length };
 
-  const res = await ai.models.generateContent({
-    model: MODEL,
+  const res = await withModel((m) => ai.models.generateContent({
+    model: m,
     contents:
       'Ponizej lista faktow o uzytkowniku, zbierana przez asystenta. Uporzadkuj ja:\n' +
       '- SCAL W JEDEN WPIS wszystkie fakty mowiace o tym samym, nawet innymi slowami.\n' +
@@ -304,7 +434,7 @@ export async function consolidateFacts() {
       '- zachowaj oryginalny jezyk zapisu\n\n' +
       'Zwroc WYLACZNIE tablice JSON stringow, bez komentarza i bez znacznikow markdown.\n\n' +
       JSON.stringify(before, null, 1),
-  });
+  }));
 
   const raw = (res.text || '').trim().replace(/^```(?:json)?|```$/g, '').trim();
   let after;

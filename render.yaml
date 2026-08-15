@@ -9,7 +9,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-flash-lite-latest
+        value: gemini-3.7-flash
       - key: TTS_VOICE
         value: pl-PL-MarekNeural
       - key: GEMINI_LIVE_VOICE

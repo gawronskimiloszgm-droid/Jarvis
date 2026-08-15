@@ -1,7 +1,18 @@
 import { nanoid } from 'nanoid';
 import { readStore, writeStore, backendName, isRemote } from './store.js';
 
-const EMPTY_STORE = { facts: [], history: [], todos: [], reminders: [], pushSubscriptions: [], expenses: [] };
+// summary - zwijana kronika starszych rozmow. Sama historia ma skonczona
+// dlugosc, wiec bez tego wszystko sprzed kilkuset wypowiedzi znikaloby
+// bezpowrotnie i Jarvis "budzil sie" bez przeszlosci przy kazdej rozmowie.
+const EMPTY_STORE = {
+  facts: [],
+  history: [],
+  summary: '',
+  todos: [],
+  reminders: [],
+  pushSubscriptions: [],
+  expenses: [],
+};
 
 // Stan trzymamy w pamieci procesu, a zapisujemy async/debounced, zamiast
 // przy kazdym pojedynczym mutatorze (na wolnym darmowym CPU to realnie
@@ -57,10 +68,15 @@ export function addFacts(newFacts) {
   return data;
 }
 
+// Twardy sufit jest wysoko, bo wlasciwe skracanie robi condenseHistory():
+// zwija najstarsze wypowiedzi w kronike, zamiast je po prostu wyrzucac.
+// Sufit chroni tylko przed rozjechaniem sie magazynu, gdyby zwijanie
+// przestalo dzialac (np. brak limitu API).
+const MAX_HISTORY = 200;
+
 export function appendHistory(role, content) {
   const data = load();
   data.history.push({ role, content, ts: Date.now() });
-  const MAX_HISTORY = 40;
   if (data.history.length > MAX_HISTORY) {
     data.history = data.history.slice(-MAX_HISTORY);
   }
@@ -71,6 +87,17 @@ export function appendHistory(role, content) {
 export function getRecentHistory(limit = 20) {
   const data = load();
   return data.history.slice(-limit);
+}
+
+export function getSummary() {
+  return load().summary || '';
+}
+
+export function setSummary(text) {
+  const data = load();
+  data.summary = String(text || '').trim();
+  save(data);
+  return data.summary;
 }
 
 export function getFacts() {

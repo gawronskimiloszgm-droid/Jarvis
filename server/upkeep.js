@@ -15,7 +15,7 @@
 // pusty ping.
 
 import * as memory from './memory.js';
-import { consolidateFacts } from './jarvis.js';
+import { consolidateFacts, condenseHistory } from './jarvis.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -67,6 +67,18 @@ export function startUpkeep() {
 
   timer = setInterval(async () => {
     await selfPing();
+    // Zwijanie historii sprawdzamy w KAZDYM cyklu, nie raz na dobe: samo
+    // sprawdzenie jest darmowe (porownanie dlugosci), a model odzywa sie
+    // dopiero po przekroczeniu progu. Przy intensywnym dniu rozmow czekanie
+    // do nastepnej doby oznaczaloby utrate najstarszych watkow.
+    try {
+      const folded = await condenseHistory();
+      if (folded?.changed) {
+        console.log(`Kronika rozmow: zwinieto ${folded.folded} wypowiedzi, zostalo ${folded.kept}`);
+      }
+    } catch (err) {
+      console.error('Zwijanie historii nieudane:', err.message);
+    }
     await learn();
   }, PING_MS);
 
