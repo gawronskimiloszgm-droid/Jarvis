@@ -13,6 +13,10 @@
 import crypto from 'crypto';
 
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || '';
+// Nazwa uzytkownika jest DODATKIEM do hasla, nie zamiast niego. Gdy nie jest
+// ustawiona, pole w interfejsie dziala informacyjnie i logowanie opiera sie
+// na samym hasle - tak jak dotad, wiec stare sesje nie przestaja dzialac.
+const OWNER_USER = process.env.OWNER_USER || '';
 const SESSION_SECRET =
   process.env.SESSION_SECRET || crypto.createHash('sha256').update(`jarvis:${OWNER_PASSWORD}`).digest('hex');
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 dni
@@ -31,6 +35,17 @@ function safeEqual(a, b) {
 export function verifyPassword(password) {
   if (!isAuthConfigured()) return false;
   return safeEqual(password || '', OWNER_PASSWORD);
+}
+
+// Nazwa uzytkownika sprawdzana bez rozroznienia wielkosci liter i bialych
+// znakow - to wygoda, nie sekret. Sekretem pozostaje haslo.
+export function verifyUser(user) {
+  if (!OWNER_USER) return true;
+  return String(user || '').trim().toLowerCase() === OWNER_USER.trim().toLowerCase();
+}
+
+export function ownerUserName() {
+  return OWNER_USER;
 }
 
 function sign(payload) {

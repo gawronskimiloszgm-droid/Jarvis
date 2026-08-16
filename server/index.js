@@ -15,7 +15,7 @@ import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
 import { attachVoiceRelay } from './voiceLive.js';
-import { isAuthConfigured, verifyPassword, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
+import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +31,7 @@ app.get('/api/health', (req, res) => {
     ttsConfigured: tts.isConfigured(),
     pushConfigured: push.isConfigured(),
     authConfigured: isAuthConfigured(),
+    ownerUser: ownerUserName(),
     role: roleFromRequest(req),
   });
 });
@@ -40,8 +41,11 @@ app.post('/api/login', (req, res) => {
   if (!isAuthConfigured()) {
     return res.status(500).json({ error: 'Brak skonfigurowanego OWNER_PASSWORD na serwerze.' });
   }
-  if (!verifyPassword(req.body?.password)) {
-    return res.status(401).json({ error: 'Nieprawidlowe haslo.' });
+  // Uzytkownik i haslo sprawdzamy razem i odpowiadamy JEDNYM komunikatem -
+  // rozne bledy dla zlej nazwy i zlego hasla podpowiadalyby, ktora czesc
+  // zgadla osoba postronna.
+  if (!verifyUser(req.body?.user) || !verifyPassword(req.body?.password)) {
+    return res.status(401).json({ error: 'Nieprawidlowy uzytkownik lub haslo.' });
   }
   res.json({ token: issueToken(), role: 'owner' });
 });

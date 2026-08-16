@@ -17,6 +17,9 @@ const store = {
   live: false,
   wantLive: false,
   location: null,
+  user: localStorage.getItem('jarvis.user') || '',
+  factCount: null,
+  todoCount: null,
 };
 
 const isOwner = () => store.role === 'owner';
@@ -52,165 +55,318 @@ async function api(url, options = {}) {
   return res.json();
 }
 
+// Stan pokazujemy w trzech miejscach naraz: naglowek centrum, ekran
+// spoczynku i podpis pod rdzeniem w kolumnie rozmowy.
 function setState(text) {
-  const n = $('#barState');
-  if (n) n.textContent = text;
+  const head = $('#headStatus');
+  if (head) head.textContent = String(text).toLowerCase();
+  const idle = $('#idleStatus');
+  if (idle) idle.textContent = text;
 }
 
-// ---------- Zakladki ----------
+// ---------- Moduly ----------
 //
-// Zamiast okien do przesuwania: jeden panel tresci na dole i pierscien
-// zakladek rozlozony lukiem nad rdzeniem.
+// Dwa ekrany: SPOCZYNEK (sam rdzen, zegar, skroty) i CENTRUM OPERACYJNE
+// (naglowek, kolumna modulow, tresc, stala kolumna rozmowy).
 //
-// Zakladka budowana jest przy pierwszym wejsciu i ZOSTAJE w DOM (chowamy
-// ja, nie kasujemy). To celowe: kamera nie gasnie przy zajrzeniu w inna
-// zakladke, a czat nie traci przewiniecia ani wpisanego tekstu.
+// Rozmowa NIE jest modulem - siedzi na stale w prawej kolumnie, wiec
+// transkrypcja jest widoczna niezaleznie od tego, co ogladasz.
+//
+// Kazdy modul buduje sie raz i zostaje w DOM (chowamy, nie kasujemy) -
+// dzieki temu kamera nie gasnie przy zajrzeniu gdzie indziej.
+
+const MODULES = [
+  { id: 'dash', title: 'Pulpit', sub: 'przeglad operacyjny', badge: 'LIVE', panels: ['clock', 'weather', 'link'] },
+  { id: 'sys', title: 'Systemy', sub: 'stan urzadzenia i lacza', panels: ['link'] },
+  { id: 'tasks', title: 'Zadania', sub: 'kolejka i przypomnienia', owner: true, panels: ['tasks', 'alerts'] },
+  { id: 'know', title: 'Wiedza', sub: 'pamiec i kronika rozmow', owner: true, panels: ['mind'] },
+  { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: ['money'] },
+  { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
+  { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
+  { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
+  { id: 'set', title: 'Ustawienia', sub: 'profil asystenta', panels: ['settings'] },
+  { id: 'logs', title: 'Logi', sub: 'strumien zdarzen', panels: ['logs'] },
+];
 
 const MOUNTED = new Map();
 const LIVE_PANELS = new Set();
-let activeTab = null;
+let activeModule = null;
 
 const panelLive = (id) => LIVE_PANELS.has(id);
+const moduleById = (id) => MODULES.find((m) => m.id === id);
 
-const TABS = [
-  { id: 'main', title: 'GLOWNY', glyph: '◉', panels: ['talk'] },
-  { id: 'sys', title: 'SYSTEM', glyph: '▤', panels: ['link', 'clock', 'weather'] },
-  { id: 'mind', title: 'PAMIEC', glyph: '❖', owner: true, panels: ['mind'] },
-  { id: 'todo', title: 'ZADANIA', glyph: '☰', owner: true, panels: ['tasks', 'alerts'] },
-  { id: 'eye', title: 'KAMERA', glyph: '◎', owner: true, panels: ['eye'] },
-  { id: 'find', title: 'SZUKAJ', glyph: '⌕', panels: ['find'] },
-  { id: 'money', title: 'WYDATKI', glyph: '▦', owner: true, panels: ['money'] },
-  { id: 'dev', title: 'URZADZENIE', glyph: '✥', owner: true, panels: ['grip', 'bubble'] },
-];
+// ---------- Dziennik zdarzen ----------
+// Prawdziwe zdarzenia aplikacji, nie generowany szum: logowanie, mikrofon,
+// akcje na urzadzeniu, bledy. Modul "Logi" czyta wlasnie to.
 
-const tabById = (id) => TABS.find((t) => t.id === id);
+const EVENTS = [];
 
-function buildRing() {
-  const ring = $('#ring');
-  ring.innerHTML = '';
-  TABS.forEach((t) => {
-    const b = el('button', 'ringbtn');
-    b.dataset.tab = t.id;
-    b.title = t.title;
-    b.append(el('span', 'gl', t.glyph), el('span', 'lbl', t.title));
-    b.addEventListener('click', () => showTab(t.id));
-    ring.appendChild(b);
-  });
-  layoutRing();
-  syncRing();
+function logEvent(source, message, kind = 'info') {
+  EVENTS.unshift({ source, message, kind, at: new Date() });
+  if (EVENTS.length > 200) EVENTS.length = 200;
+  if (panelLive('logs')) drawLogs();
 }
 
-// Zakladki lezą na luku od 190 do -10 stopni, czyli GORA kola. Dol
-// zostawiamy wolny, bo zaslania go panel tresci.
-function layoutRing() {
-  const holder = $('#coreHolder');
-  if (!holder) return;
-  const size = holder.clientWidth;
-  if (!size) return;
-
-  const radius = size / 2 + 26;
-  const btns = [...document.querySelectorAll('.ringbtn')];
-  const FROM = 190;
-  const TO = -10;
-
-  btns.forEach((b, i) => {
-    const deg = btns.length < 2 ? 90 : FROM + ((TO - FROM) * i) / (btns.length - 1);
-    const rad = (deg * Math.PI) / 180;
-    b.style.left = `${size / 2 + Math.cos(rad) * radius}px`;
-    b.style.top = `${size / 2 - Math.sin(rad) * radius}px`;
+function drawLogs() {
+  const box = $('#logList');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!EVENTS.length) {
+    box.appendChild(el('div', 'hint', 'Brak zdarzen w tej sesji.'));
+    return;
+  }
+  EVENTS.forEach((e) => {
+    const row = el('div', 'kv');
+    const t = e.at.toLocaleTimeString('pl-PL', { hour12: false });
+    row.append(el('span', null, `${t}  ${e.source}`));
+    const b = el('b', e.kind === 'bad' ? '' : 'good', e.message);
+    if (e.kind === 'bad') b.style.color = 'var(--red)';
+    row.appendChild(b);
+    box.appendChild(row);
   });
 }
 
-// Zbudowanie zakladki BEZ pokazywania jej. Dzieki temu transkrypcja rozmowy
-// ma gdzie sie odkladac, nawet gdy panel jest zwiniety i widac sam rdzen.
-function mountTab(id) {
-  const tab = tabById(id);
-  if (!tab) return null;
-  if (tab.owner && !isOwner()) return null;
+// ---------- Przelaczanie ekranow ----------
+
+function enterOps(moduleId) {
+  $('#idle').hidden = true;
+  $('#ops').hidden = false;
+  showModule(moduleId || activeModule || 'dash');
+}
+
+function exitOps() {
+  $('#ops').hidden = true;
+  $('#idle').hidden = false;
+}
+
+function opsVisible() {
+  return !$('#ops').hidden;
+}
+
+// ---------- Kolumna modulow ----------
+
+function buildNav() {
+  const list = $('#navList');
+  list.innerHTML = '';
+  MODULES.forEach((m, i) => {
+    const b = el('button', 'nav-btn');
+    b.dataset.mod = m.id;
+    b.append(
+      el('span', 'num', String(i + 1).padStart(2, '0')),
+      el('span', 'lbl', m.title),
+      el('span', 'badge', m.badge || '')
+    );
+    b.addEventListener('click', () => showModule(m.id));
+    list.appendChild(b);
+  });
+  syncNav();
+}
+
+function syncNav() {
+  document.querySelectorAll('[data-mod]').forEach((b) => {
+    const m = moduleById(b.dataset.mod);
+    b.classList.toggle('on', b.dataset.mod === activeModule);
+    b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
+  });
+}
+
+function mountModule(id) {
+  const mod = moduleById(id);
+  if (!mod) return null;
+  if (mod.owner && !isOwner()) return null;
 
   const existing = MOUNTED.get(id);
   if (existing) return existing;
 
-  const section = el('div', `tab-sec ${tab.panels.length > 1 ? 'multi' : 'solo'}`);
-  tab.panels.forEach((pid) => {
+  const section = el('div', 'cards');
+  mod.panels.forEach((pid) => {
     const def = PANEL_DEFS[pid];
     if (!def) return;
-    const card = el('div', 'card');
+    const card = el('div', `card${def.wide ? ' wide' : ''}`);
     const head = el('div', 'card-head');
     head.append(el('span', 'gl', def.glyph), el('span', null, def.title));
-    const cardBody = el('div', 'card-body');
-    card.append(head, cardBody);
+    const body = el('div', 'card-body');
+    card.append(head, body);
     section.appendChild(card);
     LIVE_PANELS.add(pid);
-    def.build(cardBody);
+    def.build(body);
   });
   section.hidden = true;
-  $('#sheetBody').appendChild(section);
+  $('#modBody').appendChild(section);
   MOUNTED.set(id, section);
   return section;
 }
 
-// Zwiniecie panelu - zostaje sam rdzen na tle galaktyki.
-function closeSheet() {
-  activeTab = null;
-  MOUNTED.forEach((sec) => {
-    sec.hidden = true;
-  });
-  document.body.classList.add('no-tab');
-  document.body.classList.remove('tab-away');
-  syncRing();
-}
-
-function showTab(id) {
-  const tab = tabById(id);
-  if (!tab) return;
-  if (tab.owner && !isOwner()) {
-    toast('Ta funkcja wymaga zalogowania haslem.');
+function showModule(id) {
+  const mod = moduleById(id);
+  if (!mod) return;
+  if (mod.owner && !isOwner()) {
+    toast('Ten modul wymaga zalogowania.');
     return;
   }
 
-  // Klikniecie w JUZ OTWARTA zakladke zamyka panel zamiast otwierac kolejna.
-  if (activeTab === id) return closeSheet();
-
-  const section = mountTab(id);
+  const section = mountModule(id);
   if (!section) return;
-  tab.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
+  mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
 
   MOUNTED.forEach((sec, key) => {
     sec.hidden = key !== id;
   });
 
-  $('#sheetGlyph').textContent = tab.glyph;
-  $('#sheetTitle').textContent = tab.title;
-  document.body.classList.remove('no-tab');
-  // Poza glowna zakladka rdzen przygasa, zeby nie walczyl z trescia.
-  document.body.classList.toggle('tab-away', id !== 'main');
-  activeTab = id;
-  syncRing();
+  $('#modTitle').textContent = mod.title;
+  $('#modSub').textContent = mod.sub;
+  const badge = $('#modBadge');
+  badge.textContent = mod.badge || '';
+  badge.hidden = !mod.badge;
+
+  activeModule = id;
+  syncNav();
 }
 
-function syncRing() {
-  document.querySelectorAll('[data-tab]').forEach((b) => {
-    const tab = tabById(b.dataset.tab);
-    b.classList.toggle('on', b.dataset.tab === activeTab);
-    b.classList.toggle('off', Boolean(tab?.owner) && !isOwner());
-  });
-}
-
-// Po wylogowaniu zakladki wlasciciela musza zniknac razem z trescia, ktora
-// zdazyly wczytac - inaczej gosc zobaczylby cudze zadania czy pamiec.
-function dropOwnerTabs() {
-  TABS.filter((t) => t.owner).forEach((t) => {
-    const sec = MOUNTED.get(t.id);
+// Po wylogowaniu moduly wlasciciela znikaja RAZEM z wczytana trescia -
+// inaczej gosc zobaczylby cudze zadania czy pamiec.
+function dropOwnerModules() {
+  MODULES.filter((m) => m.owner).forEach((m) => {
+    const sec = MOUNTED.get(m.id);
     if (!sec) return;
-    if (t.id === 'eye') camOff();
+    if (m.id === 'eye') camOff();
     sec.remove();
-    MOUNTED.delete(t.id);
-    t.panels.forEach((p) => LIVE_PANELS.delete(p));
+    MOUNTED.delete(m.id);
+    m.panels.forEach((p) => LIVE_PANELS.delete(p));
   });
-  // Tylko gdy wlasnie ogladana zakladka zniknela - jesli panel byl zwiniety,
-  // zostawiamy go zwinietego.
-  if (activeTab && tabById(activeTab)?.owner) showTab('main');
+  if (!activeModule || moduleById(activeModule)?.owner) showModule('dash');
+  syncNav();
+}
+
+// ---------- Karty na ekranie spoczynku ----------
+//
+// Tylko rzeczy, ktore naprawde znamy: pogoda z serwisu, najblizsze
+// przypomnienie i liczba zadan. Zadnych wymyslonych odczytow.
+
+async function drawIdleCards() {
+  const box = $('#idleCards');
+  if (!box) return;
+  const cards = [];
+
+  const temp = $('#wxTemp')?.textContent;
+  if (temp && temp !== '--°') {
+    cards.push(['POGODA', temp, $('#wxDesc')?.textContent || '']);
+  }
+
+  if (isOwner()) {
+    try {
+      const { todos } = await api('/api/todos');
+      const open = (todos || []).filter((t) => !t.done);
+      store.todoCount = open.length;
+      cards.push(['ZADANIA', String(open.length), open[0]?.text || 'nic w kolejce']);
+    } catch {
+      /* brak uprawnien albo brak sieci */
+    }
+    try {
+      const { reminders } = await api('/api/reminders');
+      const next = (reminders || [])
+        .filter((r) => !r.sent)
+        .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))[0];
+      if (next) {
+        const when = new Date(next.dueAt);
+        cards.push([
+          'NAJBLIZSZE',
+          when.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }),
+          next.text,
+        ]);
+      }
+    } catch {
+      /* jw. */
+    }
+  }
+
+  box.innerHTML = '';
+  cards.forEach(([cap, value, note]) => {
+    const c = el('div', 'idle-card');
+    c.append(el('span', null, cap), el('b', null, value), el('i', null, note));
+    box.appendChild(c);
+  });
+  refreshHeadStats();
+}
+
+// ---------- Paleta polecen ----------
+
+function paletteCommands() {
+  const cmds = MODULES.filter((m) => !m.owner || isOwner()).map((m) => ({
+    label: m.title,
+    hint: m.sub,
+    run: () => {
+      enterOps(m.id);
+    },
+  }));
+  cmds.push(
+    { label: store.live ? 'Wycisz rozmowe' : 'Wznow rozmowe', hint: 'mikrofon', run: liveToggle },
+    { label: 'Ekran spoczynku', hint: 'sam rdzen', run: exitOps },
+    {
+      label: isOwner() ? 'Wyloguj' : 'Zaloguj',
+      hint: 'konto',
+      run: () => (isOwner() ? doLogout() : showAuth()),
+    }
+  );
+  return cmds;
+}
+
+let paletteItems = [];
+let paletteSel = 0;
+
+function openPalette() {
+  $('#palette').hidden = false;
+  const input = $('#paletteInput');
+  input.value = '';
+  drawPalette('');
+  setTimeout(() => input.focus(), 30);
+}
+
+function closePalette() {
+  $('#palette').hidden = true;
+}
+
+function drawPalette(query) {
+  const q = query.trim().toLowerCase();
+  paletteItems = paletteCommands().filter(
+    (c) => !q || c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q)
+  );
+  paletteSel = 0;
+  const list = $('#paletteList');
+  list.innerHTML = '';
+
+  if (!paletteItems.length) {
+    // Nic nie pasuje do modulow - traktujemy wpis jako pytanie do Jarvisa.
+    const b = el('button', 'palette-item');
+    b.append(el('span', null, `Zapytaj Jarvisa: "${query.trim()}"`), el('span', 'k', 'ENTER'));
+    b.addEventListener('click', () => {
+      closePalette();
+      enterOps();
+      sendTyped(query.trim());
+    });
+    list.appendChild(b);
+    paletteItems = [{ label: '', hint: '', run: () => b.click() }];
+    return;
+  }
+
+  paletteItems.forEach((c, i) => {
+    const b = el('button', `palette-item${i === 0 ? ' sel' : ''}`);
+    b.append(el('span', null, c.label), el('span', 'k', c.hint));
+    b.addEventListener('click', () => {
+      closePalette();
+      c.run();
+    });
+    list.appendChild(b);
+  });
+}
+
+function movePalette(delta) {
+  const items = [...document.querySelectorAll('.palette-item')];
+  if (!items.length) return;
+  items[paletteSel]?.classList.remove('sel');
+  paletteSel = (paletteSel + delta + items.length) % items.length;
+  items[paletteSel].classList.add('sel');
+  items[paletteSel].scrollIntoView({ block: 'nearest' });
 }
 
 // ---------- Definicje paneli ----------
@@ -276,32 +432,87 @@ const PANEL_DEFS = {
     },
   },
 
-  talk: {
-    title: 'ROZMOWA',
-    glyph: '❐',
+  // Rozmowa nie jest juz panelem - siedzi na stale w prawej kolumnie.
+
+  settings: {
+    title: 'PROFIL ASYSTENTA',
+    glyph: '⚙',
+    wide: true,
     build(body) {
       body.innerHTML = '';
-      const feed = el('div', 'feed');
-      feed.id = 'talkFeed';
-      const f = el('form', 'field');
-      f.style.marginTop = '10px';
-      const i = el('input', 'inp');
-      i.id = 'talkInput';
-      i.placeholder = 'Napisz...';
-      i.autocomplete = 'off';
-      const b = el('button', 'btn', 'OK');
-      b.type = 'submit';
-      f.append(i, b);
-      f.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const text = i.value.trim();
-        if (text) {
-          i.value = '';
-          sendTyped(text);
-        }
+
+      const opts = [
+        {
+          key: 'jarvis.sfx',
+          label: 'Dzwieki interfejsu',
+          desc: 'krotkie sygnaly przy klikaniu i wlaczaniu mikrofonu',
+          on: () => window.SFX?.isEnabled?.() !== false,
+          set: (v) => window.SFX?.setEnabled(v),
+        },
+        {
+          key: 'jarvis.wake',
+          label: 'Slowo aktywujace w przegladarce',
+          desc: 'nasluch frazy "Jarvis". Uwaga: przegladarka gra przy tym wlasny sygnal Google, ktorego nie da sie wyciszyc',
+          on: () => localStorage.getItem('jarvis.wake') === 'on',
+          set: (v) => {
+            localStorage.setItem('jarvis.wake', v ? 'on' : 'off');
+            toast('Zmiana zadziala po odswiezeniu strony.', 'ok');
+          },
+        },
+      ];
+
+      opts.forEach((o) => {
+        const row = el('div', 'row');
+        const txt = el('div');
+        txt.style.flex = '1';
+        txt.append(el('div', 'row-text', o.label), el('div', 'sub', o.desc));
+        const cb = el('input', 'row-check');
+        cb.type = 'checkbox';
+        cb.checked = o.on();
+        cb.addEventListener('change', () => {
+          o.set(cb.checked);
+          logEvent('ustawienia', `${o.label}: ${cb.checked ? 'wlaczone' : 'wylaczone'}`);
+        });
+        row.append(txt, cb);
+        body.appendChild(row);
       });
-      body.append(feed, f);
+
+      const sep = el('div', 'sub', 'KONTO');
+      sep.style.margin = '14px 0 8px';
+      body.appendChild(sep);
+
+      const acc = el('div', 'field');
+      const who = el('div', 'row-text', isOwner() ? `Zalogowany${store.user ? ' jako ' + store.user : ''}` : 'Tryb goscia');
+      who.style.flex = '1';
+      const b = el('button', 'btn', isOwner() ? 'WYLOGUJ' : 'ZALOGUJ');
+      b.addEventListener('click', () => (isOwner() ? doLogout() : showAuth()));
+      acc.append(who, b);
+      body.appendChild(acc);
+
+      const notif = el('button', 'btn', 'WLACZ POWIADOMIENIA');
+      notif.addEventListener('click', async () => {
+        if (!('Notification' in window)) return toast('Brak obslugi powiadomien.');
+        const p = await Notification.requestPermission();
+        toast(p === 'granted' ? 'Powiadomienia wlaczone.' : 'Powiadomienia odrzucone.', p === 'granted' ? 'ok' : 'bad');
+      });
+      body.appendChild(notif);
     },
+  },
+
+  logs: {
+    title: 'STRUMIEN ZDARZEN',
+    glyph: '≡',
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+      const note = el('div', 'sub', 'ZDARZENIA TEJ SESJI - ZAPIS RZECZYWISTY, NIE PODGLAD DEMONSTRACYJNY');
+      note.style.marginBottom = '10px';
+      const box = el('div');
+      box.id = 'logList';
+      body.append(note, box);
+      drawLogs();
+    },
+    refresh: () => drawLogs(),
   },
 
   tasks: {
@@ -679,7 +890,10 @@ function startGalaxy(cv) {
 
 // ---------- Wizualizacja rdzenia ----------
 
-let coreRaf = null;
+// UWAGA: uchwyt animacji musi byc OSOBNY dla kazdego rdzenia. Rysujemy dwa
+// (duzy na ekranie spoczynku i maly przy rozmowie), a wspolna zmienna
+// sprawiala, ze drugie wywolanie anulowalo klatke pierwszego i wielki rdzen
+// pozostawal pusty.
 
 // Emblemat J.A.R.V.I.S.: koncentryczne pierscienie i napis w srodku.
 // Warstwy od zewnatrz: poswiata, pierscien podzialki, wykres widma,
@@ -717,6 +931,7 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
 function startCoreVisual(cv) {
   const ctx = cv.getContext('2d');
   let t = 0;
+  let raf = null;
 
   const draw = () => {
     const rect = cv.getBoundingClientRect();
@@ -734,7 +949,7 @@ function startCoreVisual(cv) {
     const cy = h / 2;
     const base = Math.min(w, h) / 2 - 4;
     if (base <= 0) {
-      coreRaf = requestAnimationFrame(draw);
+      raf = requestAnimationFrame(draw);
       return;
     }
     const lvl = store.audioLevel;
@@ -834,16 +1049,18 @@ function startCoreVisual(cv) {
     drawWordmark(ctx, cx, cy, base, lvl);
 
     store.audioLevel *= 0.92;
-    coreRaf = requestAnimationFrame(draw);
+    raf = requestAnimationFrame(draw);
   };
 
-  if (coreRaf) cancelAnimationFrame(coreRaf);
+  if (raf) cancelAnimationFrame(raf);
   draw();
 }
 
 function setCoreState(text) {
-  const n = $('#coreState');
-  if (n) n.textContent = text;
+  for (const id of ['#coreState', '#sideState']) {
+    const n = $(id);
+    if (n) n.textContent = text;
+  }
   setState(text);
 }
 
@@ -880,12 +1097,21 @@ async function refreshLink() {
 
 function tickClock() {
   const now = new Date();
-  const t = $('#clkTime');
-  const d = $('#clkDate');
-  const bar = $('#barClock');
   const hh = now.toLocaleTimeString('pl-PL', { hour12: false });
+  const hm = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+
+  const idleClock = $('#idleClock');
+  if (idleClock) idleClock.textContent = hm;
+  const idleDate = $('#idleDate');
+  if (idleDate) {
+    idleDate.textContent = now
+      .toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })
+      .toUpperCase();
+  }
+  // Zegar w module Pulpit (budowany przez PANEL_DEFS.clock).
+  const t = $('#clkTime');
   if (t) t.textContent = hh;
-  if (bar) bar.textContent = hh;
+  const d = $('#clkDate');
   if (d) d.textContent = now.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
 }
 setInterval(tickClock, 1000);
@@ -1058,6 +1284,12 @@ async function loadMind() {
 }
 
 function refreshOwnerPanes() {
+  api('/api/memory')
+    .then(({ facts }) => {
+      store.factCount = (facts || []).length;
+      refreshHeadStats();
+    })
+    .catch(() => {});
   loadMoney();
   loadTasks();
   loadAlerts();
@@ -1189,7 +1421,7 @@ function drawHits(query, results) {
 
 function showSearch(query, results) {
   lastSearch = { query, results };
-  showTab('find');
+  enterOps('find');
   drawHits(query, results);
 }
 
@@ -1207,7 +1439,7 @@ async function camOn() {
     toast('Brak dostepu do kamery.');
     return;
   }
-  showTab('eye');
+  enterOps('eye');
   const v = $('#camFeed');
   const note = $('#camNote');
   if (v) {
@@ -1343,13 +1575,15 @@ function pushSaid(who, text) {
   if (!text) return;
   // Tylko budujemy czat, NIE otwieramy go. Rozmowa na zywo sypie replikami
   // bez przerwy - wymuszanie widoku odbieraloby mozliwosc ogladania rdzenia.
-  mountTab('main');
+
   const feed = $('#talkFeed');
   if (!feed) return;
   const d = el('div', `said ${who === 'me' ? 'me' : 'jv'}`);
   d.appendChild(el('span', 'who', who === 'me' ? 'TY' : 'JARVIS'));
   d.appendChild(document.createTextNode(text));
   feed.appendChild(d);
+  const count = $('#sideCount');
+  if (count) count.textContent = String(feed.querySelectorAll('.said').length);
   feed.scrollTop = feed.scrollHeight;
   return d;
 }
@@ -1520,7 +1754,9 @@ function playChunk(buf) {
 async function liveStart() {
   wakeStop();
   store.live = true;
-  $('#barLive')?.classList.add('on');
+  $('#micBtn')?.classList.add('on');
+  const ml = $('#micLabel');
+  if (ml) ml.textContent = 'SLUCHAM';
   setCoreState('LACZE');
 
   try {
@@ -1531,7 +1767,9 @@ async function liveStart() {
     // wrocic, skoro nie ma juz przycisku startu.
     store.wantLive = false;
     store.live = false;
-    $('#barLive')?.classList.remove('on');
+    $('#micBtn')?.classList.remove('on');
+  const ml2 = $('#micLabel');
+  if (ml2) ml2.textContent = 'NASLUCH';
     setCoreState('BRAK MIKROFONU');
     toast('Brak dostepu do mikrofonu. Przyznaj zgode i kliknij rdzen.');
     wakeStart();
@@ -1621,7 +1859,9 @@ async function liveStart() {
 function liveStop() {
   if (store.live) window.SFX?.play('micOff');
   store.live = false;
-  $('#barLive')?.classList.remove('on');
+  $('#micBtn')?.classList.remove('on');
+  const ml2 = $('#micLabel');
+  if (ml2) ml2.textContent = 'NASLUCH';
   stopOut();
   camOff();
   if (micNode) {
@@ -1765,13 +2005,31 @@ function wakeStart() {
 // ---------- Logowanie ----------
 
 function applyRole(role) {
+  const changed = store.role !== role;
   store.role = role;
-  const n = $('#barRole');
-  n.textContent = role === 'owner' ? 'MILOSZ' : 'GOSC';
-  n.classList.toggle('owner', role === 'owner');
   if (role === 'owner') refreshOwnerPanes();
-  else dropOwnerTabs();
-  syncRing();
+  else dropOwnerModules();
+  syncNav();
+  refreshHeadStats();
+  if (changed) logEvent('auth', role === 'owner' ? 'zalogowano wlasciciela' : 'tryb goscia');
+}
+
+// Prawdziwe liczby, nie ozdobniki: rola, ile Jarvis o Tobie pamieta i ile
+// zadan czeka. Nic tu nie jest generowane losowo.
+function refreshHeadStats() {
+  const box = $('#headStats');
+  if (!box) return;
+  const stats = [
+    [store.role === 'owner' ? (store.user || 'WLASCICIEL').toUpperCase() : 'GOSC', 'KONTO'],
+    [String(store.factCount ?? '--'), 'PAMIEC'],
+    [String(store.todoCount ?? '--'), 'ZADANIA'],
+  ];
+  box.innerHTML = '';
+  stats.forEach(([value, label]) => {
+    const d = el('div', 'head-stat');
+    d.append(el('b', null, value), el('span', null, label));
+    box.appendChild(d);
+  });
 }
 
 function showAuth() {
@@ -1781,17 +2039,19 @@ function showAuth() {
   setTimeout(() => $('#authPassword').focus(), 60);
 }
 
-async function doLogin(password) {
+async function doLogin(password, user) {
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, user }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Blad logowania');
     store.token = data.token;
+    store.user = (user || '').trim();
     localStorage.setItem('jarvis.token', data.token);
+    if (store.user) localStorage.setItem('jarvis.user', store.user);
     applyRole('owner');
     $('#authVeil').hidden = true;
     toast('Zalogowano. Witam ponownie, sir.', 'ok');
@@ -1891,22 +2151,23 @@ async function boot() {
   $('#boot').classList.add('gone');
   setTimeout(() => $('#boot').remove(), 800);
 
-  // Rdzen zyje przez caly czas dzialania aplikacji, niezaleznie od zakladek.
+  // Dwa rdzenie: duzy na ekranie spoczynku i maly w kolumnie rozmowy.
+  // Kazdy ma wlasna petle rysowania, obie karmione tym samym poziomem
+  // dzwieku, wiec reaguja identycznie.
   startCoreVisual($('#coreCanvas'));
+  startCoreVisual($('#sideCore'));
   $('#coreHit').addEventListener('click', liveToggle);
 
   startGalaxy($('#galaxyCanvas'));
 
-  buildRing();
-  // Startujemy ze zwinietym panelem - pierwsze, co widac, to rdzen.
-  mountTab('main');
-  closeSheet();
-  // Pozycje zakladek licza sie z rozmiaru rdzenia, wiec przy zmianie okna
-  // (albo obrocie telefonu) trzeba je przeliczyc.
-  window.addEventListener('resize', layoutRing);
+  buildNav();
+  showModule('dash');
+  refreshHeadStats();
+  drawIdleCards();
 
   tickClock();
   setInterval(refreshLink, 60000);
+  setInterval(drawIdleCards, 30000);
   wakeStart();
 
   if (store.role !== 'owner') {
@@ -1922,18 +2183,59 @@ async function boot() {
 }
 
 
-$('#lockBtn').addEventListener('click', () => (isOwner() ? doLogout() : showAuth()));
 $('#authForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  doLogin($('#authPassword').value);
+  doLogin($('#authPassword').value, $('#authUser').value);
 });
 $('#authGuestBtn').addEventListener('click', () => {
   $('#authVeil').hidden = true;
 });
-$('#notifyBtn').addEventListener('click', async () => {
-  if (!('Notification' in window)) return toast('Brak obslugi powiadomien.');
-  const p = await Notification.requestPermission();
-  toast(p === 'granted' ? 'Powiadomienia wlaczone.' : 'Powiadomienia odrzucone.', p === 'granted' ? 'ok' : 'bad');
+
+// --- Przejscia miedzy ekranem spoczynku a centrum ---
+$('#idleEnter').addEventListener('click', () => enterOps());
+$('#brandBtn').addEventListener('click', exitOps);
+$('#exitBtn').addEventListener('click', exitOps);
+$('#micBtn').addEventListener('click', liveToggle);
+$('#paletteBtn').addEventListener('click', openPalette);
+
+// --- Rozmowa w prawej kolumnie ---
+$('#talkForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $('#talkInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendTyped(text);
+});
+
+// --- Paleta polecen ---
+$('#paletteInput').addEventListener('input', (e) => drawPalette(e.target.value));
+$('#palette').addEventListener('click', (e) => {
+  if (e.target.id === 'palette') closePalette();
+});
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('#palette').hidden ? openPalette() : closePalette();
+    return;
+  }
+  if ($('#palette').hidden) {
+    // Escape poza paleta cofa z centrum na ekran spoczynku.
+    if (e.key === 'Escape' && opsVisible() && $('#authVeil').hidden) exitOps();
+    return;
+  }
+  if (e.key === 'Escape') closePalette();
+  else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    movePalette(1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    movePalette(-1);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    document.querySelectorAll('.palette-item')[paletteSel]?.click();
+  }
 });
 
 // Dzwiek klikniecia podpinamy w JEDNYM miejscu, na pointerdown - reagowanie
@@ -1945,7 +2247,7 @@ document.addEventListener('pointerdown', (e) => {
   // Rdzen pomijamy - ma wlasny sygnal wlaczenia/wylaczenia mikrofonu i
   // "tap" tuz przed nim brzmialby jak zacinka.
   if (b.id === 'coreHit') return;
-  window.SFX?.play(b.classList.contains('ringbtn') ? 'swap' : 'tap');
+  window.SFX?.play(b.classList.contains('nav-btn') ? 'swap' : 'tap');
 });
 
 window.addEventListener('online', refreshLink);

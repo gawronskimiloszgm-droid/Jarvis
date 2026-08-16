@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#02060d" />
-<title>J.A.R.V.I.S.</title>
+<meta name="theme-color" content="#03060c" />
+<title>J.A.R.V.I.S. — Centrum Operacyjne</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -13,7 +13,6 @@
 <body>
   <div class="grid-field" aria-hidden="true"></div>
   <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
-  <div class="vignette" aria-hidden="true"></div>
 
   <!-- Ekran startowy -->
   <div class="boot" id="boot">
@@ -22,57 +21,127 @@
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
-  <!-- Logowanie wlasciciela -->
+  <!-- Logowanie -->
   <div class="auth-veil" id="authVeil" hidden>
     <form class="auth-box" id="authForm">
-      <div class="auth-title">UWIERZYTELNIANIE</div>
-      <p class="auth-copy">Podaj haslo, aby uzyskac pelny dostep. Bez niego dziala tryb goscia (rozmowa, pogoda, wyszukiwanie).</p>
-      <input class="auth-input" id="authPassword" type="password" placeholder="Haslo" autocomplete="current-password" />
+      <div class="auth-mark"><span></span><span></span><span></span></div>
+      <div class="auth-title">J.A.R.V.I.S.</div>
+      <div class="auth-sub">CENTRUM OPERACYJNE · UWIERZYTELNIANIE</div>
+      <label class="auth-field">
+        <span>UZYTKOWNIK</span>
+        <input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" />
+      </label>
+      <label class="auth-field">
+        <span>HASLO</span>
+        <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" />
+      </label>
       <div class="auth-actions">
-        <button type="submit" class="btn primary">Zaloguj</button>
-        <button type="button" class="btn" id="authGuestBtn">Wejdz jako gosc</button>
+        <button type="submit" class="btn primary">ZALOGUJ</button>
+        <button type="button" class="btn" id="authGuestBtn">TRYB GOSCIA</button>
       </div>
       <div class="auth-error" id="authError" hidden></div>
+      <div class="auth-note">Bez zalogowania dziala rozmowa, pogoda i wyszukiwanie. Pamiec, zadania, kamera i sterowanie komputerem sa zastrzezone.</div>
     </form>
   </div>
 
-  <!-- Gorna belka -->
-  <header class="bar">
-    <div class="bar-left">
-      <span class="bar-mark"></span>
-      <span class="bar-name">JARVIS</span>
-      <span class="bar-sep">/</span>
-      <span class="bar-role" id="barRole">GOSC</span>
+  <!-- EKRAN SPOCZYNKU: sam rdzen -->
+  <div class="idle" id="idle">
+    <div class="idle-top">
+      <div class="idle-id">
+        <span class="dot"></span>
+        <span>
+          <b id="idleStatus">SYSTEM GOTOWY</b>
+          <i id="idleSession">SESJA ---- · v4.2.0</i>
+        </span>
+      </div>
+      <div class="idle-time">
+        <b id="idleClock">--:--</b>
+        <i id="idleDate"></i>
+      </div>
     </div>
-    <div class="bar-right">
-      <span class="bar-stat" id="barClock">--:--:--</span>
-      <span class="bar-stat" id="barState">GOTOWY</span>
-      <button class="btn icon" id="lockBtn" title="Zaloguj / wyloguj">⌾</button>
-      <button class="btn icon" id="notifyBtn" title="Powiadomienia">◈</button>
-      <span class="bar-live" id="barLive" title="Rozmowa startuje sama. Kliknij rdzen, zeby wyciszyc.">◉</span>
-    </div>
-  </header>
 
-  <!-- Rdzen: zawsze obecny, pulsuje za trescia. Zakladki rozlozone lukiem
-       nad nim, tresc wybranej zakladki wjezdza od dolu i przyslania dolna
-       czesc kola, przez ktora nadal go widac. -->
-  <div class="core-field" id="coreField">
-    <div class="core-holder" id="coreHolder">
-      <canvas class="core-bg" id="coreCanvas"></canvas>
+    <div class="idle-core">
+      <canvas id="coreCanvas"></canvas>
       <button class="core-hit" id="coreHit" title="Kliknij, zeby wyciszyc / wznowic rozmowe"></button>
       <div class="core-state" id="coreState">GOTOWY</div>
-      <nav class="ring" id="ring"></nav>
+    </div>
+
+    <div class="idle-cards" id="idleCards"></div>
+
+    <button class="idle-enter" id="idleEnter">CENTRUM OPERACYJNE <span>&rsaquo;</span></button>
+  </div>
+
+  <!-- CENTRUM OPERACYJNE -->
+  <div class="ops" id="ops" hidden>
+    <header class="ops-head">
+      <button class="brand" id="brandBtn" title="Powrot do rdzenia">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span class="brand-txt"><b>JARVIS</b><i>CENTRUM OPERACYJNE</i></span>
+      </button>
+
+      <div class="head-status">
+        <span class="dot"></span>
+        <span id="headStatus">system gotowy</span>
+      </div>
+
+      <div class="head-spacer"></div>
+
+      <div class="head-stats" id="headStats"></div>
+
+      <button class="btn ghost" id="paletteBtn">SZUKAJ POLECENIA <span class="kbd">Ctrl K</span></button>
+
+      <button class="btn mic" id="micBtn">
+        <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
+        <span id="micLabel">NASLUCH</span>
+      </button>
+
+      <button class="btn danger" id="exitBtn">WYJDZ</button>
+    </header>
+
+    <div class="ops-body">
+      <nav class="ops-nav" id="opsNav">
+        <span class="nav-cap">MODULY</span>
+        <div class="nav-list" id="navList"></div>
+        <div class="nav-foot">
+          <span class="nav-cap">RDZEN AI</span>
+          <div class="bar"><i id="loadBar"></i></div>
+          <span class="nav-meta" id="loadMeta">gotowy</span>
+        </div>
+      </nav>
+
+      <main class="ops-main" id="opsMain">
+        <div class="mod-head">
+          <div>
+            <h1 id="modTitle">Pulpit</h1>
+            <p id="modSub">przeglad operacyjny</p>
+          </div>
+          <span class="mod-badge" id="modBadge"></span>
+        </div>
+        <div class="mod-body" id="modBody"></div>
+      </main>
+
+      <aside class="ops-side">
+        <div class="side-core">
+          <canvas id="sideCore"></canvas>
+          <div class="side-state" id="sideState">GOTOWY</div>
+        </div>
+        <div class="side-head"><span>ROZMOWA</span><b id="sideCount">0</b></div>
+        <div class="feed" id="talkFeed"></div>
+        <form class="side-form" id="talkForm">
+          <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
+          <button class="btn" type="submit">OK</button>
+        </form>
+      </aside>
     </div>
   </div>
 
-  <!-- Tresc wybranej zakladki -->
-  <main class="sheet" id="sheet">
-    <div class="sheet-head">
-      <span class="sheet-glyph" id="sheetGlyph">◉</span>
-      <span class="sheet-title" id="sheetTitle">GLOWNY</span>
+  <!-- Paleta polecen -->
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box">
+      <input class="palette-input" id="paletteInput" placeholder="Wpisz polecenie albo pytanie..." autocomplete="off" />
+      <div class="palette-list" id="paletteList"></div>
     </div>
-    <div class="sheet-body" id="sheetBody"></div>
-  </main>
+  </div>
 
   <div class="toasts" id="toasts"></div>
 </body>
