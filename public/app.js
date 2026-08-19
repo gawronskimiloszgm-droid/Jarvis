@@ -82,6 +82,7 @@ const MODULES = [
   { id: 'know', title: 'Wiedza', sub: 'pamiec i kronika rozmow', owner: true, panels: ['mind'] },
   { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: ['money'] },
   { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
+  { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
   { id: 'set', title: 'Ustawienia', sub: 'profil asystenta', panels: ['settings'] },
@@ -236,6 +237,119 @@ function dropOwnerModules() {
   });
   if (!activeModule || moduleById(activeModule)?.owner) showModule('dash');
   syncNav();
+}
+
+// ---------- Projektowanie 3D ----------
+
+let cadView = null;
+let lastDesign = null;
+
+async function runDesign(spec) {
+  if (!isOwner()) return toast('Projektowanie wymaga zalogowania.');
+
+  const body = spec || {
+    loadKg: parseFloat($('#cadLoad')?.value) || 5,
+    shelfDepth: parseFloat($('#cadArm')?.value) || 45,
+    plateW: parseFloat($('#cadWidth')?.value) || 60,
+    thickness: parseFloat($('#cadThick')?.value) || 5,
+    material: $('#cadMat')?.value || 'PLA',
+  };
+
+  setCoreState('PROJEKTUJE');
+  try {
+    const model = await api('/api/cad', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    lastDesign = model;
+    logEvent('cad', `model ${model.id}: ${model.strength.verdict.toLowerCase()}`, model.strength.ok ? 'info' : 'bad');
+    drawCadInfo(model);
+    mountCadView(model);
+    window.SFX?.play(model.strength.ok ? 'ok' : 'err');
+  } catch (err) {
+    toast(err.message || 'Nie udalo sie wygenerowac modelu.');
+  } finally {
+    setCoreState(store.live ? 'SLUCHAM' : 'GOTOWY');
+  }
+}
+
+function mountCadView(model) {
+  const cv = $('#cadCanvas');
+  if (!cv || !window.CADView) return;
+  cadView?.stop();
+  cadView = window.CADView(cv, model);
+}
+
+function drawCadInfo(model) {
+  const box = $('#cadInfo');
+  if (!box) return;
+  box.innerHTML = '';
+
+  if (!model) {
+    box.appendChild(
+      el('div', 'hint', 'Podaj parametry albo popros Jarvisa glosem: "zaprojektuj uchwyt na 15 funtow".')
+    );
+    return;
+  }
+
+  const s = model.strength;
+  const verdict = el('div', 'big-num', s.verdict);
+  verdict.style.fontSize = '17px';
+  verdict.style.color = s.ok ? 'var(--good)' : 'var(--red)';
+  box.appendChild(verdict);
+  box.appendChild(el('div', 'sub', `ZAPAS ${s.safety ?? '--'}x`));
+
+  const rows = [
+    ['NAPREZENIE', `${s.stressMPa} MPa`],
+    ['LIMIT', `${s.limitMPa} MPa`],
+    ['MATERIAL', s.material],
+    ['SILA', `${s.forceN} N`],
+    ['WYMIARY', model.sizeMm.join(' x ') + ' mm'],
+    ['MASA ~', `${model.massEstimateG} g`],
+    ['TROJKATOW', model.triangles],
+  ];
+  rows.forEach(([k, v]) => {
+    const r = el('div', 'kv');
+    r.append(el('span', null, k), el('b', null, String(v)));
+    box.appendChild(r);
+  });
+
+  // Podstawa oceny musi byc widoczna - inaczej liczby udaja wynik symulacji.
+  const basis = el('div', 'sub');
+  basis.style.cssText = 'margin-top:10px; line-height:1.6; letter-spacing:0; text-transform:none';
+  basis.textContent = `Model belki wspornikowej (sigma = M/W), nie MES. Limit: ${s.limitBasis}. Mapa cieplna pokazuje rozklad z tego modelu.`;
+  box.appendChild(basis);
+
+  if (model.fix) {
+    const fix = el('div', 'row');
+    fix.style.marginTop = '10px';
+    const t = el('div', 'row-text', model.fix.note);
+    const b = el('button', 'btn', 'POPRAW');
+    b.addEventListener('click', () => {
+      const inp = $('#cadThick');
+      if (inp) inp.value = model.fix.thickness;
+      runDesign();
+    });
+    fix.append(t, b);
+    box.appendChild(fix);
+  }
+
+  const actions = el('div', 'field');
+  actions.style.marginTop = '10px';
+  const heat = el('button', 'btn', 'MAPA NAPREZEN');
+  let heatOn = true;
+  heat.classList.add('primary');
+  heat.addEventListener('click', () => {
+    heatOn = !heatOn;
+    cadView?.setHeat(heatOn);
+    heat.classList.toggle('primary', heatOn);
+  });
+  const dl = el('a', 'btn', 'POBIERZ STL');
+  dl.href = `/api/cad/${model.id}/stl`;
+  dl.setAttribute('download', `jarvis-${model.id}.stl`);
+  actions.append(heat, dl);
+  box.appendChild(actions);
 }
 
 // ---------- Karty na ekranie spoczynku ----------
@@ -433,6 +547,70 @@ const PANEL_DEFS = {
   },
 
   // Rozmowa nie jest juz panelem - siedzi na stale w prawej kolumnie.
+
+  cad: {
+    title: 'PROJEKTOWANIE 3D',
+    glyph: '◈',
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+
+      const form = el('form', 'field');
+      form.style.flexWrap = 'wrap';
+      const mk = (id, ph, val, w = '90px') => {
+        const i = el('input', 'inp');
+        i.id = id;
+        i.placeholder = ph;
+        i.value = val;
+        i.style.maxWidth = w;
+        i.inputMode = 'decimal';
+        return i;
+      };
+      const mat = el('select', 'inp');
+      mat.id = 'cadMat';
+      mat.style.maxWidth = '110px';
+      ['PLA', 'PETG', 'ABS', 'ASA', 'NYLON'].forEach((m) => {
+        const o = el('option', null, m);
+        o.value = m;
+        mat.appendChild(o);
+      });
+      const go = el('button', 'btn primary', 'ZAPROJEKTUJ');
+      go.type = 'submit';
+      form.append(
+        mk('cadLoad', 'obciazenie kg', '6.8'),
+        mk('cadArm', 'wysieg mm', '45'),
+        mk('cadWidth', 'szerokosc mm', '60'),
+        mk('cadThick', 'grubosc mm', '5'),
+        mat,
+        go
+      );
+
+      const stage = el('div');
+      stage.style.cssText = 'display:grid; grid-template-columns:minmax(240px,1fr) minmax(220px,280px); gap:12px';
+
+      const viewWrap = el('div');
+      viewWrap.style.cssText = 'position:relative; min-height:280px; border:1px solid var(--line); border-radius:3px; background:#040a12';
+      const cv = el('canvas');
+      cv.id = 'cadCanvas';
+      cv.style.cssText = 'display:block; width:100%; height:280px; cursor:grab';
+      const tip = el('div', 'sub', 'PRZECIAGNIJ, ZEBY OBROCIC');
+      tip.style.cssText = 'position:absolute; left:10px; bottom:8px; opacity:.6';
+      viewWrap.append(cv, tip);
+
+      const info = el('div');
+      info.id = 'cadInfo';
+
+      stage.append(viewWrap, info);
+      body.append(form, stage);
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        runDesign();
+      });
+
+      drawCadInfo(null);
+    },
+  },
 
   settings: {
     title: 'PROFIL ASYSTENTA',
@@ -1831,6 +2009,18 @@ async function liveStart() {
       if (m.assistantText) pushSaid('jv', m.assistantText);
       if (isOwner()) refreshOwnerPanes();
       if (store.live) setCoreState('SLUCHAM');
+    } else if (m.type === 'showDesign') {
+      // Jarvis zaprojektowal cos glosem - pobieramy gotowy model i
+      // otwieramy modul, zeby uzytkownik zobaczyl to, o czym slyszy.
+      api(`/api/cad/${m.id}`)
+        .then((model) => {
+          lastDesign = model;
+          enterOps('cad');
+          drawCadInfo(model);
+          mountCadView(model);
+          logEvent('cad', `model ${model.id} z polecenia glosowego`);
+        })
+        .catch(() => {});
     } else if (m.type === 'startCamera') camOn();
     else if (m.type === 'stopCamera') camOff();
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);

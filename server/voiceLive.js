@@ -13,6 +13,7 @@ import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google
 import * as memory from './memory.js';
 import { getWeather, getWeatherByCoords } from './weather.js';
 import { searchWithContent } from './websearch.js';
+import * as cad from './cad.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
@@ -173,6 +174,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
+- zaprojektuj: gdy prosi o zaprojektowanie uchwytu/wspornika i sprawdzenie, czy wytrzyma. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
 - plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
@@ -269,6 +271,22 @@ const ALL_TOOLS = [
         tresc: { type: 'string' },
       },
       required: ['operacja'],
+    },
+  },
+  {
+    name: 'zaprojektuj',
+    description:
+      'Zaprojektuj wspornik/uchwyt 3D i sprawdz, czy wytrzyma obciazenie. Podaj co wiesz - reszte uzupelnia domyslnymi wartosciami.',
+    parameters: {
+      type: 'object',
+      properties: {
+        obciazenie_kg: { type: 'number', description: 'Masa, ktora ma utrzymac. Funty przelicz sam na kilogramy.' },
+        wysieg_mm: { type: 'number', description: 'Jak daleko od sciany wystaje polka.' },
+        szerokosc_mm: { type: 'number' },
+        grubosc_mm: { type: 'number' },
+        material: { type: 'string', enum: ['PLA', 'PETG', 'ABS', 'ASA', 'NYLON'] },
+      },
+      required: ['obciazenie_kg'],
     },
   },
   {
@@ -552,6 +570,32 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'zaprojektuj') {
+                try {
+                  const a = call.args || {};
+                  const model = cad.create({
+                    loadKg: a.obciazenie_kg,
+                    shelfDepth: a.wysieg_mm,
+                    plateW: a.szerokosc_mm,
+                    thickness: a.grubosc_mm,
+                    material: a.material,
+                  });
+                  safeSend(JSON.stringify({ type: 'showDesign', id: model.id }));
+                  // Modelowi oddajemy same LICZBY, bez siatki - siatka nic mu
+                  // nie mowi, a zajelaby caly kontekst.
+                  result = {
+                    naprezenie_MPa: model.strength.stressMPa,
+                    limit_MPa: model.strength.limitMPa,
+                    zapas: model.strength.safety,
+                    werdykt: model.strength.verdict,
+                    wymiary_mm: model.sizeMm,
+                    masa_g: model.massEstimateG,
+                    poprawka: model.fix?.note || null,
+                    uwaga: 'To model belki wspornikowej, nie symulacja MES - powiedz o tym, jesli uzytkownik pyta o dokladnosc.',
+                  };
+                } catch (e) {
+                  result = { error: 'nie udalo sie zaprojektowac' };
                 }
               } else if (call.name === 'wyszukaj_w_sieci') {
                 try {

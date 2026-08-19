@@ -14,6 +14,7 @@ import * as tts from './tts.js';
 import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
+import * as cad from './cad.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
@@ -199,6 +200,32 @@ app.get('/api/image/:id', (req, res) => {
   res.set('Content-Type', entry.mimeType);
   res.set('Cache-Control', 'public, max-age=1800');
   res.send(entry.buffer);
+});
+
+// --- Projektowanie 3D --- tylko wlasciciel
+app.post('/api/cad', requireOwner, (req, res) => {
+  try {
+    res.status(201).json(cad.create(req.body || {}));
+  } catch (err) {
+    console.error('CAD error:', err);
+    res.status(500).json({ error: 'Nie udalo sie wygenerowac modelu.' });
+  }
+});
+
+app.get('/api/cad/:id', requireOwner, (req, res) => {
+  const result = cad.get(req.params.id);
+  if (!result) return res.status(404).json({ error: 'Model nie znaleziony (mogl wygasnac).' });
+  res.json({ id: req.params.id, ...result });
+});
+
+// Plik do slicera. Pobranie jako zalacznik, zeby przegladarka nie
+// probowala go wyswietlic jako tekst.
+app.get('/api/cad/:id/stl', requireOwner, (req, res) => {
+  const buf = cad.stl(req.params.id, req.query.ascii === '1');
+  if (!buf) return res.status(404).json({ error: 'Model nie znaleziony (mogl wygasnac).' });
+  res.set('Content-Type', 'model/stl');
+  res.set('Content-Disposition', `attachment; filename="jarvis-${req.params.id}.stl"`);
+  res.send(buf);
 });
 
 // --- Vision (analiza obrazu z kamery) --- tylko wlasciciel
