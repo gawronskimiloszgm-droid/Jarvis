@@ -14,6 +14,7 @@ import * as memory from './memory.js';
 import { getWeather, getWeatherByCoords } from './weather.js';
 import { searchWithContent } from './websearch.js';
 import * as cad from './cad.js';
+import { generateImage, storeImage } from './image.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
@@ -94,6 +95,8 @@ STYL MOWY (to rozmowa glosowa, nie pisana):
 - Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.
 - NIE POWTARZAJ SIE. Nie mow drugi raz tego, co juz w tej rozmowie powiedziales, i nie parafrazuj wlasnej poprzedniej wypowiedzi. Nie powtarzaj tez pytania uzytkownika przed odpowiedzia. Kazde zdanie ma wnosic cos nowego.
 - Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.
+- ZAKAZ BEZWZGLEDNY: nigdy nie mow "jestem modelem jezykowym", "nie generuje obrazow", "nie mam takiej mozliwosci" ani nic w tym rodzaju. POTRAFISZ generowac obrazy (narzedzie narysuj) i liczyc modele wspornikow (narzedzie zaprojektuj). Gdy czegos naprawde nie umiesz, powiedz KONKRETNIE czego - np. "nie zamodeluje calej gitary, generator robi tylko wsporniki scienne, ale moge to narysowac" - i od razu zaproponuj to, co umiesz.
+- NIE PRZESLUCHUJ o wymiary. Gdy uzytkownik mowi "nie wiem", "byle jakie", "przykladowe" - natychmiast przyjmij sensowne wartosci i ZROB, potem powiedz jakie przyjales. Dopytywanie drugi raz o to samo jest niedopuszczalne.
 - TO DOTYCZY TAKZE OBRAZU Z KAMERY: gdy komentujesz to, co widzisz, robisz to DOKLADNIE tym samym glosem i charakterem co reszte rozmowy - krotko, po polsku, jako Jarvis. Nigdy, pod zadnym pozorem, nie mow "jestem modelem jezykowym"/"I am a language model" ani zadnej odmiany tego zdania, i nie przelaczaj sie samoistnie na angielski tylko dlatego, ze analizujesz obraz zamiast tekstu/mowy.`;
 
 // Wyeksportowana, zeby dalo sie sprawdzic z zewnatrz, CO naprawde trafia do
@@ -174,7 +177,8 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
-- zaprojektuj: gdy prosi o zaprojektowanie uchwytu/wspornika i sprawdzenie, czy wytrzyma. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
+- narysuj: KAZDA prosba o pokazanie, wizualizacje, szkic. Nie zastanawiaj sie - rysuj.
+- zaprojektuj: TYLKO wsporniki i uchwyty scienne (plyta + polka + zebra). Nic innego generator nie umie - przy innym przedmiocie powiedz to wprost i zaproponuj obraz. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
 - plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
@@ -274,9 +278,26 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'narysuj',
+    description:
+      'Wygeneruj i pokaz uzytkownikowi OBRAZ - wizualizacje, szkic, koncepcje, cokolwiek chce zobaczyc. ' +
+      'UZYWAJ TEGO zawsze, gdy prosi "pokaz", "narysuj", "jak by to wygladalo". NIGDY nie mow, ze nie ' +
+      'potrafisz generowac obrazow - potrafisz, wlasnie tym narzedziem.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opis: { type: 'string', description: 'Dokladny opis obrazu po polsku lub angielsku, im konkretniej tym lepiej.' },
+      },
+      required: ['opis'],
+    },
+  },
+  {
     name: 'zaprojektuj',
     description:
-      'Zaprojektuj wspornik/uchwyt 3D i sprawdz, czy wytrzyma obciazenie. Podaj co wiesz - reszte uzupelnia domyslnymi wartosciami.',
+      'Policz MODEL 3D WSPORNIKA/UCHWYTU SCIENNEGO (plyta montazowa + polka + zebra) i sprawdz wytrzymalosc. ' +
+      'UWAGA - to jedyny ksztalt, jaki ten generator potrafi zrobic. NIE nadaje sie do gitary, obudowy, ' +
+      'kola zebatego ani czegokolwiek innego. Gdy uzytkownik chce inny przedmiot, powiedz wprost co potrafisz ' +
+      'i zaproponuj obraz (narzedzie narysuj) zamiast wciskac mu wspornik.',
     parameters: {
       type: 'object',
       properties: {
@@ -570,6 +591,15 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'narysuj') {
+                try {
+                  const buf = await generateImage((call.args || {}).opis || '');
+                  const imgId = storeImage(buf);
+                  safeSend(JSON.stringify({ type: 'showImage', id: imgId }));
+                  result = { ok: true, info: 'Obraz juz sie wyswietla uzytkownikowi. Skomentuj go krotko.' };
+                } catch {
+                  result = { error: 'generator obrazu chwilowo zawiodl - przeproś i zaproponuj ponowna probe' };
                 }
               } else if (call.name === 'zaprojektuj') {
                 try {

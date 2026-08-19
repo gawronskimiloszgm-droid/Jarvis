@@ -2024,6 +2024,12 @@ async function liveStart() {
       if (m.assistantText) pushSaid('jv', m.assistantText);
       if (isOwner()) refreshOwnerPanes();
       if (store.live) setCoreState('SLUCHAM');
+    } else if (m.type === 'showImage') {
+      // Jarvis wygenerowal obraz glosem - pokazujemy go w rozmowie.
+      const d = pushSaid('jv', ' ');
+      const im = el('img');
+      im.src = '/api/image/' + m.id;
+      d.appendChild(im);
     } else if (m.type === 'showDesign') {
       // Jarvis zaprojektowal cos glosem - pobieramy gotowy model i
       // otwieramy modul, zeby uzytkownik zobaczyl to, o czym slyszy.
