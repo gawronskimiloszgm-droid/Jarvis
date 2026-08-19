@@ -1800,9 +1800,24 @@ async function sendTyped(text) {
       }
       node.textContent = '';
       node.appendChild(el('span', 'who', 'JARVIS'));
-      node.appendChild(document.createTextNode(full.replace(ACT_RE, '').replace(IMG_RE, '')));
+      node.appendChild(document.createTextNode(full.replace(ACT_RE, '').replace(IMG_RE, '').replace(CAD_RE, '')));
       $('#talkFeed').scrollTop = $('#talkFeed').scrollHeight;
     }
+    const cadHit = full.match(CAD_RE);
+    if (cadHit && !done.has(cadHit[1])) {
+      // Marker pojawia sie raz, ale strumien czytamy kawalkami - bez tego
+      // straznika model pobieralby sie przy kazdym kolejnym fragmencie.
+      done.add(cadHit[1]);
+      api(`/api/cad/${cadHit[1]}`)
+        .then((model) => {
+          lastDesign = model;
+          enterOps('cad');
+          drawCadInfo(model);
+          mountCadView(model);
+        })
+        .catch(() => {});
+    }
+
     const img = full.match(IMG_RE);
     if (img) {
       const im = el('img');
@@ -1810,7 +1825,7 @@ async function sendTyped(text) {
       im.alt = 'Wygenerowany obraz';
       node.appendChild(im);
     }
-    speak(full.replace(ACT_RE, '').replace(IMG_RE, '').trim());
+    speak(full.replace(ACT_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
     if (isOwner()) refreshOwnerPanes();
   } catch (err) {
     node.remove();

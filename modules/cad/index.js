@@ -110,3 +110,46 @@ function clampNum(v, lo, hi) {
 }
 
 export { MATERIALS };
+
+// Rozpoznanie prosby o projekt z samego tekstu.
+//
+// Nie polegamy na tym, ze model grzecznie wystawi znacznik - sprawdzone:
+// przy prosbie o uchwyt wolal napisac poradny elaborat z wymiarami wzietymi
+// z powietrza. Wykrywamy wiec intencje tutaj i liczymy model DETERMINISTYCZNIE,
+// dokladnie tak, jak dziala juz generator obrazow.
+const DESIGN_VERBS = /(zaprojektuj|zaprojektowa|projekt(?:u|o)|zrob|wykonaj|wymodeluj|wygeneruj)/i;
+const DESIGN_NOUNS = /(uchwyt|wspornik|k[ao]townik|polk|podstawk|mocowani|trzymak|hak|stojak|zawiesi)/i;
+
+export function looksLikeDesignRequest(text = '') {
+  const t = String(text).toLowerCase();
+  if (DESIGN_VERBS.test(t) && DESIGN_NOUNS.test(t)) return true;
+  // "czy uchwyt o grubosci 3 mm wytrzyma 5 kg"
+  return DESIGN_NOUNS.test(t) && /(wytrzym|utrzyma|zlamie|uniesie)/i.test(t);
+}
+
+// Wyciagniecie parametrow z jezyka naturalnego. Czego nie ma - zostaje
+// domyslne; lepiej policzyc model z sensownymi zalozeniami niz odmowic.
+export function parseDesignSpec(text = '') {
+  const t = String(text).toLowerCase().replace(',', '.');
+  const spec = {};
+
+  const lbs = t.match(/(\d+(?:\.\d+)?)\s*(?:lbs?|funt)/);
+  const kg = t.match(/(\d+(?:\.\d+)?)\s*(?:kg|kilogram)/);
+  if (lbs) spec.loadLbs = parseFloat(lbs[1]);
+  else if (kg) spec.loadKg = parseFloat(kg[1]);
+
+  // Wysieg: "wysieg 30 cm", "polka 45 mm", "dlugosc 12 cm"
+  const arm = t.match(/(?:wysieg|wysi[eę]g|polk\w*|ramie|ramię|dlugosc|d[lł]ugo[sś][cć]|gl[eę]bok\w*)\D{0,12}(\d+(?:\.\d+)?)\s*(mm|cm)?/);
+  if (arm) spec.shelfDepth = parseFloat(arm[1]) * (arm[2] === 'cm' ? 10 : 1);
+
+  const thick = t.match(/(?:grubo[sś][cć]\w*|gruby|scianka|ścianka)\D{0,12}(\d+(?:\.\d+)?)\s*(mm|cm)?/);
+  if (thick) spec.thickness = parseFloat(thick[1]) * (thick[2] === 'cm' ? 10 : 1);
+
+  const wide = t.match(/(?:szeroko[sś][cć]\w*|szeroki)\D{0,12}(\d+(?:\.\d+)?)\s*(mm|cm)?/);
+  if (wide) spec.plateW = parseFloat(wide[1]) * (wide[2] === 'cm' ? 10 : 1);
+
+  const mat = t.match(/\b(pla|petg|abs|asa|nylon)\b/);
+  if (mat) spec.material = mat[1].toUpperCase();
+
+  return spec;
+}

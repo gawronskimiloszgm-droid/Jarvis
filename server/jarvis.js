@@ -3,6 +3,8 @@ import * as memory from './memory.js';
 import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weather.js';
 import { looksLikeImageRequest, generateImage, storeImage } from './image.js';
 import { imagePart } from './vision.js';
+import * as cad from './cad.js';
+import { looksLikeDesignRequest, parseDesignSpec } from '../modules/cad/index.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // Czat pisany chodzil na wariancie "lite", ktory gubil konkrety i ignorowal
@@ -57,8 +59,9 @@ const PRZYPOMNIENIE_RE = /\[PRZYPOMNIENIE:\s*([^,\]]+),\s*([^\]]+)\]/gi;
 // (przegladarka/desktop) zywcem w strumieniu, zeby mogl ja tam wykonac.
 // Usuwana jest tylko z tekstu zapisywanego do historii/pamieci.
 const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/gi;
+const PROJEKT_RE = /\[PROJEKT:\s*([^\]]+)\]/gi;
 const WYDATEK_RE = /\[WYDATEK:\s*([^,\]]+),\s*([^,\]]+)(?:,\s*([^\]]+))?\]/gi;
-const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE];
+const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE, PROJEKT_RE];
 
 function stripTags(text) {
   return TAG_STRIP_PATTERNS.reduce((acc, re) => acc.replace(re, ''), text);
@@ -138,6 +141,10 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
 - [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
+- [PROJEKT: obciazenie=6.8, wysieg=45, szerokosc=60, grubosc=5, material=PLA] - gdy uzytkownik prosi o zaprojektowanie uchwytu, wspornika, polki albo o sprawdzenie czy cos wytrzyma obciazenie.
+  UZYJ TEGO ZNACZNIKA ZAMIAST OPISYWANIA KONSTRUKCJI SLOWAMI. To nie jest porada - masz realny generator modeli 3D i on policzy wymiary, naprezenia i werdykt, a nastepnie pokaze uzytkownikowi obracany model i plik do druku.
+  NIE wymyslaj wlasnych wymiarow, gruboscі scianek, katow ani zalecen materialowych "z glowy" - to bylyby liczby wzięte z powietrza. Podaj w znaczniku tylko to, co wynika z prosby (reszta ma sensowne wartosci domyslne), obciazenie ZAWSZE w kilogramach (funty przelicz: 1 lb = 0.4536 kg).
+  Po znaczniku napisz JEDNO krotkie zdanie w swoim stylu, ze zabierasz sie za projekt. Konkretne liczby i werdykt dopisze system tuz pod Twoja wypowiedzia - nie uprzedzaj ich i nie zmyslaj.
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
   - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz, pobudka, odtworz-pauza, nastepny-utwor, poprzedni-utwor - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka"). Klawisze medialne dzialaja z dowolnym odtwarzaczem, ktory akurat gra.
   - otworz-eksplorator, zablokuj-ekran, zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer - dostepne TYLKO na desktopie. "zrzut-ekranu" zapisuje obraz ekranu w folderze Dokumenty\\Jarvis. "uspij-komputer" uzywaj wylacznie na jednoznaczna prosbe - upewnij sie krotko, zanim to zrobisz.`;
@@ -278,6 +285,34 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
 
   let systemInstruction = await buildSystemInstruction(userMessage, coords, isOwner);
 
+  // Projekt liczymy DETERMINISTYCZNIE, zanim model cokolwiek powie - tak
+  // samo jak obrazy. Poleganie na tym, ze sam wystawi znacznik, nie dzialalo:
+  // wolal napisac elaborat z wymiarami wzietymi z powietrza.
+  let designId = null;
+  if (isOwner && looksLikeDesignRequest(userMessage)) {
+    try {
+      const model = cad.create(parseDesignSpec(userMessage));
+      designId = model.id;
+      const st = model.strength;
+      const lines = [
+        '',
+        'Wlasnie policzyles dla uzytkownika model wspornika i masz PRAWDZIWE wyniki:',
+        `- werdykt: ${st.verdict}, zapas bezpieczenstwa ${st.safety}x`,
+        `- naprezenie ${st.stressMPa} MPa przy limicie ${st.limitMPa} MPa dla ${st.material}`,
+        `- wymiary ${model.sizeMm.join(' x ')} mm, masa okolo ${model.massEstimateG} g, sila ${st.forceN} N`,
+      ];
+      if (model.fix) lines.push(`- poprawka: ${model.fix.note}`);
+      lines.push(
+        'Model 3D juz sie wyswietla uzytkownikowi razem z mapa naprezen i plikiem do druku.',
+        'Skomentuj to KROTKO swoim stylem, uzywajac TYCH liczb. NIE podawaj zadnych innych wymiarow,',
+        'gruboscі scianek ani katow - nie znasz ich. Jesli pyta o dokladnosc: to szybki model belki',
+        'wspornikowej, nie pelna symulacja MES.'
+      );
+      systemInstruction += '\n' + lines.join('\n');
+    } catch {
+      systemInstruction += '\n\nProba policzenia modelu zawiodla - powiedz o tym krotko.';
+    }
+  }
   let imageId = null;
   let imageNote = '';
   if (looksLikeImageRequest(userMessage)) {
@@ -313,6 +348,8 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
   );
 
   if (imageId) onChunk(`\n[[IMG:${imageId}]]`);
+  // Marker dla klienta: otwiera modul Projekt 3D z gotowym modelem.
+  if (designId) onChunk(`\n[[CAD:${designId}]]`);
 
   if (isOwner) {
     memory.appendHistory('assistant', cleanedFull + (imageId ? ' [wygenerowano obraz]' : imageNote));
