@@ -9,3 +9,8 @@ android/local.properties
 *.apk
 
 home-server/.env
+
+# Probka i wektory glosu - prywatne nagranie, nie do repozytorium
+tts_cloud/jarvis_sample.wav
+tts_cloud/jarvis_voice.pth
+tts_cloud/.cache/

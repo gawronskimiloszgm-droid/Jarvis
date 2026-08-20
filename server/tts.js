@@ -17,8 +17,47 @@ const EDGE_PROSODY = {
   rate: process.env.TTS_RATE || '-8%',
 };
 
+// Sklonowany glos z osobnej uslugi (tts_cloud/). Uzywany TYLKO jesli
+// skonfigurowany i tylko dla krotkich wypowiedzi - XTTS-v2 na darmowym
+// procesorze generuje wolniej niz czlowiek mowi, wiec dla dlugiego akapitu
+// uzytkownik czekalby dluzej niz trwa sama wypowiedz. Krotkie repliki i
+// meldunki brzmia wtedy wlasciwym glosem, a dluzsze i tak wchodza szybkim
+// silnikiem. Granice ustawia TTS_CLONE_MAX_CHARS.
+const CLONE_URL = (process.env.TTS_CLOUD_URL || '').replace(/\/+$/, '');
+const CLONE_TOKEN = process.env.TTS_CLOUD_TOKEN || '';
+const CLONE_MAX_CHARS = Number(process.env.TTS_CLONE_MAX_CHARS || 240);
+const CLONE_TIMEOUT_MS = Number(process.env.TTS_CLONE_TIMEOUT_MS || 20000);
+const CLONE_LANG = process.env.TTS_CLONE_LANGUAGE || 'pl';
+
 export function isConfigured() {
   return true;
+}
+
+export function cloneStatus() {
+  return { enabled: Boolean(CLONE_URL), url: CLONE_URL || null, maxChars: CLONE_MAX_CHARS };
+}
+
+async function synthesizeClone(text) {
+  if (!CLONE_URL) throw new Error('Usluga klonowania glosu nie jest skonfigurowana.');
+
+  // Usluga moze spac (HuggingFace usypia darmowe Spaces) albo dopiero
+  // wczytywac model - bez limitu czasu czat wisialby w nieskonczonosc.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLONE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${CLONE_URL}/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language: CLONE_LANG, token: CLONE_TOKEN }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`TTS clone HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length < 1024) throw new Error('Usluga zwrocila pusty strumien audio.');
+    return { buffer, contentType: 'audio/wav' };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Zabezpieczenie: gdyby model mimo instrukcji wypisal pelna, kropkowana
@@ -72,8 +111,20 @@ async function synthesizeEdge(text) {
   return { buffer: Buffer.concat(chunks), contentType: 'audio/mpeg' };
 }
 
+// Kolejnosc: sklonowany glos (gdy wlaczony i tekst krotki) -> Gemini TTS
+// -> Edge TTS. Kazdy stopien lapie awarie poprzedniego, wiec czat nigdy
+// nie zostaje calkiem bez glosu, nawet gdy usluga klonujaca spi.
 export async function synthesize(text) {
   const clean = normalizeForSpeech(text);
+
+  if (CLONE_URL && clean.length <= CLONE_MAX_CHARS) {
+    try {
+      return await synthesizeClone(clean);
+    } catch (err) {
+      console.error('Sklonowany glos niedostepny, schodze nizej:', err.message || err);
+    }
+  }
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await synthesizeGemini(clean);
