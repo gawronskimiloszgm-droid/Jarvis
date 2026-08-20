@@ -15,6 +15,8 @@ import * as memory from './memory.js';
 import * as push from './push.js';
 import * as image from './image.js';
 import * as cad from './cad.js';
+import * as bus from './bus.js';
+import { attachHud } from './hud.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
@@ -46,8 +48,14 @@ app.post('/api/login', (req, res) => {
   // rozne bledy dla zlej nazwy i zlego hasla podpowiadalyby, ktora czesc
   // zgadla osoba postronna.
   if (!verifyUser(req.body?.user) || !verifyPassword(req.body?.password)) {
+    // Nieudane logowanie to sygnal dla modulu obrony, nie tylko wpis w logu.
+    bus.publish('auth', 'login.failed', `nieudane logowanie z ${req.ip}`, {
+      level: 'warn',
+      data: { ip: req.ip },
+    });
     return res.status(401).json({ error: 'Nieprawidlowy uzytkownik lub haslo.' });
   }
+  bus.publish('auth', 'owner.login', 'wlasciciel zalogowany', { level: 'ok' });
   res.json({ token: issueToken(), role: 'owner' });
 });
 
@@ -205,7 +213,12 @@ app.get('/api/image/:id', (req, res) => {
 // --- Projektowanie 3D --- tylko wlasciciel
 app.post('/api/cad', requireOwner, (req, res) => {
   try {
-    res.status(201).json(cad.create(req.body || {}));
+    const model = cad.create(req.body || {});
+    bus.publish('cad', 'model.ready', `model gotowy: ${model.sizeMm.join(' x ')} mm, zapas ${model.strength.safety}x`, {
+      level: model.strength.ok ? 'ok' : 'warn',
+      data: { id: model.id, params: model.params, strength: model.strength },
+    });
+    res.status(201).json(model);
   } catch (err) {
     console.error('CAD error:', err);
     res.status(500).json({ error: 'Nie udalo sie wygenerowac modelu.' });
@@ -252,6 +265,11 @@ app.post('/api/vision', requireOwner, async (req, res) => {
   }
 });
 
+// --- Magistrala zdarzen (podglad przez REST, gdy WebSocket jest zablokowany) ---
+app.get('/api/events', requireOwner, (req, res) => {
+  res.json({ posture: bus.getPosture(), events: bus.recent(Number(req.query.limit) || 60) });
+});
+
 // --- TTS ---
 app.post('/api/tts', async (req, res) => {
   try {
@@ -268,7 +286,11 @@ app.post('/api/tts', async (req, res) => {
 
 const server = createServer(app);
 
-const wss = new WebSocketServer({ server, path: '/ws/voice' });
+// Dwa kanaly na jednym serwerze HTTP: glos i telemetria. Kazdy WebSocketServer
+// musi byc w trybie noServer i dostawac polaczenie z jednego, wspolnego
+// obslugiwacza 'upgrade' - dwa serwery pieté wprost do 'server' odrzucalyby
+// sobie nawzajem polaczenia bledem 400.
+const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const lat = parseFloat(url.searchParams.get('lat'));
@@ -281,6 +303,29 @@ wss.on('connection', (ws, req) => {
   });
 });
 
+// Telemetria do HUD. Osobna sciezka, zeby strumien glosu i strumien zdarzen
+// nie walczyly o to samo polaczenie - HUD ma dzialac takze bez mikrofonu.
+const hudWss = new WebSocketServer({ noServer: true });
+hudWss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (!isOwnerToken(url.searchParams.get('token'))) {
+    ws.close(4003, 'Kanal telemetryczny tylko dla wlasciciela.');
+    return;
+  }
+  attachHud(ws);
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const target = pathname === '/ws/voice' ? wss : pathname === '/ws/hud' ? hudWss : null;
+  if (!target) {
+    socket.write(`HTTP/1.1 404 Not Found\r\n\r\n`);
+    socket.destroy();
+    return;
+  }
+  target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
+});
+
 const PORT = process.env.PORT || 3000;
 
 // Pamiec musi byc wczytana ZANIM przyjmiemy pierwsze zapytanie - inaczej
@@ -290,6 +335,7 @@ await memory.hydrate();
 server.listen(PORT, () => {
   console.log(`J.A.R.V.I.S. online at http://localhost:${PORT}`);
   startUpkeep();
+  bus.publish('core', 'system.online', `rdzen online na porcie ${PORT}`, { level: 'ok' });
 });
 
 // Render wysyla SIGTERM przy restarcie/wdrozeniu - dopisujemy to, co jeszcze

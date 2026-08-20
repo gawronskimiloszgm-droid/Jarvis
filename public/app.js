@@ -20,6 +20,9 @@ const store = {
   user: localStorage.getItem('jarvis.user') || '',
   factCount: null,
   todoCount: null,
+  // Stan calego systemu z magistrali serwera: nominal | design | focus |
+  // threat | recovery. Maluje interfejs i steruje swiatlem w pokoju.
+  posture: null,
 };
 
 const isOwner = () => store.role === 'owner';
@@ -1857,6 +1860,143 @@ async function speak(text) {
   }
 }
 
+// ---------- Kanal telemetryczny (magistrala zdarzen -> HUD) ----------
+//
+// Jedno polaczenie na cala sesje. Kazdy modul dzialajacy w tle (obrona,
+// spotkania, IoT, wizja) melduje sie tu tym samym kanalem, wiec dziennik
+// zdarzen i stan systemu sa zawsze zgodne z tym, co naprawde robi serwer.
+//
+// Zrywa sie regularnie (usypianie karty, zmiana sieci), wiec wpiete jest
+// wznawianie z narastajaca przerwa - bez tego HUD po nocy pokazywalby
+// zamrozony stan sprzed zerwania.
+
+let hudWs = null;
+let hudRetry = 0;
+let hudTimer = null;
+
+const HUD_LEVEL_KIND = { alert: 'bad', warn: 'bad', ok: 'ok', info: 'info', debug: 'info' };
+
+function hudUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/hud?token=${encodeURIComponent(store.token || '')}`;
+}
+
+// Stan systemu maluje caly interfejs: przy 'threat' motyw robi sie
+// alarmowy, przy 'design' chlodny. Trzymamy go na <body>, zeby arkusz
+// stylow mogl przestawic zmienne kolorow w jednym miejscu.
+function applyPosture(posture) {
+  if (!posture) return;
+  const prev = store.posture?.level;
+  store.posture = posture;
+  document.body.dataset.posture = posture.level;
+  if (prev && prev !== posture.level) {
+    logEvent('rdzen', `stan systemu: ${posture.level}${posture.reason ? ` - ${posture.reason}` : ''}`,
+      posture.level === 'threat' ? 'bad' : 'info');
+    if (posture.level === 'threat') window.SFX?.play('err');
+  }
+  const badge = $('#headStatus');
+  if (badge && posture.reason) badge.textContent = String(posture.reason).toLowerCase();
+}
+
+function handleHudEvent(event) {
+  logEvent(event.source, event.message, HUD_LEVEL_KIND[event.level] || 'info');
+  if (event.data?.posture) applyPosture(event.data.posture);
+  if (event.level === 'alert') toast(event.message, 'bad');
+  else if (event.level === 'warn') toast(event.message, 'bad');
+  // Zdarzenia oznaczone jako 'speak' Jarvis czyta na glos - tak dziala
+  // meldunek o zneutralizowanym zagrozeniu czy gotowym modelu.
+  if (event.speak) speak(event.message);
+  // Panele, ktore zywia sie zdarzeniami, dostaja je bezposrednio.
+  for (const fn of HUD_HOOKS) {
+    try {
+      fn(event);
+    } catch (err) {
+      console.error('hud hook', err);
+    }
+  }
+}
+
+// Moduly interfejsu rejestruja tu swoje reakcje na zdarzenia z serwera.
+const HUD_HOOKS = new Set();
+function onHudEvent(fn) {
+  HUD_HOOKS.add(fn);
+  return () => HUD_HOOKS.delete(fn);
+}
+
+function hudConnect() {
+  if (!isOwner() || !store.token) return;
+  if (hudWs && (hudWs.readyState === WebSocket.OPEN || hudWs.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(hudTimer);
+
+  let ws;
+  try {
+    ws = new WebSocket(hudUrl());
+  } catch {
+    hudReconnect();
+    return;
+  }
+  hudWs = ws;
+
+  ws.addEventListener('open', () => {
+    hudRetry = 0;
+    logEvent('telemetria', 'kanal zdarzen otwarty', 'ok');
+  });
+
+  ws.addEventListener('message', (e) => {
+    let msg = null;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (msg.type === 'hello') {
+      applyPosture(msg.posture);
+      // Historia przychodzi od najstarszego; dziennik trzyma najnowsze na
+      // gorze, wiec wchodzi w tej samej kolejnosci co na zywo.
+      (msg.events || []).forEach(handleHudEvent);
+    } else if (msg.type === 'event') {
+      handleHudEvent(msg.event);
+    }
+  });
+
+  ws.addEventListener('close', (e) => {
+    hudWs = null;
+    // 4003 = serwer odmowil (gosc albo wygasly token). Ponawianie nic tu
+    // nie da, wiec nie zasmiecamy dziennika co kilka sekund.
+    if (e.code === 4003) return;
+    hudReconnect();
+  });
+
+  ws.addEventListener('error', () => {
+    try {
+      ws.close();
+    } catch {
+      /* zamknie sie samo */
+    }
+  });
+}
+
+function hudReconnect() {
+  if (!isOwner()) return;
+  hudRetry = Math.min(hudRetry + 1, 6);
+  const delay = Math.min(30000, 1000 * 2 ** (hudRetry - 1));
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(hudConnect, delay);
+}
+
+function hudDisconnect() {
+  clearTimeout(hudTimer);
+  hudRetry = 0;
+  if (hudWs) {
+    try {
+      hudWs.close();
+    } catch {
+      /* i tak porzucamy */
+    }
+    hudWs = null;
+  }
+}
+
 // ---------- Rozmowa na zywo ----------
 
 let liveWs = null;
@@ -2218,8 +2358,13 @@ function wakeStart() {
 function applyRole(role) {
   const changed = store.role !== role;
   store.role = role;
-  if (role === 'owner') refreshOwnerPanes();
-  else dropOwnerModules();
+  if (role === 'owner') {
+    refreshOwnerPanes();
+    hudConnect();
+  } else {
+    dropOwnerModules();
+    hudDisconnect();
+  }
   syncNav();
   refreshHeadStats();
   if (changed) logEvent('auth', role === 'owner' ? 'zalogowano wlasciciela' : 'tryb goscia');
@@ -2505,6 +2650,7 @@ async function keepAudioAlive() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    hudConnect();
     checkBubbleLaunch();
     refreshBubble();
     refreshGrip();

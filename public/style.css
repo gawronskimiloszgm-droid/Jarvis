@@ -483,3 +483,53 @@ html, body {
   .side-core canvas { width: 130px; height: 130px; }
   .btn.ghost, .brand-txt i { display: none; }
 }
+
+/* --- Stan systemu (postawa) ---
+   Serwer nadaje przez magistrale zdarzen jeden z kilku stanow, a HUD
+   przemalowuje sie pod niego. Zmieniamy WYLACZNIE zmienne kolorow, wiec
+   kazdy panel, wykres i rdzen ida za tym bez wlasnych regul. */
+
+body[data-posture='threat'] {
+  --blue: #ff5c47;
+  --ice: #ffb3a6;
+  --good: #ffb347;
+  --dim: #e5a79c;
+  --line-3: #4a1f1a;
+}
+
+body[data-posture='threat'] .grid-field {
+  opacity: .5;
+  filter: hue-rotate(150deg) saturate(1.4);
+}
+
+/* Alarm ma byc widoczny katem oka, takze gdy patrzysz w inny panel -
+   stad pulsujaca obwodka calego ekranu, nie sam kolor akcentu. */
+body[data-posture='threat']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  box-shadow: inset 0 0 120px rgba(255, 60, 40, .45), inset 0 0 8px rgba(255, 90, 70, .8);
+  animation: jv-alarm 1.4s ease-in-out infinite;
+}
+
+@keyframes jv-alarm {
+  0%, 100% { opacity: .35 }
+  50% { opacity: 1 }
+}
+
+body[data-posture='design'] {
+  --blue: #4fd2ff;
+  --ice: #b6ecff;
+}
+
+body[data-posture='focus'] {
+  --blue: #e8b95c;
+  --ice: #ffd992;
+}
+
+body[data-posture='recovery'] {
+  --blue: #4ad8c8;
+  --ice: #a7f0e7;
+}
