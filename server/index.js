@@ -18,6 +18,7 @@ import * as cad from './cad.js';
 import * as bus from './bus.js';
 import { attachHud } from './hud.js';
 import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
+import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
@@ -291,6 +292,20 @@ app.post('/api/cameras/heartbeat', requireOwner, (req, res) => {
 
 app.get('/api/cameras', requireOwner, (req, res) => {
   res.json({ cameras: cameraStatuses() });
+});
+
+// --- Telemetria maszyny domowej --- tylko wlasciciel
+app.post('/api/telemetry', requireOwner, (req, res) => {
+  try {
+    res.json({ ok: true, reading: ingestTelemetry(req.body || {}) });
+  } catch (err) {
+    console.error('Telemetry error:', err);
+    res.status(500).json({ error: 'Nie udalo sie przyjac odczytu.' });
+  }
+});
+
+app.get('/api/telemetry', requireOwner, (req, res) => {
+  res.json({ machines: telemetrySnapshot() });
 });
 
 // --- Magistrala zdarzen (podglad przez REST, gdy WebSocket jest zablokowany) ---

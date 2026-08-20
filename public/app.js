@@ -86,6 +86,7 @@ const MODULES = [
   { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: ['money'] },
   { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
   { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: ['perimeter'] },
+  { id: 'machine', title: 'Maszyna', sub: 'obciazenie laptopa', owner: true, panels: ['machine'] },
   { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
@@ -881,6 +882,27 @@ const PANEL_DEFS = {
     refresh: () => refreshBubble(),
   },
 
+  machine: {
+    title: 'MASZYNA DOMOWA',
+    glyph: '▮',
+    owner: true,
+    build(body) {
+      body.innerHTML = '';
+      const note = el('div', 'sub', 'ODCZYTY Z AGENTA NA LAPTOPIE (home-server/system-monitor.js)');
+      note.style.marginBottom = '10px';
+      const box = el('div');
+      box.id = 'machineBox';
+      body.append(note, box);
+      loadMachines();
+      // Telemetria trafia na magistrale TYLKO przy przekroczeniu progu -
+      // celowo, zeby dziennik nie zapelnil sie odczytami co 20 sekund.
+      // Panel musi wiec sam odpytywac, inaczej pokazywalby zamrozone
+      // liczby. Odpytujemy tylko gdy modul jest naprawde widoczny.
+      startMachinePolling();
+    },
+    refresh: () => loadMachines(),
+  },
+
   perimeter: {
     title: 'PERYMETR',
     glyph: '◉',
@@ -1496,6 +1518,7 @@ function refreshOwnerPanes() {
   loadTasks();
   loadAlerts();
   loadPerimeter();
+  loadMachines();
   loadMind();
   refreshLink();
 }
@@ -1528,6 +1551,84 @@ async function refreshBubble() {
 // Online = agent przyslal heartbeat albo klatke w ciagu ostatnich 6 minut
 // (patrz server/cameras.js#cameraStatuses). Zadnych kamer na liscie nie
 // znaczy blad - znaczy, ze agent na laptopie jeszcze sie nie odezwal.
+// Pasek obciazenia robi wieksze wrazenie niz sama liczba i od razu widac
+// kolorem, ktora wartosc wchodzi w strefe alarmowa.
+function meterRow(label, pct, extra) {
+  const wrap = el('div');
+  wrap.style.marginBottom = '10px';
+  const top = el('div', 'kv');
+  top.append(el('span', null, label), el('b', null, extra ? `${pct}%  ${extra}` : `${pct}%`));
+  const bar = el('div');
+  bar.style.cssText = 'height:4px; background:#0e1a27; border-radius:2px; overflow:hidden; margin-top:4px';
+  const fill = el('div');
+  const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--blue)';
+  fill.style.cssText = `height:100%; width:${Math.max(0, Math.min(100, pct))}%; background:${color}; transition:width .4s`;
+  bar.appendChild(fill);
+  wrap.append(top, bar);
+  return wrap;
+}
+
+// Odpytywanie chodzi tylko wtedy, gdy modul Maszyna jest naprawde na
+// ekranie: karta w tle albo inna zakladka nie ma po co obciazac lacza.
+let machineTimer = null;
+
+function startMachinePolling() {
+  clearInterval(machineTimer);
+  machineTimer = setInterval(() => {
+    const visible =
+      panelLive('machine') &&
+      activeModule === 'machine' &&
+      opsVisible() &&
+      document.visibilityState === 'visible';
+    if (visible) loadMachines();
+  }, 5000);
+}
+
+async function loadMachines() {
+  if (!isOwner() || !panelLive('machine')) return;
+  try {
+    const { machines } = await api('/api/telemetry');
+    const box = $('#machineBox');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!machines.length) {
+      box.appendChild(
+        el('div', 'hint', 'Brak odczytow. Uruchom home-server/system-monitor.js na laptopie.')
+      );
+      return;
+    }
+    machines.forEach((m) => {
+      const card = el('div');
+      card.style.cssText = 'border:1px solid var(--line); border-radius:3px; padding:11px; margin-bottom:10px';
+      const head = el('div', 'kv');
+      const dot = el('span', null, `${m.online ? '●' : '○'} ${m.machine}`);
+      dot.style.color = m.online ? 'var(--good)' : 'var(--red)';
+      head.append(dot, el('b', null, m.online ? `sprzed ${m.ageSec}s` : 'brak lacznosci'));
+      card.appendChild(head);
+      card.appendChild(meterRow('PROCESOR', m.cpu));
+      card.appendChild(meterRow('PAMIEC', m.ramUsedPct, m.ramTotalMb ? `${Math.round(m.ramTotalMb / 1024)} GB` : ''));
+      if (m.diskUsedPct != null) card.appendChild(meterRow('DYSK', m.diskUsedPct));
+
+      if (m.top?.length) {
+        const cap = el('div', 'sub', 'NAJWIECEJ PAMIECI');
+        cap.style.margin = '8px 0 4px';
+        card.appendChild(cap);
+        [...m.top]
+          .sort((a, b) => (b.memMb || 0) - (a.memMb || 0))
+          .slice(0, 3)
+          .forEach((p) => {
+            const r = el('div', 'kv');
+            r.append(el('span', null, `${p.name} (${p.pid})`), el('b', null, `${Math.round(p.memMb)} MB`));
+            card.appendChild(r);
+          });
+      }
+      box.appendChild(card);
+    });
+  } catch {
+    /* brak uprawnien albo brak sieci */
+  }
+}
+
 async function loadPerimeter() {
   if (!isOwner() || !panelLive('perimeter')) return;
   try {
@@ -1980,6 +2081,7 @@ function onHudEvent(fn) {
 // jest kanal HUD, nie tylko do dziennika.
 onHudEvent((event) => {
   if (event.source === 'perimeter') loadPerimeter();
+  if (event.source === 'telemetry') loadMachines();
 });
 
 function hudConnect() {

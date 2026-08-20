@@ -19,8 +19,16 @@
 // Uruchomienie: node home-server/camera-watcher.js
 // Konfiguracja: home-server/.env (patrz home-server/.env.example)
 
-import 'dotenv/config';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import dotenv from 'dotenv';
+
+// Konfiguracja z KATALOGU AGENTA, nie z katalogu uruchomienia - inaczej
+// przy starcie z glownego katalogu repozytorium czytalby .env serwera
+// i ignorowal home-server/.env.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const JARVIS_URL = (process.env.JARVIS_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const OWNER_USER = process.env.OWNER_USER || '';
