@@ -7,3 +7,5 @@ desktop/dist/
 android/.idea/
 android/local.properties
 *.apk
+
+home-server/.env

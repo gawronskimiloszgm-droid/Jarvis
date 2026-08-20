@@ -85,6 +85,7 @@ const MODULES = [
   { id: 'know', title: 'Wiedza', sub: 'pamiec i kronika rozmow', owner: true, panels: ['mind'] },
   { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: ['money'] },
   { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
+  { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: ['perimeter'] },
   { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
@@ -880,6 +881,26 @@ const PANEL_DEFS = {
     refresh: () => refreshBubble(),
   },
 
+  perimeter: {
+    title: 'PERYMETR',
+    glyph: '◉',
+    owner: true,
+    build(body) {
+      body.innerHTML = '';
+      const note = el(
+        'div',
+        'sub',
+        'KAMERY LACZA SIE Z AGENTEM NA LAPTOPIE (home-server/camera-watcher.js), NIE BEZPOSREDNIO Z PRZEGLADARKA'
+      );
+      note.style.marginBottom = '10px';
+      const ul = el('ul', 'list');
+      ul.id = 'perimeterList';
+      body.append(note, ul);
+      loadPerimeter();
+    },
+    refresh: () => loadPerimeter(),
+  },
+
   money: {
     title: 'WYDATKI',
     glyph: '▦',
@@ -1474,6 +1495,7 @@ function refreshOwnerPanes() {
   loadMoney();
   loadTasks();
   loadAlerts();
+  loadPerimeter();
   loadMind();
   refreshLink();
 }
@@ -1500,6 +1522,36 @@ async function refreshBubble() {
     if (permBtn) permBtn.style.display = s.hasPermission ? 'none' : '';
   } catch {
     stateEl.textContent = 'BLAD';
+  }
+}
+
+// Online = agent przyslal heartbeat albo klatke w ciagu ostatnich 6 minut
+// (patrz server/cameras.js#cameraStatuses). Zadnych kamer na liscie nie
+// znaczy blad - znaczy, ze agent na laptopie jeszcze sie nie odezwal.
+async function loadPerimeter() {
+  if (!isOwner() || !panelLive('perimeter')) return;
+  try {
+    const { cameras } = await api('/api/cameras');
+    const ul = $('#perimeterList');
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (!cameras.length) {
+      ul.appendChild(
+        el('li', 'hint', 'Brak polaczonych kamer. Skonfiguruj i uruchom home-server/camera-watcher.js na laptopie.')
+      );
+      return;
+    }
+    cameras.forEach((c) => {
+      const li = el('li', 'row');
+      const dot = el('span', null, c.online ? '●' : '○');
+      dot.style.color = c.online ? 'var(--good)' : 'var(--red)';
+      const txt = el('span', 'row-text', c.camera);
+      const meta = el('span', 'row-meta', c.online ? 'aktywna' : `cisza ${Math.round(c.lastSeenMs / 1000)}s`);
+      li.append(dot, txt, meta);
+      ul.appendChild(li);
+    });
+  } catch {
+    /* brak uprawnien albo brak sieci - panel zostaje jak byl */
   }
 }
 
@@ -1922,6 +1974,13 @@ function onHudEvent(fn) {
   HUD_HOOKS.add(fn);
   return () => HUD_HOOKS.delete(fn);
 }
+
+// Panel Perymetru odswieza sie NATYCHMIAST na zdarzenie z magistrali,
+// zamiast czekac na kolejne reczne otwarcie zakladki - to wlasnie po to
+// jest kanal HUD, nie tylko do dziennika.
+onHudEvent((event) => {
+  if (event.source === 'perimeter') loadPerimeter();
+});
 
 function hudConnect() {
   if (!isOwner() || !store.token) return;

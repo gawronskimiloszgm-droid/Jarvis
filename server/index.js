@@ -17,6 +17,7 @@ import * as image from './image.js';
 import * as cad from './cad.js';
 import * as bus from './bus.js';
 import { attachHud } from './hud.js';
+import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
@@ -263,6 +264,33 @@ app.post('/api/vision', requireOwner, async (req, res) => {
     if (!res.headersSent) res.status(500).json({ error: 'Wystapil blad po stronie serwera.' });
     else res.end();
   }
+});
+
+// --- Kamery obwodowe (klatki od lokalnego agenta na laptopie) --- tylko wlasciciel
+app.post('/api/cameras/frame', requireOwner, async (req, res) => {
+  const { camera, image: imageDataUrl } = req.body || {};
+  if (!imageDataUrl) return res.status(400).json({ error: 'Brak obrazu.' });
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Brak skonfigurowanego GEMINI_API_KEY na serwerze.' });
+  }
+  try {
+    const base64Data = String(imageDataUrl).replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (!buffer.length) return res.status(400).json({ error: 'Pusty obraz.' });
+    const result = await handleCameraFrame({ camera, buffer });
+    res.json(result);
+  } catch (err) {
+    console.error('Camera frame error:', err);
+    res.status(500).json({ error: 'Nie udalo sie przeanalizowac klatki.' });
+  }
+});
+
+app.post('/api/cameras/heartbeat', requireOwner, (req, res) => {
+  res.json(handleCameraHeartbeat({ camera: req.body?.camera }));
+});
+
+app.get('/api/cameras', requireOwner, (req, res) => {
+  res.json({ cameras: cameraStatuses() });
 });
 
 // --- Magistrala zdarzen (podglad przez REST, gdy WebSocket jest zablokowany) ---
