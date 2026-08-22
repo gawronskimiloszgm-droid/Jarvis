@@ -101,3 +101,33 @@ TELEMETRY_INTERVAL_MS=20000
 
 Progi alarmowe ustawia sie po stronie serwera (`TELEMETRY_CPU_WARN`,
 `TELEMETRY_RAM_WARN`, `TELEMETRY_DISK_WARN`, `TELEMETRY_SUSTAINED`).
+
+---
+
+# Nadzorca (uruchamianie obu agentow razem, z samoleczeniem)
+
+Zamiast recznie odpalac `camera-watcher.js` i `system-monitor.js` w
+dwoch oknach, jeden proces pilnuje obu:
+
+```bash
+node home-server/supervisor.js
+```
+
+Jesli ktorys agent padnie (zerwane RTSP, chwilowy brak sieci, cokolwiek),
+nadzorca wskrzesza go automatycznie - z rosnacym odstepem miedzy probami
+(2s, 4s, 8s... az do 60s), zeby proces, ktory pada natychmiast po
+kazdym starcie (np. zla konfiguracja), nie zapetlal sie bez sensu.
+Zdrowy przebieg dluzszy niz 2 minuty zeruje odstep z powrotem.
+
+**Celowo ograniczone do wlasnych skryptow projektu.** Nadzorca restartuje
+wylacznie `camera-watcher.js` i `system-monitor.js` - nie ma zadnego
+mechanizmu do dopisania czegos innego z zewnatrz, i tym bardziej nie
+dotyka zadnych INNYCH procesow w systemie.
+
+Zweryfikowane na zywo: agent z bledna konfiguracja poprawnie rosl w
+odstepach (4s -> 8s -> 16s -> 32s), a zdrowo dzialajacy agent zabity
+recznie z zewnatrz wrocil po 4s i wznowil normalna prace bez interwencji.
+
+Do dzialania 24/7 - to jest jedyny wpis, jaki trzeba dodac do
+Zaplanowanych zadan (`node home-server/supervisor.js`, wyzwalacz "przy
+starcie systemu"), zamiast dwoch osobnych.
