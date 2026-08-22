@@ -7,9 +7,9 @@
 // nowego" fragmenty wystarczaja; po szczegoly uzytkownik ma linki.
 
 import { GoogleGenAI } from '@google/genai';
+import { withModel } from '../../server/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 
 /**
  * @param {string} query sledzony temat
@@ -22,18 +22,20 @@ export async function summarizeFindings(query, items) {
     .map((r, i) => `${i + 1}. ${r.title}\n   ${String(r.snippet || '').replace(/\s+/g, ' ').slice(0, 220)}`)
     .join('\n');
 
-  const res = await ai.models.generateContent({
-    model: MODEL,
-    contents:
-      `Sledzisz dla uzytkownika temat: "${query}".\n` +
-      'Ponizej NOWE wyniki wyszukiwania, ktorych wczesniej nie bylo.\n\n' +
-      'Napisz JEDNO, maksymalnie DWA zdania po polsku o tym, co sie wydarzylo. Zasady:\n' +
-      '- Zacznij od konkretu, nie od "pojawily sie nowe informacje".\n' +
-      '- Jesli wyniki nie niosa nic nowego poza szumem (reklamy, stare strony, przypadkowe trafienia),\n' +
-      '  napisz dokladnie: BRAK\n' +
-      '- Nie wymyslaj szczegolow, ktorych nie ma w tekscie ponizej.\n\n' +
-      list,
-  });
+  const res = await withModel((model) =>
+    ai.models.generateContent({
+      model,
+      contents:
+        `Sledzisz dla uzytkownika temat: "${query}".\n` +
+        'Ponizej NOWE wyniki wyszukiwania, ktorych wczesniej nie bylo.\n\n' +
+        'Napisz JEDNO, maksymalnie DWA zdania po polsku o tym, co sie wydarzylo. Zasady:\n' +
+        '- Zacznij od konkretu, nie od "pojawily sie nowe informacje".\n' +
+        '- Jesli wyniki nie niosa nic nowego poza szumem (reklamy, stare strony, przypadkowe trafienia),\n' +
+        '  napisz dokladnie: BRAK\n' +
+        '- Nie wymyslaj szczegolow, ktorych nie ma w tekscie ponizej.\n\n' +
+        list,
+    })
+  );
 
   const text = (res.text || '').trim();
   return text;

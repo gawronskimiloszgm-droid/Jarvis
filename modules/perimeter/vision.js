@@ -9,8 +9,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { imagePart } from '../../server/vision.js';
 
+import { withModel } from '../../server/geminiChain.js';
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 
 const PROMPT = `Jestes systemem ochrony obwodowej domu. Dostajesz JEDNA klatke z kamery
 zewnetrznej. Oceń ja rzeczowo, bez spekulacji.
@@ -54,12 +55,14 @@ function parseVerdict(raw) {
  * @returns {Promise<{notable:boolean, description:string, confidence:number|null}>}
  */
 export async function analyzeFrame(jpegBuffer, cameraName) {
-  const res = await ai.models.generateContent({
-    model: MODEL,
-    contents: [
-      imagePart(jpegBuffer.toString('base64'), 'image/jpeg'),
-      { text: `Kamera: ${cameraName || 'nieznana'}.\n\n${PROMPT}` },
-    ],
-  });
+  const res = await withModel((model) =>
+    ai.models.generateContent({
+      model,
+      contents: [
+        imagePart(jpegBuffer.toString('base64'), 'image/jpeg'),
+        { text: `Kamera: ${cameraName || 'nieznana'}.\n\n${PROMPT}` },
+      ],
+    })
+  );
   return parseVerdict(res.text);
 }

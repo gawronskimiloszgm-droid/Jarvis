@@ -1037,9 +1037,104 @@ const PANEL_DEFS = {
         }
       });
 
+      // Skan paragonu - zdjecie idzie do Gemini Vision, ale wynik NIGDY
+      // nie zapisuje sie sam. Kwota z OCR trafia do zwyklego formularza
+      // powyzej, gdzie widac ja PRZED wyslaniem - blad odczytu (przecinek,
+      // obcieta cyfra) jest wtedy widoczny, zamiast cicho wejsc do ksiegi.
+      const scanRow = el('div', 'field');
+      const scanBtn = el('button', 'btn', '📷 SKANUJ PARAGON');
+      scanBtn.type = 'button';
+      const fileInp = el('input');
+      fileInp.type = 'file';
+      fileInp.accept = 'image/*';
+      fileInp.capture = 'environment';
+      fileInp.style.display = 'none';
+      scanBtn.addEventListener('click', () => fileInp.click());
+
+      const scanResult = el('div');
+      scanResult.id = 'moneyScanResult';
+
+      fileInp.addEventListener('change', async () => {
+        const file = fileInp.files?.[0];
+        fileInp.value = '';
+        if (!file) return;
+        scanResult.innerHTML = '';
+        const loading = el('div', 'hint', 'Odczytuje paragon...');
+        scanResult.appendChild(loading);
+        try {
+          const b64 = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = reject;
+            r.readAsDataURL(file);
+          });
+          const data = await api('/api/expenses/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: b64, mimeType: file.type }),
+          });
+          scanResult.innerHTML = '';
+          if (!data.found || data.amount == null) {
+            scanResult.appendChild(
+              el('div', 'hint', 'Nie udalo sie odczytac kwoty z tego zdjecia - wpisz recznie powyzej.')
+            );
+            return;
+          }
+          const card = el('div', 'row');
+          card.style.flexDirection = 'column';
+          card.style.alignItems = 'stretch';
+          card.style.gap = '6px';
+
+          const conf = data.confidence < 0.6 ? ' (niepewne - sprawdz)' : '';
+          card.appendChild(
+            el(
+              'div',
+              'row-text',
+              `${data.amount} ${data.currency}${data.merchant ? ' · ' + data.merchant : ''}${conf}`
+            )
+          );
+          if (data.date) card.appendChild(el('div', 'row-meta', data.date));
+
+          const actions = el('div', 'field');
+          actions.style.marginBottom = '0';
+          const addBtn = el('button', 'btn primary', 'DODAJ');
+          addBtn.type = 'button';
+          addBtn.addEventListener('click', async () => {
+            try {
+              await api('/api/expenses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  amount: data.amount,
+                  category: data.category,
+                  note: data.merchant || '',
+                }),
+              });
+              scanResult.innerHTML = '';
+              loadMoney();
+            } catch (err) {
+              toast(err.message);
+            }
+          });
+          const dropBtn = el('button', 'btn', 'ODRZUC');
+          dropBtn.type = 'button';
+          dropBtn.addEventListener('click', () => {
+            scanResult.innerHTML = '';
+          });
+          actions.append(addBtn, dropBtn);
+          card.appendChild(actions);
+          scanResult.appendChild(card);
+        } catch (err) {
+          scanResult.innerHTML = '';
+          toast(err.message || 'Nie udalo sie odczytac paragonu.');
+        }
+      });
+
+      scanRow.append(scanBtn, fileInp);
+
       const ul = el('ul', 'list');
       ul.id = 'moneyList';
-      body.append(sum, sub, cats, f, ul);
+      body.append(sum, sub, cats, f, scanRow, scanResult, ul);
       loadMoney();
     },
     refresh: () => loadMoney(),

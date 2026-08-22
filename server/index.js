@@ -19,6 +19,7 @@ import * as bus from './bus.js';
 import { attachHud } from './hud.js';
 import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
 import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
+import { scanReceipt } from '../modules/receipts/scan.js';
 import {
   listTopics as listSentinelTopics,
   addTopic as addSentinelTopic,
@@ -170,6 +171,27 @@ app.post('/api/expenses', requireOwner, (req, res) => {
 app.delete('/api/expenses/:id', requireOwner, (req, res) => {
   memory.removeExpense(req.params.id);
   res.json({ expenses: memory.getExpenses(), summary: memory.summarizeExpenses(30) });
+});
+
+// Odczyt paragonu - zwraca TYLKO odczytane dane, nic nie zapisuje. Zapis
+// idzie osobnym, juz istniejacym POST /api/expenses, dopiero po
+// potwierdzeniu przez uzytkownika - patrz uzasadnienie w scan.js.
+app.post('/api/expenses/scan', requireOwner, async (req, res) => {
+  const { image: imageDataUrl, mimeType } = req.body || {};
+  if (!imageDataUrl) return res.status(400).json({ error: 'Brak zdjecia.' });
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Brak skonfigurowanego GEMINI_API_KEY na serwerze.' });
+  }
+  try {
+    const base64Data = String(imageDataUrl).replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (!buffer.length) return res.status(400).json({ error: 'Puste zdjecie.' });
+    const result = await scanReceipt(buffer, mimeType || 'image/jpeg');
+    res.json(result);
+  } catch (err) {
+    console.error('Receipt scan error:', err);
+    res.status(500).json({ error: 'Nie udalo sie odczytac paragonu.' });
+  }
 });
 
 // --- Push notifications ---

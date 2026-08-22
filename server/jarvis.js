@@ -6,50 +6,19 @@ import { imagePart } from './vision.js';
 import * as cad from './cad.js';
 import { looksLikeDesignRequest, parseDesignSpec } from '../modules/cad/index.js';
 
+import { withModel, MODEL_CHAIN } from './geminiChain.js';
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // Czat pisany chodzil na wariancie "lite", ktory gubil konkrety i ignorowal
 // polecenia dotyczace formy. Zwykly flash odpowiada o ~2 s wolniej, ale
 // odpowiedzi sa realnie merytoryczne - a przy strumieniowaniu tej roznicy
 // prawie nie widac, bo pierwsze slowa lecą od razu.
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
-
-// Darmowy tier bywa PRZECIAZONY - zmierzone: kazdy z modeli potrafi zwrocic
-// 503 "high demand" mniej wiecej raz na cztery zapytania, niezaleznie od
-// wersji. Wybieranie "bezpieczniejszego" modelu nic nie daje; potrzebny jest
-// lancuch zapasowy. Przy przeciazeniu schodzimy na kolejny model zamiast
-// zwracac uzytkownikowi blad.
-const MODEL_FALLBACKS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
-const MODEL_CHAIN = [MODEL, ...MODEL_FALLBACKS.filter((m) => m !== MODEL)];
-
-// Rozrozniamy "serwer zajety" od realnego bledu (zly klucz, zle zapytanie).
-// Przy tym drugim schodzenie nizej nie ma sensu - kazdy model odmowi tak samo.
-function isOverloaded(err) {
-  const code = err?.status ?? err?.code ?? 0;
-  const msg = String(err?.message || '');
-  return (
-    code === 503 ||
-    code === 429 ||
-    code === 500 ||
-    /UNAVAILABLE|high demand|overloaded|RESOURCE_EXHAUSTED|internal error/i.test(msg)
-  );
-}
-
-// Uruchamia fn(model) schodzac po lancuchu, dopoki model jest przeciazony.
-// canRetry pozwala zablokowac zejscie nizej, gdy czesc odpowiedzi juz poszla
-// do uzytkownika - inaczej zobaczylby ja drugi raz.
-async function withModel(fn, canRetry = () => true) {
-  let lastErr;
-  for (const model of MODEL_CHAIN) {
-    try {
-      return await fn(model);
-    } catch (err) {
-      lastErr = err;
-      if (!isOverloaded(err) || !canRetry()) throw err;
-      console.warn(`Model ${model} przeciazony - probuje nastepny`);
-    }
-  }
-  throw lastErr;
-}
+//
+// Model i lancuch zapasowy (withModel) sa teraz w geminiChain.js - patrz
+// tam uzasadnienie. Ten sam import uzywaja wszystkie moduly wolajace
+// Gemini (CAD, kamery, wartownik, paragony), zeby zaden nie zostal bez
+// zabezpieczenia przy przeciazeniu darmowego tieru.
+const MODEL = MODEL_CHAIN[0];
 const OWNER_TITLE = process.env.OWNER_TITLE || 'sir';
 
 const ZAPAMIETAJ_RE = /\[ZAPAMIETAJ:\s*([^\]]+)\]/gi;
