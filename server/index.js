@@ -19,6 +19,14 @@ import * as bus from './bus.js';
 import { attachHud } from './hud.js';
 import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
 import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
+import {
+  listTopics as listSentinelTopics,
+  addTopic as addSentinelTopic,
+  removeTopic as removeSentinelTopic,
+  setPaused as setSentinelPaused,
+  getFindings as getSentinelFindings,
+  sweep as sweepSentinelNow,
+} from './sentinel.js';
 import { attachVoiceRelay } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
@@ -306,6 +314,45 @@ app.post('/api/telemetry', requireOwner, (req, res) => {
 
 app.get('/api/telemetry', requireOwner, (req, res) => {
   res.json({ machines: telemetrySnapshot() });
+});
+
+// --- Wartownik tematow --- tylko wlasciciel
+app.get('/api/sentinel', requireOwner, (req, res) => {
+  res.json({ topics: listSentinelTopics() });
+});
+
+app.post('/api/sentinel', requireOwner, (req, res) => {
+  const topic = addSentinelTopic(req.body?.query);
+  if (!topic) return res.status(400).json({ error: 'Brak tresci tematu.' });
+  res.status(201).json({ topics: listSentinelTopics() });
+});
+
+app.delete('/api/sentinel/:id', requireOwner, (req, res) => {
+  res.json({ topics: removeSentinelTopic(req.params.id) });
+});
+
+app.patch('/api/sentinel/:id', requireOwner, (req, res) => {
+  const topic = setSentinelPaused(req.params.id, Boolean(req.body?.paused));
+  if (!topic) return res.status(404).json({ error: 'Temat nie znaleziony.' });
+  res.json({ topics: listSentinelTopics() });
+});
+
+app.get('/api/sentinel/:id/findings', requireOwner, (req, res) => {
+  const findings = getSentinelFindings(req.params.id);
+  if (!findings) return res.status(404).json({ error: 'Temat nie znaleziony.' });
+  res.json({ findings });
+});
+
+// Wymuszenie sprawdzenia od reki - normalnie wartownik czeka na cykl
+// utrzymaniowy (co PING_MS), ale po dodaniu tematu chce sie zobaczyc, ze
+// dziala, a nie czekac do 10 minuty.
+app.post('/api/sentinel/sweep', requireOwner, async (req, res) => {
+  try {
+    res.json(await sweepSentinelNow({ force: Boolean(req.body?.force) }));
+  } catch (err) {
+    console.error('Sentinel sweep error:', err);
+    res.status(500).json({ error: 'Wartownik napotkal blad.' });
+  }
 });
 
 // --- Magistrala zdarzen (podglad przez REST, gdy WebSocket jest zablokowany) ---

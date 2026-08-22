@@ -16,6 +16,7 @@
 
 import * as memory from './memory.js';
 import { consolidateFacts, condenseHistory } from './jarvis.js';
+import { sweep as sweepSentinel } from './sentinel.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -80,6 +81,14 @@ export function startUpkeep() {
       console.error('Zwijanie historii nieudane:', err.message);
     }
     await learn();
+    try {
+      const result = await sweepSentinel();
+      if (result.reported) {
+        console.log(`Wartownik: sprawdzono ${result.checked} tematow, ${result.reported} nowych znalezisk`);
+      }
+    } catch (err) {
+      console.error('Wartownik tematow nieudany:', err.message);
+    }
   }, PING_MS);
 
   // Nie blokuje zamkniecia procesu przy restarcie/wdrozeniu.
