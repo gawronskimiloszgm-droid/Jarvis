@@ -26,6 +26,53 @@ Endpoint `/health` pokazuje, czy wektory sa juz zbudowane
 (`voiceCached`). `/warmup` wymusza wczytanie modelu po wdrozeniu, zeby
 pierwsze prawdziwe zapytanie nie czekalo minuty.
 
+## Czy zla wymowa w probce "przyklei sie" do glosu?
+
+Krotka odpowiedz: **nie do pojedynczych slow**, ale probka i tak powinna
+byc czysta.
+
+XTTS-v2 uczy sie z probki **barwy i charakteru glosu** (wektory
+`gpt_cond_latent` / `speaker_embedding`), nie zapamietuje transkryptu
+tego, co w niej powiedziano. Gdy pozniej prosisz o wypowiedzenie zdania
+"Dzien dobry, sir", model wymawia je wedlug WLASNEGO, wbudowanego modelu
+jezyka polskiego (`language="pl"`) - nie odtwarza tego, jak konkretne
+slowo zabrzmialo w probce. Sprawdzono na przykladzie: probka z tym
+projektem miala zdanie o II wojnie swiatowej przeczytane przez silnik
+angielski, ktory nie znal polskiego - "1939" wyszlo jako bezladny ciag
+angielskich glosek, "byl" jako angielskie "by", "roku" jako "mroku".
+Zadne z tych konkretnych slow nie ma szans wystapic w odpowiedziach
+Jarvisa w tej samej, znieksztalconej formie - to nie tak dziala
+klonowanie.
+
+Ryzyko jest inne i subtelniejsze: gdy probka referencyjna ma **obcy
+akcent, nienaturalny rytm albo cyfrowe artefakty** (jak ta czytana przez
+zle dopasowany silnik), model potrafi to czesciowo wchlonac jako
+charakterystyke calego glosu - nie konkretne slowa, ale ogolne "brzmienie
+nie do konca jak zywy czlowiek". Dlatego zalecenie z gory tego pliku
+("czysta mowa, bez muzyki, jedna osoba") to nie formalnosc - to jest
+realny czynnik jakosci.
+
+**Jesli masz do wyboru:** nagranie prawdziwego czlowieka mowiacego
+naturalnie po polsku (nawet o czyms zupelnie innym niz docelowe
+wypowiedzi Jarvisa) da lepszy klon niz jakikolwiek zapis z syntezatora,
+ktory nie radzi sobie z polskim.
+
+**Zweryfikowane na prawdziwym audio (nie teoria):** proste, krotkie zdania
+("Dzien dobry, sir. Wszystkie systemy dzialaja prawidlowo.") wychodza
+wyraznie i zrozumiale - transkrypcja Gemini potwierdzila kazde slowo, choc
+brzmienie jest wyraznie syntetyczne/robotyczne (monotonna intonacja), nie
+jak zywy czlowiek. To normalne dla klonowania zero-shot na CPU, nie blad.
+Zlozone, wielowyrazowe liczebniki po polsku ("tysiac dziewiecset
+trzydziestego dziewiatego") potrafia sie rozjechac na koncu - w jednym
+tescie "dziewiatego roku" wyszlo jako bezsensowne "untio". To NIE jest
+powtorzenie bledu z probki (probka mialaby swoj wlasny, inny bledny
+zapis) - to osobne, realne ograniczenie modelu przy dlugich zlozeniach
+liczbowych, prawdopodobnie pogorszone przez niska jakosc probki
+referencyjnej. Krotkie, biezace odpowiedzi Jarvisa (do tego zaprojektowany
+jest tryb klonowany - patrz TTS_CLONE_MAX_CHARS) rzadko zawieraja takie
+konstrukcje; jesli zauwazysz podobny problem w praktyce, pierwszym
+krokiem jest lepsza probka, nie zmiana kodu.
+
 ## Uruchomienie lokalne
 
 ```bash

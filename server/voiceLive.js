@@ -15,6 +15,7 @@ import { getWeather, getWeatherByCoords } from './weather.js';
 import { searchWithContent } from './websearch.js';
 import * as cad from './cad.js';
 import { generateImage, storeImage } from './image.js';
+import * as tts from './tts.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
@@ -23,6 +24,23 @@ const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-previ
 // Nieznana nazwa glosu nie powoduje bledu polaczenia - sesja wstaje, tylko
 // nie przychodzi zadne audio. Zmieniajac ten glos, sprawdz ze cos slychac.
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orion';
+
+// Sklonowany glos w rozmowie NA ZYWO - domyslnie WYLACZONY.
+//
+// Native audio Gemini Live generuje dzwiek u siebie i przesyla go
+// strumieniowo w czasie rzeczywistym - stad rozmowa brzmi naturalnie i bez
+// zauwazalnej przerwy. Zeby uslyszec tu WLASNY, sklonowany glos, trzeba
+// zrezygnowac z tej sciezki: model odpowiada TEKSTEM (responseModalities:
+// TEXT), a dopiero ten tekst - zdanie po zdaniu, zeby nie czekac na cala
+// wypowiedz - idzie przez nasz tts.js (klon -> Gemini TTS -> Edge TTS).
+//
+// Koszt jest realny i nieunikniony: miedzy koncem generowania tekstu a
+// pierwszym dzwiekiem jest teraz dodatkowe wywolanie syntezy. Na wolnym,
+// darmowym procesorze XTTS to bywa zauwazalna cisza, nie plynne przejscie.
+// Dlatego jest to swiadomy wybor (zmienna srodowiskowa), nie zachowanie
+// domyslne - i dziala tylko wtedy, gdy usluga klonujaca jest naprawde
+// skonfigurowana (patrz tts.cloneStatus()).
+const LIVE_CLONED_VOICE_REQUESTED = process.env.JARVIS_LIVE_CLONED_VOICE === 'true';
 
 // Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
 // NAJWIEKSZY pojedynczy skladnik odczuwalnego opoznienia - dokumentacja
@@ -375,6 +393,52 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
   let assistantTranscript = '';
   let userTranscript = '';
   let idleTimer = null;
+
+  // Sklonowany glos dziala TYLKO gdy jest naprawde skonfigurowany - flaga
+  // srodowiskowa sama w sobie nic nie wlacza, zeby brak usluga w chmurze
+  // (albo jej chwilowe usypianie) nigdy nie zostawilo rozmowy bez glosu.
+  const clonedVoice = LIVE_CLONED_VOICE_REQUESTED && tts.cloneStatus().enabled;
+  // Bufor tekstu miedzy dwoma znakami konca zdania i "pokolenie" syntezy -
+  // gdy uzytkownik przerywa (interrupted), pokolenie rosnie i kazda synteza
+  // zlecona wczesniej ladujaca po fakcie jest po prostu odrzucana, zamiast
+  // odezwac sie z opoznieniem do czegos, co juz nieaktualne.
+  let sentenceBuffer = '';
+  let synthGen = 0;
+
+  // Wysyla JEDEN kawalek tekstu do syntezy i - jesli nadal aktualny -
+  // odsyla gotowe audio klientowi jako samodzielny, zakodowany kawalek
+  // (WAV/MP3, nie surowy PCM jak w trybie natywnym - klient dekoduje go
+  // Web Audio API zamiast zakladac stale 24kHz/16-bit).
+  async function synthesizeAndSend(text, gen) {
+    const t = text.trim();
+    if (!t) return;
+    try {
+      const { buffer, contentType } = await tts.synthesize(t);
+      if (closed || gen !== synthGen) return; // przerwane/nieaktualne - nie odzywamy sie po fakcie
+      safeSend(JSON.stringify({ type: 'ttsChunk', mimeType: contentType, data: buffer.toString('base64') }));
+    } catch (err) {
+      console.error('Zywy klon glosu - synteza nieudana:', err.message || err);
+    }
+  }
+
+  // Tekst z Gemini Live przychodzi kawalkami (tokenami), nie calymi
+  // zdaniami. Zeby pierwszy dzwiek pojawil sie jak najszybciej, oddajemy do
+  // syntezy KAZDE domkniete zdanie osobno, zamiast czekac na cala
+  // wypowiedz - a resztke, ktora nie ma jeszcze kropki, zostawiamy w
+  // buforze na kolejny kawalek tekstu.
+  function flushSentences({ all = false } = {}) {
+    for (;;) {
+      const m = sentenceBuffer.match(/^[\s\S]*?[.!?\n]+\s*/);
+      if (!m) break;
+      sentenceBuffer = sentenceBuffer.slice(m[0].length);
+      synthesizeAndSend(m[0], synthGen);
+    }
+    if (all && sentenceBuffer.trim()) {
+      const rest = sentenceBuffer;
+      sentenceBuffer = '';
+      synthesizeAndSend(rest, synthGen);
+    }
+  }
   // Zaczepki juz uzyte w tej sesji - zeby nie wracac z tym samym.
   const proactiveSaid = new Set();
 
@@ -487,12 +551,25 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
     return ai.live.connect({
       model: LIVE_MODEL,
       config: {
+        // UWAGA - sprawdzone na zywym API: ten model ODRZUCA
+        // responseModalities: [TEXT] ("requested combination of response
+        // modalities (TEXT) is not supported"). Live to rodzina modeli
+        // natywnie audio - nie da sie poprosic o "tylko tekst".
+        //
+        // Dlatego responseModalities ZAWSZE zostaje AUDIO, takze w trybie
+        // klonowanym. Gemini i tak generuje swoj dzwiek (to kosztuje tyle
+        // samo, nie mniej) - w trybie klonowanym po prostu go NIE
+        // odtwarzamy klientowi (patrz 'if (msg.data)' nizej), a zamiast
+        // niego syntezujemy audio z outputAudioTranscription, ktora i tak
+        // juz zbieralismy do historii. Transkrypcja plynie strumieniowo
+        // (sprawdzone: 16 kawalkow na jedna odpowiedz), wiec sentencje
+        // mozna oddawac do syntezy na biezaco, tak samo jak przy TEXT.
         responseModalities: [Modality.AUDIO],
         systemInstruction: buildLiveSystemInstruction(Boolean(coords), isOwner),
         tools: toolsForRole(isOwner),
         outputAudioTranscription: {},
+        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } } }),
         inputAudioTranscription: {},
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
         // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
         // wracamy do tej samej rozmowy zamiast zaczynac od zera.
         sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
@@ -511,12 +588,16 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
       callbacks: {
         onopen: () => {
           reconnectAttempts = 0;
-          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest' }));
+          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice }));
         },
         onmessage: async (msg) => {
           if (closed) return;
 
-          if (msg.data) {
+          // W trybie klonowanym Gemini i tak GENERUJE swoj dzwiek (nie da
+          // sie tego wylaczyc - patrz komentarz przy responseModalities),
+          // ale po prostu go nie przekazujemy dalej. Klient uslyszy zamiast
+          // tego audio z synthesizeAndSend(), zlecone z transkrypcji nizej.
+          if (msg.data && !clonedVoice) {
             const buf = typeof msg.data === 'string' ? Buffer.from(msg.data, 'base64') : Buffer.from(msg.data);
             safeSend(buf);
           }
@@ -654,15 +735,31 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
           }
 
           if (msg.serverContent?.outputTranscription?.text) {
-            assistantTranscript += msg.serverContent.outputTranscription.text;
+            const chunk = msg.serverContent.outputTranscription.text;
+            assistantTranscript += chunk;
+            // Ta sama transkrypcja, ktora i tak juz zbieramy do historii,
+            // jest w trybie klonowanym ZARAZEM materialem do syntezy -
+            // sprawdzone na zywym API, ze przychodzi wieloma kawalkami na
+            // odpowiedz, wiec mozna oddawac zdania do syntezy na biezaco,
+            // nie czekajac na koniec calej wypowiedzi.
+            if (clonedVoice) {
+              sentenceBuffer += chunk;
+              flushSentences();
+            }
           }
           if (msg.serverContent?.inputTranscription?.text) {
             userTranscript += msg.serverContent.inputTranscription.text;
           }
           if (msg.serverContent?.interrupted) {
+            // Kazda synteza zlecona PRZED tym momentem staje sie
+            // nieaktualna - podbicie pokolenia sprawia, ze jej wynik
+            // (nawet jesli juz w locie) zostanie po cichu odrzucony.
+            synthGen++;
+            sentenceBuffer = '';
             safeSend(JSON.stringify({ type: 'interrupted' }));
           }
           if (msg.serverContent?.turnComplete) {
+            if (clonedVoice) flushSentences({ all: true });
             const userText = userTranscript.trim();
             const assistantText = assistantTranscript.trim();
             if (isOwner && userText) memory.appendHistory('user', userText);

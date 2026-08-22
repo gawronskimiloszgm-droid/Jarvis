@@ -87,6 +87,7 @@ const MODULES = [
   { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
   { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: ['perimeter'] },
   { id: 'machine', title: 'Maszyna', sub: 'obciazenie laptopa', owner: true, panels: ['machine'] },
+  { id: 'sentinel', title: 'Wartownik', sub: 'sledzone tematy', owner: true, panels: ['sentinel'] },
   { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
@@ -903,6 +904,51 @@ const PANEL_DEFS = {
     refresh: () => loadMachines(),
   },
 
+  sentinel: {
+    title: 'WARTOWNIK TEMATOW',
+    glyph: '◔',
+    owner: true,
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+      const note = el(
+        'div',
+        'sub',
+        'JARVIS SPRAWDZA TE TEMATY W TLE (CO GODZINE) I MELDUJE, GDY POJAWI SIE COS NOWEGO'
+      );
+      note.style.marginBottom = '10px';
+
+      const f = el('form', 'field');
+      const i = el('input', 'inp');
+      i.placeholder = 'np. premiery Nvidia RTX, cena stali zbrojeniowej...';
+      i.autocomplete = 'off';
+      const b = el('button', 'btn primary', '+ SLEDZ');
+      b.type = 'submit';
+      f.append(i, b);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!i.value.trim()) return;
+        try {
+          await api('/api/sentinel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: i.value.trim() }),
+          });
+          i.value = '';
+          loadSentinel();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+
+      const list = el('div');
+      list.id = 'sentinelList';
+      body.append(note, f, list);
+      loadSentinel();
+    },
+    refresh: () => loadSentinel(),
+  },
+
   perimeter: {
     title: 'PERYMETR',
     glyph: '◉',
@@ -1519,6 +1565,7 @@ function refreshOwnerPanes() {
   loadAlerts();
   loadPerimeter();
   loadMachines();
+  loadSentinel();
   loadMind();
   refreshLink();
 }
@@ -1622,6 +1669,106 @@ async function loadMachines() {
             card.appendChild(r);
           });
       }
+      box.appendChild(card);
+    });
+  } catch {
+    /* brak uprawnien albo brak sieci */
+  }
+}
+
+function fmtAgo(ts) {
+  if (!ts) return 'nigdy';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s temu`;
+  if (s < 3600) return `${Math.round(s / 60)}min temu`;
+  if (s < 86400) return `${Math.round(s / 3600)}h temu`;
+  return `${Math.round(s / 86400)}d temu`;
+}
+
+async function loadSentinel() {
+  if (!isOwner() || !panelLive('sentinel')) return;
+  try {
+    const { topics } = await api('/api/sentinel');
+    const box = $('#sentinelList');
+    if (!box) return;
+    box.innerHTML = '';
+
+    if (!topics.length) {
+      box.appendChild(el('div', 'hint', 'Brak sledzonych tematow. Dodaj jeden powyzej albo popros Jarvisa glosem.'));
+      return;
+    }
+
+    topics.forEach((t) => {
+      const card = el('div');
+      card.style.cssText = 'border:1px solid var(--line); border-radius:3px; padding:11px; margin-bottom:9px';
+
+      const head = el('div', 'kv');
+      const label = el('span', null, t.query);
+      if (t.paused) label.style.opacity = '.5';
+      const badge = el(
+        'b',
+        null,
+        !t.lastCheckedAt ? 'CZEKA NA PIERWSZE SPRAWDZENIE' : t.findings ? `${t.findings} ZNALEZISK` : 'BEZ NOWOSCI'
+      );
+      head.append(label, badge);
+      card.appendChild(head);
+
+      const sub = el('div', 'sub');
+      sub.style.margin = '4px 0 8px';
+      sub.textContent = `sprawdzone: ${fmtAgo(t.lastCheckedAt)}${t.lastFindingAt ? ` · ostatnie znalezisko: ${fmtAgo(t.lastFindingAt)}` : ''}`;
+      card.appendChild(sub);
+
+      const findBox = el('div');
+      findBox.id = `sentinelFind-${t.id}`;
+      card.appendChild(findBox);
+
+      const row = el('div', 'field');
+      row.style.marginTop = '8px';
+      row.style.marginBottom = '0';
+
+      const showBtn = el('button', 'btn', t.findings ? 'POKAZ ZNALEZISKA' : 'BRAK ZNALEZISK');
+      showBtn.disabled = !t.findings;
+      showBtn.addEventListener('click', async () => {
+        const { findings } = await api(`/api/sentinel/${t.id}/findings`);
+        findBox.innerHTML = '';
+        findings.forEach((f) => {
+          const item = el('div', 'row');
+          item.style.flexDirection = 'column';
+          item.style.alignItems = 'flex-start';
+          item.style.gap = '4px';
+          const when = el('div', 'row-meta', fmtAgo(f.at));
+          const txt = el('div', 'row-text', f.summary);
+          item.append(when, txt);
+          (f.sources || []).forEach((s) => {
+            const a = el('a', null, s.title || s.url);
+            a.href = s.url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.style.cssText = 'display:block; font-size:11px; color:var(--ice)';
+            item.appendChild(a);
+          });
+          findBox.appendChild(item);
+        });
+      });
+
+      const pauseBtn = el('button', 'btn', t.paused ? 'WZNOW' : 'WSTRZYMAJ');
+      pauseBtn.addEventListener('click', async () => {
+        await api(`/api/sentinel/${t.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paused: !t.paused }),
+        });
+        loadSentinel();
+      });
+
+      const delBtn = el('button', 'btn', 'USUN');
+      delBtn.addEventListener('click', async () => {
+        await api(`/api/sentinel/${t.id}`, { method: 'DELETE' });
+        loadSentinel();
+      });
+
+      row.append(showBtn, pauseBtn, delBtn);
+      card.appendChild(row);
       box.appendChild(card);
     });
   } catch {
@@ -2082,6 +2229,7 @@ function onHudEvent(fn) {
 onHudEvent((event) => {
   if (event.source === 'perimeter') loadPerimeter();
   if (event.source === 'telemetry') loadMachines();
+  if (event.source === 'sentinel') loadSentinel();
 });
 
 function hudConnect() {
@@ -2223,6 +2371,10 @@ function stopOut() {
   });
   outSources = [];
   if (outCtx) outAt = outCtx.currentTime;
+  // Odcina tez wszystko, co bylo w drodze do sklonowanego glosu (patrz
+  // playEncodedChunk) - inaczej fragment zdania mogl doleciec z opoznieniem
+  // i zabrzmiec juz PO tym, jak uzytkownik przerwal Jarvisa.
+  resetEncodedQueue();
 }
 
 function playChunk(buf) {
@@ -2243,6 +2395,55 @@ function playChunk(buf) {
     outSources = outSources.filter((s) => s !== src);
   };
   store.audioLevel = 0.75;
+}
+
+// ---------- Odtwarzanie skonczonych fragmentow (klon glosu na zywo) ----------
+//
+// Tryb natywny przesyla surowy PCM 24kHz i playChunk() zaklada ten format
+// na sztywno. Sklonowany glos przychodzi jako calkowicie zakodowany plik
+// (WAV/MP3, cokolwiek zwrocil tts.js), wiec dekodujemy go Web Audio API
+// zamiast zgadywac format probek.
+let encodedQueue = Promise.resolve();
+let encodedGen = 0;
+
+function resetEncodedQueue() {
+  encodedGen++;
+  encodedQueue = Promise.resolve();
+}
+
+function playEncodedChunk(base64, mimeType) {
+  if (!outCtx) return;
+  const gen = encodedGen;
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  // decodeAudioData jest asynchroniczny i rozne kawalki moga skonczyc sie
+  // dekodowac w innej kolejnosci, niz przyszly - a zdania musza zabrzmiec
+  // w kolejnosci wypowiedzi. Lancuch obietnic wymusza kolejnosc odtwarzania
+  // niezaleznie od tego, ktory dekoduje sie szybciej.
+  encodedQueue = encodedQueue.then(async () => {
+    if (gen !== encodedGen || !outCtx) return; // przerwane w miedzyczasie
+    let audioBuffer;
+    try {
+      audioBuffer = await outCtx.decodeAudioData(bytes.buffer.slice(0));
+    } catch (err) {
+      console.error('Nie udalo sie zdekodowac fragmentu mowy:', mimeType, err);
+      return;
+    }
+    if (gen !== encodedGen || !outCtx) return;
+    const src = outCtx.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(outCtx.destination);
+    const at = Math.max(outCtx.currentTime, outAt);
+    src.start(at);
+    outAt = at + audioBuffer.duration;
+    outSources.push(src);
+    src.onended = () => {
+      outSources = outSources.filter((s) => s !== src);
+    };
+    store.audioLevel = 0.75;
+  });
 }
 
 async function liveStart() {
@@ -2318,6 +2519,11 @@ async function liveStart() {
     if (m.type === 'ready') {
       relinkTries = 0; // udalo sie polaczyc - zerujemy opoznienie ponowien
       setCoreState('SLUCHAM');
+      if (m.clonedVoice) logEvent('glos', 'rozmowa na zywo: sklonowany glos aktywny', 'ok');
+    }
+    else if (m.type === 'ttsChunk') {
+      playEncodedChunk(m.data, m.mimeType);
+      setCoreState('MOWIE');
     }
     else if (m.type === 'interrupted') stopOut();
     else if (m.type === 'turnComplete') {
