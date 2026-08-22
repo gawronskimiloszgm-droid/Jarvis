@@ -40,7 +40,7 @@ const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orion';
 // Dlatego jest to swiadomy wybor (zmienna srodowiskowa), nie zachowanie
 // domyslne - i dziala tylko wtedy, gdy usluga klonujaca jest naprawde
 // skonfigurowana (patrz tts.cloneStatus()).
-const LIVE_CLONED_VOICE_REQUESTED = process.env.JARVIS_LIVE_CLONED_VOICE === 'true';
+export const LIVE_CLONED_VOICE_REQUESTED = process.env.JARVIS_LIVE_CLONED_VOICE === 'true';
 
 // Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
 // NAJWIEKSZY pojedynczy skladnik odczuwalnego opoznienia - dokumentacja
@@ -387,17 +387,21 @@ async function executeTool(name, args, coords) {
   }
 }
 
-export async function attachVoiceRelay(clientWs, coords, isOwner = false) {
+export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null) {
   let liveSession = null;
   let closed = false;
   let assistantTranscript = '';
   let userTranscript = '';
   let idleTimer = null;
 
-  // Sklonowany glos dziala TYLKO gdy jest naprawde skonfigurowany - flaga
-  // srodowiskowa sama w sobie nic nie wlacza, zeby brak usluga w chmurze
-  // (albo jej chwilowe usypianie) nigdy nie zostawilo rozmowy bez glosu.
-  const clonedVoice = LIVE_CLONED_VOICE_REQUESTED && tts.cloneStatus().enabled;
+  // Sklonowany glos dziala TYLKO gdy jest naprawde skonfigurowany - ani
+  // flaga srodowiskowa, ani przelacznik klienta same w sobie nic nie
+  // wlaczaja, zeby brak uslugi w chmurze (albo jej chwilowe usypianie)
+  // nigdy nie zostawily rozmowy bez glosu. Klient (przelacznik w
+  // Ustawieniach) ma pierwszenstwo nad domyslna wartoscia z .env, gdy go
+  // jawnie poda - wantClone===null oznacza "klient nie mial zdania",
+  // wiec wtedy decyduje wylacznie env.
+  const clonedVoice = (wantClone ?? LIVE_CLONED_VOICE_REQUESTED) && tts.cloneStatus().enabled;
   // Bufor tekstu miedzy dwoma znakami konca zdania i "pokolenie" syntezy -
   // gdy uzytkownik przerywa (interrupted), pokolenie rosnie i kazda synteza
   // zlecona wczesniej ladujaca po fakcie jest po prostu odrzucana, zamiast

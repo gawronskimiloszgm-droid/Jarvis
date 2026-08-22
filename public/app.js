@@ -23,6 +23,11 @@ const store = {
   // Stan calego systemu z magistrali serwera: nominal | design | focus |
   // threat | recovery. Maluje interfejs i steruje swiatlem w pokoju.
   posture: null,
+  // Czy serwer ma w ogole skonfigurowana usluge klonowania glosu -
+  // ustawiane raz przy starcie z /api/health. Bez tego przelacznik w
+  // Ustawieniach nie ma czym sterowac.
+  cloneVoiceConfigured: false,
+  liveClonedVoiceDefault: false,
 };
 
 const isOwner = () => store.role === 'owner';
@@ -644,6 +649,29 @@ const PANEL_DEFS = {
           },
         },
       ];
+
+      // Tylko wlasciciel i tylko gdy serwer ma naprawde skonfigurowana
+      // usluge klonujaca - inaczej przelacznik nic by nie robil i tylko
+      // by mylil.
+      if (isOwner() && store.cloneVoiceConfigured) {
+        opts.push({
+          key: 'jarvis.liveClone',
+          label: 'Sklonowany glos w rozmowie na zywo',
+          desc: 'zamiast wbudowanego glosu Gemini. Wolniejsza pierwsza odpowiedz w kazdej turze - synteza czeka na koniec zdania',
+          on: () => {
+            const v = localStorage.getItem('jarvis.liveClone');
+            return v === '1' || (v == null && store.liveClonedVoiceDefault);
+          },
+          set: (v) => {
+            localStorage.setItem('jarvis.liveClone', v ? '1' : '0');
+            toast('Zmiana zadziala od nastepnej rozmowy - wznawiam teraz.', 'ok');
+            if (store.live) {
+              liveStop();
+              setTimeout(liveStart, 300);
+            }
+          },
+        });
+      }
 
       opts.forEach((o) => {
         const row = el('div', 'row');
@@ -2324,6 +2352,10 @@ function wsUrl() {
     p.set('lon', store.location.lon);
   }
   if (store.token) p.set('token', store.token);
+  // Brak wpisu w localStorage = "bez zdania", serwer decyduje sam z .env.
+  // Wpis jest tylko wtedy, gdy uzytkownik SWIADOMIE przelaczyl w Ustawieniach.
+  const clonePref = localStorage.getItem('jarvis.liveClone');
+  if (clonePref != null) p.set('wantClone', clonePref);
   const qs = p.toString();
   return `${proto}//${location.host}/ws/voice${qs ? `?${qs}` : ''}`;
 }
@@ -2862,6 +2894,8 @@ async function boot() {
   try {
     const res = await fetch('/api/health', { headers: authHeaders() });
     const health = await res.json();
+    store.cloneVoiceConfigured = Boolean(health.cloneVoiceConfigured);
+    store.liveClonedVoiceDefault = Boolean(health.liveClonedVoiceDefault);
     applyRole(health.role || 'guest');
     if (!health.authConfigured) {
       toast('Serwer nie ma ustawionego OWNER_PASSWORD - dziala tylko tryb goscia.', 'ok');

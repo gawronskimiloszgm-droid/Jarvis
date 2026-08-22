@@ -27,7 +27,7 @@ import {
   getFindings as getSentinelFindings,
   sweep as sweepSentinelNow,
 } from './sentinel.js';
-import { attachVoiceRelay } from './voiceLive.js';
+import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
 import { startUpkeep } from './upkeep.js';
 
@@ -46,6 +46,8 @@ app.get('/api/health', (req, res) => {
     authConfigured: isAuthConfigured(),
     ownerUser: ownerUserName(),
     role: roleFromRequest(req),
+    cloneVoiceConfigured: tts.cloneStatus().enabled,
+    liveClonedVoiceDefault: LIVE_CLONED_VOICE_REQUESTED,
   });
 });
 
@@ -387,7 +389,14 @@ wss.on('connection', (ws, req) => {
   const lon = parseFloat(url.searchParams.get('lon'));
   const coords = Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
   const isOwner = isOwnerToken(url.searchParams.get('token'));
-  attachVoiceRelay(ws, coords, isOwner).catch((err) => {
+  // Preferencja klienta (przelacznik w Ustawieniach) nadpisuje domyslna
+  // wartosc z .env NA TA JEDNA sesje - nikt nie musi restartowac serwera,
+  // zeby wypróbowac klonowany glos. 'wantClone=0' wylacza go jawnie nawet
+  // gdy JARVIS_LIVE_CLONED_VOICE=true w konfiguracji; brak parametru
+  // zostawia domyslne zachowanie z env (patrz voiceLive.js).
+  const wantCloneParam = url.searchParams.get('wantClone');
+  const wantClone = wantCloneParam == null ? null : wantCloneParam === '1';
+  attachVoiceRelay(ws, coords, isOwner, wantClone).catch((err) => {
     console.error('Voice relay error:', err);
     ws.close();
   });
