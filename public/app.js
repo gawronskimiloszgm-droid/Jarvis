@@ -2175,6 +2175,18 @@ async function handleFileAction(msg) {
 
 // ---------- Transkrypcja rozmowy ----------
 
+// Licznik trzymany osobno, zeby NIE liczyc calej listy przy kazdej
+// wiadomosci (feed.querySelectorAll('.said').length na tysiacach wezlow
+// w wielogodzinnej rozmowie to powtarzane przejscie po calym DOM - jedno
+// z tego, co spowalnia appke az do wrazenia "przestala odpowiadac" po
+// dluzszej sesji).
+let feedCount = 0;
+
+// Sam feed tez ma twardy sufit - bez niego DOM rosnie bez konca przez
+// cala dlugosc rozmowy na zywo (repliki lecą bez przerwy). Usuwamy
+// najstarsze wpisy zamiast pozwolic liscie rosnac w nieskonczonosc.
+const FEED_MAX = 300;
+
 function pushSaid(who, text) {
   if (!text) return;
   // Tylko budujemy czat, NIE otwieramy go. Rozmowa na zywo sypie replikami
@@ -2186,8 +2198,13 @@ function pushSaid(who, text) {
   d.appendChild(el('span', 'who', who === 'me' ? 'TY' : 'JARVIS'));
   d.appendChild(document.createTextNode(text));
   feed.appendChild(d);
+  feedCount++;
+  while (feedCount > FEED_MAX && feed.firstChild) {
+    feed.removeChild(feed.firstChild);
+    feedCount--;
+  }
   const count = $('#sideCount');
-  if (count) count.textContent = String(feed.querySelectorAll('.said').length);
+  if (count) count.textContent = String(feedCount);
   feed.scrollTop = feed.scrollHeight;
   return d;
 }
@@ -2504,8 +2521,41 @@ function stopOut() {
   resetEncodedQueue();
 }
 
-function playChunk(buf) {
-  if (!outCtx) return;
+// Kolejka odtwarzania planuje kazdy kawalek TUZ PO poprzednim (outAt), co
+// przy plynnym strumieniu daje gladkie audio bez szczelin. Problem: gdy
+// przegladarka usypia AudioContext w tle (zmiana karty, ekran wygaszony na
+// telefonie), jego zegar (currentTime) ZAMRAZA SIE, a kolejne wiadomosci
+// z serwera i tak przychodza i doklejaja sie do outAt. Po wznowieniu
+// kontekstu okazuje sie, ze zaplanowalismy dzwiek na czas, ktory juz dawno
+// minal wzgledem odswiezonego zegara - i to slychac jako "zacinanie sie" /
+// cisze, bo Web Audio API po prostu nie odgrywa zrodel zaplanowanych w
+// przeszlosci, tylko je cicho pomija.
+//
+// Naprawa w dwoch czesciach: (1) upewniamy sie, ze kontekst NAPRAWDE dziala
+// TUZ PRZED zaplanowaniem dzwieku, zamiast polegac wylacznie na cyklicznym
+// sprawdzaniu co kilka sekund; (2) jesli okaze sie, ze zegar kontekstu
+// realnie zdazyl "uciec do przodu" wzgledem naszego planu (bo staly przez
+// dluzszy czas), zaczynamy planowanie od nowa od biezacego czasu zamiast
+// probowac odtworzyc caly zalegly zapas na raz.
+async function ensureOutRunning() {
+  if (!outCtx) return false;
+  if (outCtx.state === 'suspended') {
+    try {
+      await outCtx.resume();
+    } catch {
+      return false;
+    }
+  }
+  if (!outCtx || outCtx.state !== 'running') return false;
+  // Zegar kontekstu wyprzedzil nasz plan o wiecej, niz moglaby to
+  // wytlumaczyc zwykla, plynna gra do przodu (kilka ms) - to znak, ze
+  // kontekst byl zamrozony, a "plan" jest z przeszlosci. Zaczynamy od nowa.
+  if (outAt < outCtx.currentTime) outAt = outCtx.currentTime;
+  return true;
+}
+
+async function playChunk(buf) {
+  if (!(await ensureOutRunning())) return;
   const i16 = new Int16Array(buf);
   const f32 = new Float32Array(i16.length);
   for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
@@ -2559,6 +2609,7 @@ function playEncodedChunk(base64, mimeType) {
       return;
     }
     if (gen !== encodedGen || !outCtx) return;
+    if (!(await ensureOutRunning()) || gen !== encodedGen) return;
     const src = outCtx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(outCtx.destination);
@@ -3155,7 +3206,14 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // W tle zdarzenia bywaja rzadsze, wiec dokladamy okresowe sprawdzenie.
-setInterval(keepAudioAlive, 5000);
+// Mikrofonu nie da sie "obudzic w momencie uzycia" tak jak wyjscia
+// (playChunk/playEncodedChunk maja teraz wlasny, natychmiastowy resume -
+// patrz ensureOutRunning) - AudioWorklet dziala na wlasnym watku audio i
+// po prostu nie woła onFrame, dopoki kontekst jest zawieszony. Krotszy
+// odstep to jedyny sposob, zeby skrocic okno, w ktorym slowa uzytkownika
+// wypowiedziane tuz po zawieszeniu w ogole nie docieraja do serwera -
+// z zewnatrz wyglada to jak "Jarvis przestal odpowiadac".
+setInterval(keepAudioAlive, 1500);
 
 if (isNativeShell() && window.Capacitor.Plugins.Geolocation) {
   window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000 })
