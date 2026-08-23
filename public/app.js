@@ -2735,6 +2735,19 @@ function stopOut() {
 // realnie zdazyl "uciec do przodu" wzgledem naszego planu (bo staly przez
 // dluzszy czas), zaczynamy planowanie od nowa od biezacego czasu zamiast
 // probowac odtworzyc caly zalegly zapas na raz.
+// Fragmenty mowy docieraja od Gemini do serwera i od serwera do
+// przegladarki z pewnym jitterem (nierowne odstepy, nie stala predkosc) -
+// dotychczasowy plan doklejal kazdy kawalek TUZ PO poprzednim, wiec
+// najmniejsza chwila opoznienia miedzy kawalkami slychac jako urwanie/
+// zacięcie w polowie zdania. To osobny problem od zamrozonego zegara
+// kontekstu w tle (patrz komentarz przy stopOut) - dzieje sie tez na
+// pierwszym planie, w trakcie normalnego sluchania. Naprawa: gdy plan
+// "dogania" biezacy czas (bufor sie wyczerpal), zaczynamy od nowa z
+// niewielkim zapasem do przodu, zamiast dokladnie od teraz - dajemy w ten
+// sposob kolejnemu kawalkowi margines na spoznienie, zanim usluchacz to
+// uslyszy jako cisze.
+const OUT_LOOKAHEAD_S = 0.12;
+
 async function ensureOutRunning() {
   if (!outCtx) return false;
   if (outCtx.state === 'suspended') {
@@ -2747,8 +2760,9 @@ async function ensureOutRunning() {
   if (!outCtx || outCtx.state !== 'running') return false;
   // Zegar kontekstu wyprzedzil nasz plan o wiecej, niz moglaby to
   // wytlumaczyc zwykla, plynna gra do przodu (kilka ms) - to znak, ze
-  // kontekst byl zamrozony, a "plan" jest z przeszlosci. Zaczynamy od nowa.
-  if (outAt < outCtx.currentTime) outAt = outCtx.currentTime;
+  // kontekst byl zamrozony (albo bufor po prostu wysechl), a "plan" jest
+  // z przeszlosci lub tuz na styk. Zaczynamy od nowa, z zapasem.
+  if (outAt < outCtx.currentTime) outAt = outCtx.currentTime + OUT_LOOKAHEAD_S;
   return true;
 }
 
