@@ -1,5 +1,6 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { GoogleGenAI } from '@google/genai';
+import * as bus from './bus.js';
 
 // Podstawowy silnik: ten sam model/glos co rozmowa na zywo (Gemini TTS,
 // darmowy w ramach free-tier), zeby powitanie i pisany czat brzmialy
@@ -111,6 +112,21 @@ async function synthesizeEdge(text) {
   return { buffer: Buffer.concat(chunks), contentType: 'audio/mpeg' };
 }
 
+// Nie zglaszamy KAZDEGO nieudanego zdania osobno - przy dluzszej awarii
+// (usluga spi, tunel padl) zalaloby to Logi tym samym komunikatem co
+// kilka sekund. Jedno zgloszenie na epizod wystarczy.
+const CLONE_FAILURE_GAP_MS = 5 * 60 * 1000;
+let lastCloneFailureAt = 0;
+
+function announceCloneFailure(err) {
+  const now = Date.now();
+  if (now - lastCloneFailureAt < CLONE_FAILURE_GAP_MS) return;
+  lastCloneFailureAt = now;
+  bus.publish('glos', 'clone.unavailable', `Sklonowany glos niedostepny, uzywam zapasowego: ${err.message || err}`, {
+    level: 'warn',
+  });
+}
+
 // Kolejnosc: sklonowany glos (gdy wlaczony i tekst krotki) -> Gemini TTS
 // -> Edge TTS. Kazdy stopien lapie awarie poprzedniego, wiec czat nigdy
 // nie zostaje calkiem bez glosu, nawet gdy usluga klonujaca spi.
@@ -121,7 +137,14 @@ export async function synthesize(text) {
     try {
       return await synthesizeClone(clean);
     } catch (err) {
+      // Ta awaria jest CICHA dla uzytkownika - dostaje po prostu stary
+      // glos, bez zadnego komunikatu w appce. Odkryte dokladnie tak: dzialalo
+      // przez curl (inna kolejnosc rozwiazywania localhost/127.0.0.1 niz
+      // Node), a appka po prostu brzmiala jak dawniej, bez sladu bledu poza
+      // logiem konsoli, ktorego na Renderze nikt na biezaco nie czyta.
+      // Stad publikacja na magistrale - zeby bylo widac w panelu Logi.
       console.error('Sklonowany glos niedostepny, schodze nizej:', err.message || err);
+      announceCloneFailure(err);
     }
   }
 

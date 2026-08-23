@@ -133,6 +133,16 @@ TTS_CLOUD_TOKEN=ten-sam-losowy-ciag
 TTS_CLONE_MAX_CHARS=240
 ```
 
+**Test lokalny (oba procesy na tej samej maszynie):** uzyj
+`http://127.0.0.1:7860`, NIE `http://localhost:7860`. Zmierzone i
+zweryfikowane 2026-08-23: `fetch()` w Node probuje najpierw polaczyc sie
+przez IPv6 (`::1`), a `uvicorn` domyslnie nasluchuje tylko na IPv4 -
+"localhost" konczy sie cichym `ECONNREFUSED`, ktory `tts.js` po cichu
+lapie i zastepuje starym silnikiem BEZ zadnego widocznego bledu w
+aplikacji. `curl` dziala z "localhost" poprawnie (inna kolejnosc
+rozwiazywania adresu), co maskuje problem przy recznym sprawdzaniu -
+appka Jarvisa milczy o awarii, tylko cicho brzmi jak dawniej.
+
 ## Ograniczenia — przeczytaj, zanim sie zawiedziesz
 
 **Na darmowym procesorze to jest wolne.** XTTS-v2 bez karty graficznej
