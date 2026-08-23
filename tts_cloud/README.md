@@ -62,16 +62,18 @@ ktory nie radzi sobie z polskim.
 wyraznie i zrozumiale - transkrypcja Gemini potwierdzila kazde slowo, choc
 brzmienie jest wyraznie syntetyczne/robotyczne (monotonna intonacja), nie
 jak zywy czlowiek. To normalne dla klonowania zero-shot na CPU, nie blad.
-Zlozone, wielowyrazowe liczebniki po polsku ("tysiac dziewiecset
-trzydziestego dziewiatego") potrafia sie rozjechac na koncu - w jednym
-tescie "dziewiatego roku" wyszlo jako bezsensowne "untio". To NIE jest
-powtorzenie bledu z probki (probka mialaby swoj wlasny, inny bledny
-zapis) - to osobne, realne ograniczenie modelu przy dlugich zlozeniach
-liczbowych, prawdopodobnie pogorszone przez niska jakosc probki
-referencyjnej. Krotkie, biezace odpowiedzi Jarvisa (do tego zaprojektowany
-jest tryb klonowany - patrz TTS_CLONE_MAX_CHARS) rzadko zawieraja takie
-konstrukcje; jesli zauwazysz podobny problem w praktyce, pierwszym
-krokiem jest lepsza probka, nie zmiana kodu.
+
+**Historia probki (dla kontekstu, nie do powtorzenia):** pierwsza probka
+(syntezator TTS czytajacy o II wojnie swiatowej) dawala rozjezdzajace sie
+konce zlozonych liczebnikow - "tysiac dziewiecset trzydziestego
+dziewiatego" wyszlo jako bezsensowne "...dziewiatego roku" -> "untio".
+2026-08-23 podmieniono probke na 19,6s czystego fragmentu audiobooka
+("Pies Baskervillow", jeden lektor, bez muzyki/echa - potwierdzone
+transkrypcja przed uzyciem). To samo zdanie o wojnie z NOWA probka
+transkrybowalo sie jako "poprawnie, gramatycznie i bardzo naturalnie".
+Wniosek potwierdzony w praktyce, nie tylko w teorii: jakosc probki
+referencyjnej ma bezposredni wplyw na poprawnosc wymowy zlozonych
+konstrukcji - to pierwsze miejsce do poprawy, nie kod.
 
 ## Uruchomienie lokalne
 
@@ -83,11 +85,41 @@ python app.py
 
 Serwis stanie na `http://localhost:7860`.
 
-## Wdrozenie na HuggingFace Spaces
+## Wdrozenie w chmurze - stan na 2026-08-23
 
-1. Zaloz Space typu **Docker**.
+**HuggingFace Spaces przestal byc darmowa opcja dla Dockera.** Sprawdzone
+bezposrednio przez API (nie z dokumentacji, ktora akurat tego jeszcze nie
+odzwierciedlala): proba zalozenia Space typu Docker, prywatnego i
+publicznego, konczy sie `402 Payment Required` - "hosting Gradio i Docker
+Spaces na darmowym cpu-basic wymaga subskrypcji PRO". Statyczne strony sa
+nadal darmowe, ale to nas nie dotyczy.
+
+Sprawdzone alternatywy i dlaczego zadna nie jest prostym "tak":
+
+| Platforma | Wynik |
+|---|---|
+| HuggingFace Spaces (Docker) | 402 - wymaga PRO (~9 USD/mc) |
+| Koyeb (darmowy poziom) | 512 MB RAM - za malo. Sam model to ~2 GB |
+| Render (darmowy poziom) | Ten sam limit ~512 MB co Koyeb - za malo |
+| Google Cloud Run | Do 8 GB RAM, realnie miesci sie w darmowym limicie, ALE wymaga karty przy zakladaniu konta (weryfikacja tozsamosci, nie oplata) |
+| Oracle Cloud Free | Do 24 GB RAM, ale rowniez wymaga karty |
+
+Krotko: **darmowe bez karty = za malo RAM na ten model. Wystarczajaco
+RAM-u = wymaga karty** (nawet gdy realne zuzycie zmiesci sie w darmowym
+limicie i nic nie kosztuje). To nie jest kwestia szukania dluzej - to
+powtarzajacy sie wzorzec w calej branzy dla obciazenia rzedu "model
+PyTorch 2GB".
+
+**Decyzja podjeta 2026-08-23: zostajemy na razie lokalnie.** Serwis
+dziala na `localhost:7860`, `TTS_CLOUD_URL` w Jarvisie nieustawiony.
+Gdy zdecydujesz sie na ktorys z powyzszych (albo pojawi sie inna
+opcja), instrukcje ponizej sa gotowe do uzycia bez zmian w kodzie.
+
+### Kroki wdrozenia (gdy zdecydujesz sie na platforme z Dockerem)
+
+1. Zaloz uslugę typu **Docker** na wybranej platformie.
 2. Wgraj `app.py`, `requirements.txt`, `Dockerfile` i `jarvis_sample.wav`.
-3. W ustawieniach Space dodaj sekret `TTS_API_TOKEN` (dowolny losowy ciag) —
+3. Dodaj sekret `TTS_API_TOKEN` (dowolny losowy ciag) —
    bez niego kazdy, kto zna adres, generuje mowe na Twoj koszt.
 4. Po pierwszym starcie wywolaj raz `POST /warmup`.
 
