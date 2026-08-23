@@ -1288,19 +1288,114 @@ function startGalaxy(cv) {
 // sprawiala, ze drugie wywolanie anulowalo klatke pierwszego i wielki rdzen
 // pozostawal pusty.
 
-// Emblemat J.A.R.V.I.S.: koncentryczne pierscienie i napis w srodku.
-// Warstwy od zewnatrz: poswiata, pierscien podzialki, wykres widma,
-// obrotowy pierscien segmentowy, przeciwbiezne luki, pierscien wewnetrzny
-// i wordmark. Ukladem rzadzi jedna liczba - "base" (promien) - wiec calosc
-// skaluje sie do kazdego rozmiaru bez poprawek.
-const CORE_SPECTRUM = 64;
-const coreBands = new Float32Array(CORE_SPECTRUM);
+// Rdzen jako pomaranczowa kula energii - "mozg AI" jako rozzarzone jadro,
+// z ktorego promieniuja wlokna energii (jak synapsy/impulsy nerwowe), a
+// wokol krazą sploszczone pierscienie orbit (2D trik na sugerowanie 3D:
+// elipsy zamiast kol, jak pierscienie Saturna widziane pod katem).
+//
+// Klucz do wygladu "swiecacej plazmy" (a nie plaskich kresek): warstwy
+// wlokien i iskier rysowane sa w trybie 'lighter' (addytywne mieszanie
+// swiatla) - tam gdzie kilka wlokien sie krzyzuje, jasnosc SUMUJE SIE,
+// dajac biale rozbielenia dokladnie tak jak w prawdziwym blasku, bez
+// potrzeby silnika 3D/WebGL (appka celowo zostaje przy 2D canvas, zeby
+// dzialac w pelni offline jako PWA).
+
+const CORE_ORANGE = (a) => `rgba(255, 130, 40, ${a})`;
+const CORE_AMBER = (a) => `rgba(255, 178, 90, ${a})`;
+const CORE_HOT = (a) => `rgba(255, 232, 190, ${a})`;
+const CORE_WHITE = (a) => `rgba(255, 250, 240, ${a})`;
+
+// Uklad wlokien/iskier/wezlow losowany RAZ przy starcie (nie w kazdej
+// klatce) i trzymany w ukladzie WZGLEDNYM (ulamek promienia "base") - tak
+// caly ksztalt skaluje sie do dowolnego rozmiaru canvasu bez przeliczania.
+function buildReactor(seed) {
+  let s = seed;
+  const rnd = () => {
+    // LCG - deterministyczny, zeby dwa rdzenie (duzy/maly) mialy rozne,
+    // ale powtarzalne uklady bez zaleznosci od Math.random w petli klatek.
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+
+  // Wlokna energii - promieniuja od jadra ku krawedzi, lekko wygiete
+  // (nie proste linie - organiczny, "plazmowy" charakter). Duzo i cienko:
+  // gestosc jest tym, co odroznia "kilka kresek" od "gestej plazmy" - a
+  // przy prawdziwym bloomie (patrz startCoreVisual) cienkie linie i tak
+  // dostaja pelny, miekki blask, wiec nie trzeba ich rysowac grubo.
+  const FILAMENTS = 150;
+  const filaments = [];
+  for (let i = 0; i < FILAMENTS; i++) {
+    const ang = (i / FILAMENTS) * Math.PI * 2 + rnd() * 0.15;
+    filaments.push({
+      ang,
+      bend: (rnd() - 0.5) * 0.9, // wygiecie toru (dodatnie/ujemne = w ktora strone)
+      len: 0.58 + rnd() * 0.38, // jak daleko od jadra siega
+      phase: rnd() * Math.PI * 2,
+      speed: 0.5 + rnd() * 0.7,
+      width: 0.35 + rnd() * 0.75,
+    });
+  }
+
+  // Wezly (nawiazanie do "neuronow") - rozrzucone w pierscieniu srodkowym,
+  // rzadsze i subtelniejsze niz dominujace wlokna, polaczone kilkoma
+  // cienkimi progami synaps miedzy najblizszymi sasiadami.
+  const NODES = 34;
+  const nodes = [];
+  for (let i = 0; i < NODES; i++) {
+    const ang = rnd() * Math.PI * 2;
+    const rad = 0.32 + rnd() * 0.56;
+    nodes.push({
+      x: Math.cos(ang) * rad,
+      y: Math.sin(ang) * rad * 0.94,
+      phase: rnd() * Math.PI * 2,
+      speed: 1 + rnd() * 1.4,
+      size: 0.008 + rnd() * 0.012,
+    });
+  }
+  const K = 2;
+  const edgeSet = new Set();
+  const edges = [];
+  nodes.forEach((n, i) => {
+    nodes
+      .map((m, j) => (j === i ? null : { j, d: (m.x - n.x) ** 2 + (m.y - n.y) ** 2 }))
+      .filter(Boolean)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, K)
+      .forEach(({ j }) => {
+        const key = i < j ? `${i}-${j}` : `${j}-${i}`;
+        if (edgeSet.has(key)) return;
+        edgeSet.add(key);
+        edges.push({ a: i, b: j, phase: rnd() * 10, cycle: 2.4 + rnd() * 2.2, dur: 0.3 + rnd() * 0.26 });
+      });
+  });
+
+  return { filaments, nodes, edges };
+}
+
+// Splaszczona elipsa pod katem - to ona sprzedaje wrazenie 3D: pierscien
+// widziany "z boku", nie plaski kolko na plaszczyznie ekranu.
+function ellipseRing(ctx, cx, cy, base, r, squash, tilt, color, lw) {
+  ctx.beginPath();
+  const STEPS = 72;
+  for (let i = 0; i <= STEPS; i++) {
+    const a = (i / STEPS) * Math.PI * 2;
+    const ex = Math.cos(a) * r;
+    const ey = Math.sin(a) * r * squash;
+    const x = cx + (ex * Math.cos(tilt) - ey * Math.sin(tilt)) * base;
+    const y = cy + (ex * Math.sin(tilt) + ey * Math.cos(tilt)) * base;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.stroke();
+}
 
 // Napis rysujemy litera po literze. ctx.letterSpacing jest nowe i nie
 // wszedzie dziala, a odstep miedzy literami to tu polowa charakteru.
 function drawWordmark(ctx, cx, cy, base, lvl) {
   const word = 'JARVIS';
-  const size = base * 0.23;
+  const size = base * 0.15;
   ctx.font = `600 ${size}px 'Consolas', 'SF Mono', 'Roboto Mono', monospace`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
@@ -1309,22 +1404,45 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
   const widths = [...word].map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
 
+  // Napis siedzi PONIZEJ rozzarzonego jadra, nie na nim - na proznym
+  // jadrze (biel na bieli) litery po prostu znikaly, zostawal tylko
+  // przypadkowy fragment tam, gdzie tlo bylo akurat ciemniejsze.
+  // Dodatkowo ciemny obrys wokol kazdej litery daje czytelnosc niezaleznie
+  // od tego, co akurat przesuwa sie pod spodem (wlokna, wezly, obrot).
+  cy = cy + base * 0.6;
+
   ctx.save();
-  ctx.shadowColor = `rgba(34, 224, 255, ${0.75 + lvl * 0.25})`;
-  ctx.shadowBlur = base * (0.09 + lvl * 0.07);
-  ctx.fillStyle = `rgba(190, 246, 255, ${0.9 + lvl * 0.1})`;
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = 'rgba(20, 8, 0, 0.75)';
+  ctx.lineWidth = size * 0.16;
+  ctx.shadowColor = CORE_ORANGE(0.9);
+  ctx.shadowBlur = base * 0.08;
+  ctx.fillStyle = CORE_HOT(0.95 + lvl * 0.05);
   let x = cx - total / 2;
   for (let i = 0; i < word.length; i++) {
+    ctx.strokeText(word[i], x, cy);
     ctx.fillText(word[i], x, cy);
     x += widths[i] + gap;
   }
   ctx.restore();
 }
 
-function startCoreVisual(cv) {
+function startCoreVisual(cv, seed = 42) {
   const ctx = cv.getContext('2d');
+  const reactor = buildReactor(seed);
   let t = 0;
   let raf = null;
+
+  // Bufor poza ekranem na "jasna warstwe" (wlokna, iskry, wezly, jadro).
+  // Prawdziwy bloom (miekki blask wokol jasnych ksztaltow, nie tylko
+  // twarda kreska) wymaga rozmycia Gaussa - ctx.filter = 'blur()' daje to
+  // za darmo (przyspieszone sprzetowo w przegladarce), ale trzeba miec
+  // GOTOWY obraz do rozmycia, a nie rozmywac scene w trakcie rysowania.
+  // Stad: najpierw caly jasny material ladujemy tutaj, dopiero potem
+  // nakladamy go na glowny canvas kilka razy z rosnacym rozmyciem.
+  const bloomCv = document.createElement('canvas');
+  const bloomCtx = bloomCv.getContext('2d');
 
   const draw = () => {
     const rect = cv.getBoundingClientRect();
@@ -1333,10 +1451,16 @@ function startCoreVisual(cv) {
       cv.width = Math.round(rect.width * dpr);
       cv.height = Math.round(rect.height * dpr);
     }
+    if (bloomCv.width !== cv.width || bloomCv.height !== cv.height) {
+      bloomCv.width = cv.width;
+      bloomCv.height = cv.height;
+    }
     const w = rect.width;
     const h = rect.height;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    bloomCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bloomCtx.clearRect(0, 0, w, h);
 
     const cx = w / 2;
     const cy = h / 2;
@@ -1347,98 +1471,172 @@ function startCoreVisual(cv) {
     }
     const lvl = store.audioLevel;
     t += 0.016;
+    const spin = t * (0.12 + lvl * 0.05);
 
-    const ink = (a) => `rgba(34, 224, 255, ${a})`;
-    const ring = (r, a, lw) => {
-      ctx.beginPath();
-      ctx.arc(cx, cy, base * r, 0, Math.PI * 2);
-      ctx.strokeStyle = ink(a);
-      ctx.lineWidth = lw;
-      ctx.stroke();
-    };
-
-    // 1. Poswiata calosci - oddycha powoli, mocniej gdy Jarvis mowi
-    const halo = ctx.createRadialGradient(cx, cy, base * 0.1, cx, cy, base);
-    const breathe = 0.5 + Math.sin(t * 0.9) * 0.5;
-    halo.addColorStop(0, ink(0.1 + lvl * 0.16 + breathe * 0.03));
-    halo.addColorStop(0.72, ink(0.05 + lvl * 0.07));
-    halo.addColorStop(1, 'rgba(34, 224, 255, 0)');
+    // 1. Poswiata calosci - oddycha powoli, mocniej gdy Jarvis mowi.
+    const halo = ctx.createRadialGradient(cx, cy, base * 0.05, cx, cy, base * 1.08);
+    const breathe = 0.5 + Math.sin(t * 0.85) * 0.5;
+    halo.addColorStop(0, CORE_ORANGE(0.16 + lvl * 0.2 + breathe * 0.04));
+    halo.addColorStop(0.65, CORE_ORANGE(0.05 + lvl * 0.08));
+    halo.addColorStop(1, 'rgba(255, 130, 40, 0)');
     ctx.beginPath();
-    ctx.arc(cx, cy, base, 0, Math.PI * 2);
+    ctx.arc(cx, cy, base * 1.08, 0, Math.PI * 2);
     ctx.fillStyle = halo;
     ctx.fill();
 
-    // 2. Pierscien zewnetrzny z podzialka
-    ring(0.99, 0.5, 1.4);
-    const ticks = 120;
+    // 2. Splaszczone orbity - kilka pierscieni pod roznymi katami/predkosciami,
+    // to one sugeruja obrot w przestrzeni, nie na plaszczyznie.
+    [
+      { r: 0.94, squash: 0.32, tilt: 0.15, dir: 1, a: 0.5, lw: 1.3 },
+      { r: 0.78, squash: 0.46, tilt: -0.28, dir: -1.4, a: 0.4, lw: 1 },
+      { r: 0.6, squash: 0.6, tilt: 0.5, dir: 1.8, a: 0.34, lw: 1 },
+    ].forEach((o) => {
+      ellipseRing(ctx, cx, cy, base, base * o.r, o.squash, o.tilt + spin * o.dir, CORE_ORANGE(o.a), o.lw);
+    });
+
+    // 3. Pierscien HUD z podzialka na samej krawedzi - lacznik stylistyczny
+    // z reszta interfejsu.
+    const ticks = 90;
     for (let i = 0; i < ticks; i++) {
-      const ang = (i / ticks) * Math.PI * 2 + t * 0.04;
-      const major = i % 10 === 0;
-      const len = major ? base * 0.06 : base * 0.028;
-      const r0 = base * 0.985 - len;
+      const ang = (i / ticks) * Math.PI * 2 + t * 0.03;
+      const major = i % 6 === 0;
+      const len = major ? base * 0.045 : base * 0.02;
+      const r0 = base * 0.995 - len;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
       ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
-      ctx.strokeStyle = ink(major ? 0.8 : 0.22);
-      ctx.lineWidth = major ? 1.6 : 1;
+      ctx.strokeStyle = CORE_ORANGE(major ? 0.45 : 0.16);
+      ctx.lineWidth = major ? 1.4 : 0.9;
       ctx.stroke();
     }
 
-    // 3. Widmo dzwieku - wieniec kreseczek, cichy w spoczynku
-    for (let i = 0; i < CORE_SPECTRUM; i++) {
-      const noise = Math.sin(t * 1.9 + i * 0.6) * 0.5 + Math.sin(t * 3.3 + i * 1.4) * 0.5;
-      const target = 0.06 + Math.abs(noise) * 0.08 + lvl * (0.5 + Math.abs(noise) * 0.8);
-      coreBands[i] += (target - coreBands[i]) * 0.22;
-      const ang = (i / CORE_SPECTRUM) * Math.PI * 2 - Math.PI / 2;
-      const r0 = base * 0.79;
-      const r1 = r0 + coreBands[i] * base * 0.15;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
-      ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
-      ctx.strokeStyle = ink(0.2 + coreBands[i] * 1.1);
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-    }
+    // --- Od tego miejsca rysujemy na BUFORZE (bloomCtx), nie na glownym
+    // canvasie - to jest material, ktory za chwile dostanie prawdziwy
+    // Gaussowski blask. Mieszanie addytywne ('lighter') w obrebie samego
+    // bufora dalej obowiazuje: jasnosci wlokien/iskier/wezlow sumuja sie
+    // tam, gdzie na siebie zachodza.
+    bloomCtx.save();
+    bloomCtx.globalCompositeOperation = 'lighter';
 
-    // 4. Pierscien segmentowy - 14 krechek jadacych w prawo
-    const seg = 14;
-    for (let i = 0; i < seg; i++) {
-      const from = (i / seg) * Math.PI * 2 + t * 0.16;
-      ctx.beginPath();
-      ctx.arc(cx, cy, base * 0.72, from, from + (Math.PI * 2) / seg - 0.13);
-      ctx.strokeStyle = ink(0.42);
-      ctx.lineWidth = 3.4;
-      ctx.stroke();
-    }
+    // 4. Wlokna energii - promieniuja z jadra, lekko wygiete, tetniace.
+    reactor.filaments.forEach((f) => {
+      const pulse = 0.5 + 0.5 * Math.sin(t * f.speed + f.phase);
+      const ang = f.ang + spin * 0.4;
+      const reach = f.len * (0.85 + pulse * 0.15 + lvl * 0.25);
+      const midR = base * reach * 0.55;
+      const endR = base * reach;
+      const bendAng = ang + f.bend * 0.5;
 
-    // 5. Przeciwbiezne luki - luzniejszy, zywy pierscien
-    [
-      { r: 0.63, from: 0.3, len: 1.9, sp: -0.34, a: 0.62, lw: 1.5 },
-      { r: 0.63, from: 3.7, len: 1.4, sp: -0.34, a: 0.62, lw: 1.5 },
-      { r: 0.56, from: 1.4, len: 2.4, sp: 0.5, a: 0.4, lw: 1.2 },
-      { r: 0.56, from: 4.9, len: 1.1, sp: 0.5, a: 0.4, lw: 1.2 },
-    ].forEach((a) => {
-      ctx.beginPath();
-      ctx.arc(cx, cy, base * a.r, a.from + t * a.sp, a.from + a.len + t * a.sp);
-      ctx.strokeStyle = ink(a.a);
-      ctx.lineWidth = a.lw;
-      ctx.stroke();
+      bloomCtx.beginPath();
+      bloomCtx.moveTo(cx, cy);
+      bloomCtx.quadraticCurveTo(
+        cx + Math.cos(bendAng) * midR,
+        cy + Math.sin(bendAng) * midR,
+        cx + Math.cos(ang) * endR,
+        cy + Math.sin(ang) * endR
+      );
+      const grad = bloomCtx.createLinearGradient(cx, cy, cx + Math.cos(ang) * endR, cy + Math.sin(ang) * endR);
+      grad.addColorStop(0, CORE_HOT(0.6 + pulse * 0.25 + lvl * 0.2));
+      grad.addColorStop(0.4, CORE_ORANGE(0.36 + pulse * 0.14 + lvl * 0.15));
+      grad.addColorStop(1, 'rgba(255, 130, 40, 0)');
+      bloomCtx.strokeStyle = grad;
+      bloomCtx.lineWidth = f.width * (0.8 + lvl * 0.6);
+      bloomCtx.stroke();
     });
 
-    // 6. Pierscien wewnetrzny - rama napisu, pulsuje z glosem
-    ring(0.46 + lvl * 0.015, 0.75, 2);
-    ring(0.4, 0.22, 1);
+    // 5. Iskry wedrujace wzdluz wlokien ku krawedzi - stateless: pozycja
+    // wynika wprost z t, bez listy "zywych" czastek do zarzadzania.
+    reactor.filaments.forEach((f, i) => {
+      const cycle = 1.8 + (i % 5) * 0.3;
+      const speed = cycle / (1 + lvl * 1.6);
+      const tau = (t * 1.4 + f.phase * 1.7) % speed;
+      const f01 = tau / speed;
+      if (f01 > 0.85) return; // iskra "gasnie" przed samym koncem wlokna
+      const ang = f.ang + spin * 0.4;
+      const reach = f.len * base;
+      const r = f01 * reach;
+      const x = cx + Math.cos(ang) * r;
+      const y = cy + Math.sin(ang) * r;
+      const fade = Math.sin(Math.min(1, f01 / 0.85) * Math.PI);
+      bloomCtx.beginPath();
+      bloomCtx.arc(x, y, base * 0.012 * (0.6 + fade), 0, Math.PI * 2);
+      bloomCtx.fillStyle = CORE_WHITE(0.6 * fade + lvl * 0.2);
+      bloomCtx.fill();
+    });
 
-    // 7. Poswiata pod napisem, zeby litery nie wisialy w prozni
-    const inner = ctx.createRadialGradient(cx, cy, 0, cx, cy, base * 0.44);
-    inner.addColorStop(0, ink(0.16 + lvl * 0.2));
-    inner.addColorStop(1, 'rgba(34, 224, 255, 0)');
-    ctx.beginPath();
-    ctx.arc(cx, cy, base * 0.44, 0, Math.PI * 2);
-    ctx.fillStyle = inner;
-    ctx.fill();
+    // 6. Wezly ("neurony") - subtelniejsza, rzadsza warstwa w pierscieniu
+    // srodkowym, spiete kilkoma cienkimi synapsami.
+    reactor.edges.forEach((e) => {
+      const a = reactor.nodes[e.a];
+      const b = reactor.nodes[e.b];
+      const ca = Math.cos(spin * 0.4), sa = Math.sin(spin * 0.4);
+      const ax = cx + (a.x * ca - a.y * sa) * base;
+      const ay = cy + (a.x * sa + a.y * ca) * base;
+      const bx = cx + (b.x * ca - b.y * sa) * base;
+      const by = cy + (b.x * sa + b.y * ca) * base;
+      const tau = ((t + e.phase) % e.cycle) / e.cycle;
+      const firing = tau < e.dur / e.cycle;
+      bloomCtx.beginPath();
+      bloomCtx.moveTo(ax, ay);
+      bloomCtx.lineTo(bx, by);
+      bloomCtx.strokeStyle = CORE_AMBER((firing ? 0.4 : 0.12) + lvl * 0.08);
+      bloomCtx.lineWidth = firing ? 1 : 0.6;
+      bloomCtx.stroke();
+    });
+    reactor.nodes.forEach((n) => {
+      const pulse = 0.5 + 0.5 * Math.sin(t * n.speed + n.phase);
+      const ca = Math.cos(spin * 0.4), sa = Math.sin(spin * 0.4);
+      const x = cx + (n.x * ca - n.y * sa) * base;
+      const y = cy + (n.x * sa + n.y * ca) * base;
+      const r = base * n.size * (0.8 + pulse * 0.3 + lvl * 0.4);
+      bloomCtx.beginPath();
+      bloomCtx.arc(x, y, r, 0, Math.PI * 2);
+      bloomCtx.fillStyle = CORE_AMBER(0.35 + pulse * 0.3 + lvl * 0.3);
+      bloomCtx.fill();
+    });
 
-    // 8. Napis
+    // 7. Jadro - rozzarzony, bialo-pomaranczowy rdzen w samym centrum.
+    // Silnie pulsuje z poziomem glosu - to serce calej kompozycji.
+    const coreR = base * (0.13 + lvl * 0.035);
+    const core = bloomCtx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
+    core.addColorStop(0, CORE_WHITE(0.95));
+    core.addColorStop(0.3, CORE_HOT(0.75 + lvl * 0.2));
+    core.addColorStop(0.65, CORE_ORANGE(0.4 + lvl * 0.15));
+    core.addColorStop(1, 'rgba(255, 130, 40, 0)');
+    bloomCtx.beginPath();
+    bloomCtx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
+    bloomCtx.fillStyle = core;
+    bloomCtx.fill();
+
+    bloomCtx.restore();
+
+    // --- Bloom: naklejamy bufor na glowny canvas kilka razy z rosnacym
+    // rozmyciem Gaussa i malejaca sila - to jest ten "miekki blask wokol
+    // jasnych ksztaltow" z referencji, nie do uzyskania samym mieszaniem
+    // addytywnym bez rozmycia. Kompozycje robimy w UKLADZIE SUROWYCH
+    // pikseli (transform=identity), bo blomCv juz zawiera gotowy obraz w
+    // rozdzielczosci urzadzenia - inaczej dpr zostalby doliczony podwojnie.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    [
+      { blur: 2, alpha: 0.9 },
+      { blur: 7, alpha: 0.55 },
+      { blur: 16, alpha: 0.38 },
+      { blur: 34, alpha: 0.22 },
+    ].forEach((pass) => {
+      ctx.filter = `blur(${pass.blur * dpr}px)`;
+      ctx.globalAlpha = pass.alpha;
+      ctx.drawImage(bloomCv, 0, 0);
+    });
+    // Ostry przebieg na wierzchu - bez niego wlokna w bezposrednim
+    // sasiedztwie jadra gubily sie w samym rozmyciu i traciy strukture.
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(bloomCv, 0, 0);
+    ctx.restore();
+
+    // 8. Napis - zwykle mieszanie, zeby zostal czytelny na tle jasnego jadra.
     drawWordmark(ctx, cx, cy, base, lvl);
 
     store.audioLevel *= 0.92;
@@ -3057,8 +3255,8 @@ async function boot() {
   // Dwa rdzenie: duzy na ekranie spoczynku i maly w kolumnie rozmowy.
   // Kazdy ma wlasna petle rysowania, obie karmione tym samym poziomem
   // dzwieku, wiec reaguja identycznie.
-  startCoreVisual($('#coreCanvas'));
-  startCoreVisual($('#sideCore'));
+  startCoreVisual($('#coreCanvas'), 42);
+  startCoreVisual($('#sideCore'), 90210);
   $('#coreHit').addEventListener('click', liveToggle);
 
   startGalaxy($('#galaxyCanvas'));
