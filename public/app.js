@@ -299,12 +299,45 @@ function drawCadInfo(model) {
 
   if (!model) {
     box.appendChild(
-      el('div', 'hint', 'Podaj parametry albo popros Jarvisa glosem: "zaprojektuj uchwyt na 15 funtow".')
+      el('div', 'hint', 'Podaj parametry wspornika ponizej, albo popros Jarvisa glosem/na czacie o cokolwiek: "zaprojektuj uchwyt na 15 funtow" albo "zrob mi podstawke pod telefon".')
     );
     return;
   }
 
   const s = model.strength;
+
+  // Zlozenia z brył (zaprojektuj_model) nie maja analizy wytrzymalosci -
+  // to inna geometria niz belka wspornikowa, wzor sigma=M/W by tu klamal.
+  // Panel wtedy pokazuje tylko geometrie, bez werdyktu/mapy naprezen.
+  if (!s) {
+    if (model.nazwa) box.appendChild(el('div', 'big-num', model.nazwa)).style.fontSize = '17px';
+    const rows = [
+      ['WYMIARY', model.sizeMm.join(' x ') + ' mm'],
+      ['MATERIAL', model.params?.material || 'PLA'],
+      ['MASA ~', `${model.massEstimateG} g`],
+      ['OBJETOSC', `${model.volumeCm3} cm3`],
+      ['TROJKATOW', model.triangles],
+    ];
+    rows.forEach(([k, v]) => {
+      const r = el('div', 'kv');
+      r.append(el('span', null, k), el('b', null, String(v)));
+      box.appendChild(r);
+    });
+    const basis = el('div', 'sub');
+    basis.style.cssText = 'margin-top:10px; line-height:1.6; letter-spacing:0; text-transform:none';
+    basis.textContent = 'Prosty model geometryczny ze zlozenia brył, bez symulacji wytrzymalosciowej.';
+    box.appendChild(basis);
+
+    const actions = el('div', 'field');
+    actions.style.marginTop = '10px';
+    const dl = el('a', 'btn', 'POBIERZ STL');
+    dl.href = `/api/cad/${model.id}/stl`;
+    dl.setAttribute('download', `jarvis-${model.id}.stl`);
+    actions.append(dl);
+    box.appendChild(actions);
+    return;
+  }
+
   const verdict = el('div', 'big-num', s.verdict);
   verdict.style.fontSize = '17px';
   verdict.style.color = s.ok ? 'var(--good)' : 'var(--red)';
@@ -2386,7 +2419,11 @@ let feedCount = 0;
 const FEED_MAX = 300;
 
 function pushSaid(who, text) {
-  if (!text) return;
+  // Pusty string to CELOWE wywolanie z sendTyped - placeholder do wypelnienia
+  // strumieniem odpowiedzi. Odsiewamy tylko brak tekstu (null/undefined), nie
+  // pusty string - inaczej placeholder nigdy nie powstaje i caly czat pisany
+  // wywala sie w momencie pierwszego dopisania fragmentu do (nieistniejacego) node.
+  if (text == null) return;
   // Tylko budujemy czat, NIE otwieramy go. Rozmowa na zywo sypie replikami
   // bez przerwy - wymuszanie widoku odbieraloby mozliwosc ogladania rdzenia.
 

@@ -1,10 +1,10 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import * as memory from './memory.js';
 import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weather.js';
 import { looksLikeImageRequest, generateImage, storeImage } from './image.js';
 import { imagePart } from './vision.js';
 import * as cad from './cad.js';
-import { looksLikeDesignRequest, parseDesignSpec } from '../modules/cad/index.js';
+import { looksLikeDesignRequest, parseDesignSpec, looksLikeGeneralDesignRequest } from '../modules/cad/index.js';
 
 import { withModel, MODEL_CHAIN } from './geminiChain.js';
 
@@ -247,6 +247,64 @@ async function streamAndClean(chatSession, input, onChunk, isOwner = true) {
   return stripTagsForHistory(rawFull).replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Schemat zlozenia z brył dla ogolnego generatora 3D (zaprojektuj_model w
+// rozmowie glosowej dostaje ten sam ksztalt argumentow przez function
+// calling; tutaj, w czacie pisanym, nie ma function callingu, wiec model
+// wymuszamy przez responseSchema/JSON mode - taki sam efekt, inny mechanizm).
+const ASSEMBLY_PART_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    ksztalt: { type: Type.STRING, enum: ['prostopadloscian', 'plyta_z_otworem', 'walec', 'rura'] },
+    x: { type: Type.NUMBER },
+    y: { type: Type.NUMBER },
+    z: { type: Type.NUMBER },
+    obrot_os: { type: Type.STRING, enum: ['x', 'y', 'z'] },
+    obrot_deg: { type: Type.NUMBER },
+    szerokosc_mm: { type: Type.NUMBER },
+    wysokosc_mm: { type: Type.NUMBER },
+    grubosc_mm: { type: Type.NUMBER },
+    promien_mm: { type: Type.NUMBER },
+    promien_wewn_mm: { type: Type.NUMBER },
+    otwor_promien_mm: { type: Type.NUMBER },
+    otwor_x_mm: { type: Type.NUMBER },
+    otwor_y_mm: { type: Type.NUMBER },
+  },
+  required: ['ksztalt'],
+};
+const ASSEMBLY_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    nazwa: { type: Type.STRING },
+    material: { type: Type.STRING, enum: ['PLA', 'PETG', 'ABS', 'ASA', 'NYLON'] },
+    czesci: { type: Type.ARRAY, items: ASSEMBLY_PART_SCHEMA },
+  },
+  required: ['czesci'],
+};
+
+// Dokladnie ta sama filozofia co przy wsporniku: model NIE dostaje szansy
+// wymyslic wymiary w tresci odpowiedzi (wolal fantazjowac) - najpierw sam,
+// osobnym wywolaniem z wymuszonym JSON-em, rozklada przedmiot na bryly, a
+// potem geometria liczy sie z tego deterministycznie.
+async function proposeAssemblyParts(userMessage) {
+  const res = await withModel((m) =>
+    ai.models.generateContent({
+      model: m,
+      contents:
+        `Uzytkownik prosi o prosty przedmiot do wydruku 3D: "${userMessage}"\n\n` +
+        'Rozloz go na proste bryly (prostopadloscian, walec, rura, plyta_z_otworem) ustawione ' +
+        'wzgledem wspolnego poczatku ukladu (0,0,0), w milimetrach. Dobierz sam sensowne, realne ' +
+        'wymiary - nie pytaj o nie. Maksymalnie 8 brył. To NIE moze byc organiczny ksztalt (gitara, ' +
+        'figurka, zebate kolo) - dla takich zwroc pusta liste czesci.',
+      config: { responseMimeType: 'application/json', responseSchema: ASSEMBLY_SCHEMA },
+    })
+  );
+  const parsed = JSON.parse(res.text);
+  if (!Array.isArray(parsed.czesci) || parsed.czesci.length === 0) {
+    throw new Error('Model nie zwrocil zadnych brył - przedmiot pewnie zbyt organiczny.');
+  }
+  return parsed;
+}
+
 export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
   // Gosc nie widzi historii wlasciciela i nic po sobie nie zostawia.
   const pastHistory = isOwner ? toHistoryContents(memory.getRecentHistory(20)) : [];
@@ -280,6 +338,27 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
       systemInstruction += '\n' + lines.join('\n');
     } catch {
       systemInstruction += '\n\nProba policzenia modelu zawiodla - powiedz o tym krotko.';
+    }
+  } else if (isOwner && looksLikeGeneralDesignRequest(userMessage)) {
+    // Ten sam determinizm co wyzej, ale dla dowolnego przedmiotu: najpierw
+    // osobne wywolanie modelu rozklada go na bryly (JSON, nie wolna proza),
+    // dopiero potem geometria liczy sie deterministycznie z tego JSON-u.
+    try {
+      const spec = await proposeAssemblyParts(userMessage);
+      const model = cad.createAssembly(spec);
+      designId = model.id;
+      systemInstruction += '\n' + [
+        '',
+        'Wlasnie zbudowales dla uzytkownika prosty model 3D ze zlozenia brył:',
+        `- wymiary ${model.sizeMm.join(' x ')} mm, masa okolo ${model.massEstimateG} g, material ${model.params.material}`,
+        'Model juz sie wyswietla uzytkownikowi razem z plikiem do druku.',
+        'Skomentuj to KROTKO swoim stylem. To prosty model geometryczny - NIE ma tu analizy',
+        'wytrzymalosciowej, nie wymyslaj jej ani nie podawaj innych wymiarow niz powyzej.',
+      ].join('\n');
+    } catch {
+      systemInstruction +=
+        '\n\nProba zbudowania modelu 3D zawiodla (albo przedmiot jest zbyt organiczny na proste bryly) - ' +
+        'powiedz o tym krotko i zaproponuj obraz zamiast tego.';
     }
   }
   let imageId = null;

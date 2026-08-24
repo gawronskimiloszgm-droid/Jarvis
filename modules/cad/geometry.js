@@ -49,6 +49,62 @@ export function cylinderZ(cx, cy, z0, r, depth, seg = 32) {
   return tris;
 }
 
+// Rura wzdluz osi Z (walec z drazonym srodkiem) - tuleja, dystans, nozka
+// rurowa. Sciana zewnetrzna i wewnetrzna licza sie tak samo jak w
+// cylinderZ, tylko wewnetrzna ma odwrocona kolejnosc wierzcholkow (normalna
+// musi patrzec DO srodka otworu, nie na zewnatrz), a gorny/dolny pierscien
+// spina obie sciany zamiast zamykac je pelnym wieczkiem.
+export function tubeZ(cx, cy, z0, rOuter, rInner, depth, seg = 32) {
+  const tris = [];
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * Math.PI * 2;
+    const a1 = ((i + 1) / seg) * Math.PI * 2;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1);
+
+    const oB0 = V(cx + c0 * rOuter, cy + s0 * rOuter, z0);
+    const oB1 = V(cx + c1 * rOuter, cy + s1 * rOuter, z0);
+    const oT0 = V(oB0[0], oB0[1], z0 + depth);
+    const oT1 = V(oB1[0], oB1[1], z0 + depth);
+
+    const iB0 = V(cx + c0 * rInner, cy + s0 * rInner, z0);
+    const iB1 = V(cx + c1 * rInner, cy + s1 * rInner, z0);
+    const iT0 = V(iB0[0], iB0[1], z0 + depth);
+    const iT1 = V(iB1[0], iB1[1], z0 + depth);
+
+    tris.push(...quad(oB0, oB1, oT1, oT0)); // sciana zewnetrzna
+    tris.push(...quad(iB1, iB0, iT0, iT1)); // sciana wewnetrzna (otworu)
+    tris.push(...quad(oT0, oT1, iT1, iT0)); // gorny pierscien
+    tris.push(...quad(oB1, oB0, iB0, iB1)); // dolny pierscien
+  }
+  return tris;
+}
+
+function rotateAxis([x, y, z], axis, rad) {
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  if (axis === 'x') return V(x, y * c - z * s, y * s + z * c);
+  if (axis === 'y') return V(x * c + z * s, y, -x * s + z * c);
+  return V(x * c - y * s, x * s + y * c, z);
+}
+
+// Ustawia bryle w zlozeniu: obrot wokol JEDNEJ osi lokalnego ukladu (wokol
+// poczatku bryly), potem przesuniecie. To nie jest pelna macierz Eulera,
+// ale do prostych zlozen (przechylona podpora, czesc obok czesci) starcza,
+// a przy okazji nie ma ryzyka gimbal locka ani bledow kolejnosci osi.
+export function placeTris(tris, { x = 0, y = 0, z = 0, rotAxis = null, rotDeg = 0 } = {}) {
+  const rad = (rotDeg * Math.PI) / 180;
+  return tris.map((t) => {
+    const out = {};
+    for (const k of ['a', 'b', 'c']) {
+      let p = t[k];
+      if (rotAxis && rotDeg) p = rotateAxis(p, rotAxis, rad);
+      out[k] = V(p[0] + x, p[1] + y, p[2] + z);
+    }
+    return out;
+  });
+}
+
 // Plyta z okraglym otworem. Otworu NIE wycinamy operacja boolowska (to
 // wymagaloby pelnego CSG) - od razu budujemy siatke z dziura: obrys
 // prostokata laczymy pasem trojkatow z obwodem okregu. Wynik jest

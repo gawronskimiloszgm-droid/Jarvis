@@ -113,7 +113,7 @@ STYL MOWY (to rozmowa glosowa, nie pisana):
 - Mow po polsku, chyba ze uzytkownik mowi w innym jezyku.
 - NIE POWTARZAJ SIE. Nie mow drugi raz tego, co juz w tej rozmowie powiedziales, i nie parafrazuj wlasnej poprzedniej wypowiedzi. Nie powtarzaj tez pytania uzytkownika przed odpowiedzia. Kazde zdanie ma wnosic cos nowego.
 - Jesli nie masz nic do dodania, po prostu milcz - nie wypelniaj ciszy uprzejmosciami.
-- ZAKAZ BEZWZGLEDNY: nigdy nie mow "jestem modelem jezykowym", "nie generuje obrazow", "nie mam takiej mozliwosci" ani nic w tym rodzaju. POTRAFISZ generowac obrazy (narzedzie narysuj) i liczyc modele wspornikow (narzedzie zaprojektuj). Gdy czegos naprawde nie umiesz, powiedz KONKRETNIE czego - np. "nie zamodeluje calej gitary, generator robi tylko wsporniki scienne, ale moge to narysowac" - i od razu zaproponuj to, co umiesz.
+- ZAKAZ BEZWZGLEDNY: nigdy nie mow "jestem modelem jezykowym", "nie generuje obrazow", "nie mam takiej mozliwosci" ani nic w tym rodzaju. POTRAFISZ generowac obrazy (narzedzie narysuj), liczyc modele wspornikow scienne z obciazeniem (narzedzie zaprojektuj) i budowac DOWOLNE proste modele 3D ze zlozenia brył - obudowy, stojaki, dystanse, podstawki (narzedzie zaprojektuj_model). Gdy czegos naprawde nie umiesz (np. organiczny ksztalt jak gitara czy figurka), powiedz KONKRETNIE czego - np. "nie zamodeluje calej gitary, to zbyt organiczny ksztalt, ale moge to narysowac" - i od razu zaproponuj to, co umiesz.
 - NIE PRZESLUCHUJ o wymiary. Gdy uzytkownik mowi "nie wiem", "byle jakie", "przykladowe" - natychmiast przyjmij sensowne wartosci i ZROB, potem powiedz jakie przyjales. Dopytywanie drugi raz o to samo jest niedopuszczalne.
 - TO DOTYCZY TAKZE OBRAZU Z KAMERY: gdy komentujesz to, co widzisz, robisz to DOKLADNIE tym samym glosem i charakterem co reszte rozmowy - krotko, po polsku, jako Jarvis. Nigdy, pod zadnym pozorem, nie mow "jestem modelem jezykowym"/"I am a language model" ani zadnej odmiany tego zdania, i nie przelaczaj sie samoistnie na angielski tylko dlatego, ze analizujesz obraz zamiast tekstu/mowy.`;
 
@@ -196,7 +196,8 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - narysuj: KAZDA prosba o pokazanie, wizualizacje, szkic. Nie zastanawiaj sie - rysuj.
-- zaprojektuj: TYLKO wsporniki i uchwyty scienne (plyta + polka + zebra). Nic innego generator nie umie - przy innym przedmiocie powiedz to wprost i zaproponuj obraz. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
+- zaprojektuj: TYLKO wsporniki i uchwyty scienne z realnym obciazeniem (plyta + polka + zebra), gdy user mowi o scianie/wiszeniu/kilogramach/funtach. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
+- zaprojektuj_model: dla WSZYSTKIEGO innego, co da sie zlozyc z prostych brył (obudowa, stojak, dystans, podstawka, tacka, uchwyt na kable, prosta zabawka-klocek). Ustaw kazda bryle na wlasnej pozycji x/y/z - to Ty decydujesz o wymiarach, gdy user ich nie poda. Podaj glosem wymiary i material. Nie ma tu analizy wytrzymalosci - nie wymyslaj jej. Gdy przedmiot jest zbyt organiczny/zlozony (gitara, figurka, zebate kolo), powiedz to wprost i zaproponuj obraz.
 - plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
@@ -326,6 +327,46 @@ const ALL_TOOLS = [
         material: { type: 'string', enum: ['PLA', 'PETG', 'ABS', 'ASA', 'NYLON'] },
       },
       required: ['obciazenie_kg'],
+    },
+  },
+  {
+    name: 'zaprojektuj_model',
+    description:
+      'Zbuduj DOWOLNY prosty model 3D ze zlozenia podstawowych brył (prostopadloscian, walec, rura, plyta z jednym otworem) i wystaw go do druku. ' +
+      'Uzywaj tego dla WSZYSTKIEGO poza scienny wspornikiem z obciazeniem (obudowy, stojaki, dystanse, tacki, uchwyty na kable, zatyczki, podstawki, proste zlozenia z klockow). ' +
+      'Opisz przedmiot jako liste brył, kazda z wlasna pozycja x/y/z w mm wzgledem wspolnego poczatku (0,0,0) i opcjonalnym obrotem wokol jednej osi. ' +
+      'To NIE jest generator organicznych ksztaltow (gitara, figurka, kolo zebate z prawdziwymi zebami) - dla takich powiedz wprost czego nie potrafisz i zaproponuj obraz (narysuj).',
+    parameters: {
+      type: 'object',
+      properties: {
+        nazwa: { type: 'string', description: 'Krotki opis co to jest, np. "podstawka pod telefon".' },
+        material: { type: 'string', enum: ['PLA', 'PETG', 'ABS', 'ASA', 'NYLON'] },
+        czesci: {
+          type: 'array',
+          description: 'Bryly skladajace sie na przedmiot, kazda pozycjonowana niezaleznie wzgledem wspolnego poczatku ukladu.',
+          items: {
+            type: 'object',
+            properties: {
+              ksztalt: { type: 'string', enum: ['prostopadloscian', 'plyta_z_otworem', 'walec', 'rura'] },
+              x: { type: 'number', description: 'Pozycja X w mm, domyslnie 0.' },
+              y: { type: 'number', description: 'Pozycja Y w mm, domyslnie 0.' },
+              z: { type: 'number', description: 'Pozycja Z w mm, domyslnie 0.' },
+              obrot_os: { type: 'string', enum: ['x', 'y', 'z'], description: 'Os obrotu tej bryly (opcjonalnie).' },
+              obrot_deg: { type: 'number', description: 'Kat obrotu w stopniach (opcjonalnie).' },
+              szerokosc_mm: { type: 'number', description: 'Prostopadloscian/plyta: rozmiar w X.' },
+              wysokosc_mm: { type: 'number', description: 'Prostopadloscian/plyta: rozmiar w Y. Walec/rura: dlugosc wzdluz osi.' },
+              grubosc_mm: { type: 'number', description: 'Prostopadloscian/plyta: rozmiar w Z (grubosc).' },
+              promien_mm: { type: 'number', description: 'Walec/rura: promien zewnetrzny.' },
+              promien_wewn_mm: { type: 'number', description: 'Rura: promien wewnetrzny (otwor srodkiem).' },
+              otwor_promien_mm: { type: 'number', description: 'Plyta_z_otworem: promien otworu przelotowego wzdluz Z.' },
+              otwor_x_mm: { type: 'number', description: 'Plyta_z_otworem: pozycja otworu w X wzgledem plyty (domyslnie srodek).' },
+              otwor_y_mm: { type: 'number', description: 'Plyta_z_otworem: pozycja otworu w Y wzgledem plyty (domyslnie srodek).' },
+            },
+            required: ['ksztalt'],
+          },
+        },
+      },
+      required: ['czesci'],
     },
   },
   {
@@ -711,6 +752,21 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   };
                 } catch (e) {
                   result = { error: 'nie udalo sie zaprojektowac' };
+                }
+              } else if (call.name === 'zaprojektuj_model') {
+                try {
+                  const a = call.args || {};
+                  const model = cad.createAssembly({ czesci: a.czesci, material: a.material, nazwa: a.nazwa });
+                  safeSend(JSON.stringify({ type: 'showDesign', id: model.id }));
+                  result = {
+                    ok: true,
+                    wymiary_mm: model.sizeMm,
+                    masa_g: model.massEstimateG,
+                    trojkatow: model.triangles,
+                    info: 'Model juz sie wyswietla uzytkownikowi razem z plikiem do druku. Skomentuj krotko - to prosty model ze zlozenia brył, bez symulacji wytrzymalosci.',
+                  };
+                } catch (e) {
+                  result = { error: 'nie udalo sie zbudowac modelu - sprobuj z prostszym ukladem brył' };
                 }
               } else if (call.name === 'wyszukaj_w_sieci') {
                 try {

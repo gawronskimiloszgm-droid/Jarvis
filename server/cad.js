@@ -5,7 +5,7 @@
 // przy wdrozeniu, a projekt jest tani do przeliczenia od nowa.
 
 import { nanoid } from 'nanoid';
-import { design, exportSTL, MATERIALS } from '../modules/cad/index.js';
+import { design, designAssembly, exportSTL, MATERIALS } from '../modules/cad/index.js';
 
 const STORE = new Map();
 const TTL_MS = 60 * 60 * 1000; // godzina
@@ -27,6 +27,16 @@ export function create(spec) {
 
   // Siatki NIE odsylamy w calosci przy kazdym zapytaniu o liste - tutaj
   // zwracamy pelny wynik, bo klient rysuje z niego podglad.
+  return { id, ...result };
+}
+
+// Ogolne zlozenie z brył (dowolny przedmiot, nie tylko wspornik scienny) -
+// patrz uzasadnienie przy designAssembly() w modules/cad/index.js.
+export function createAssembly(spec) {
+  const result = designAssembly(spec);
+  const id = nanoid(10);
+  STORE.set(id, { at: Date.now(), result });
+  sweep();
   return { id, ...result };
 }
 

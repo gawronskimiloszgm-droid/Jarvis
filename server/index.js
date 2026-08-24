@@ -245,12 +245,19 @@ app.get('/api/image/:id', (req, res) => {
 });
 
 // --- Projektowanie 3D --- tylko wlasciciel
+// Cialo z "czesci" (tablica brył) to ogolne zlozenie, bez tego pola to
+// stary, wciaz obslugiwany wspornik scienny z realna analiza wytrzymalosci.
 app.post('/api/cad', requireOwner, (req, res) => {
   try {
-    const model = cad.create(req.body || {});
-    bus.publish('cad', 'model.ready', `model gotowy: ${model.sizeMm.join(' x ')} mm, zapas ${model.strength.safety}x`, {
-      level: model.strength.ok ? 'ok' : 'warn',
-      data: { id: model.id, params: model.params, strength: model.strength },
+    const body = req.body || {};
+    const model = Array.isArray(body.czesci) ? cad.createAssembly(body) : cad.create(body);
+    const s = model.strength;
+    const msg = s
+      ? `model gotowy: ${model.sizeMm.join(' x ')} mm, zapas ${s.safety}x`
+      : `model gotowy: ${model.sizeMm.join(' x ')} mm, ${model.triangles} trojkatow`;
+    bus.publish('cad', 'model.ready', msg, {
+      level: s ? (s.ok ? 'ok' : 'warn') : 'ok',
+      data: { id: model.id, params: model.params, strength: s || null },
     });
     res.status(201).json(model);
   } catch (err) {
