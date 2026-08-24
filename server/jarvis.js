@@ -28,6 +28,9 @@ const PRZYPOMNIENIE_RE = /\[PRZYPOMNIENIE:\s*([^,\]]+),\s*([^\]]+)\]/gi;
 // (przegladarka/desktop) zywcem w strumieniu, zeby mogl ja tam wykonac.
 // Usuwana jest tylko z tekstu zapisywanego do historii/pamieci.
 const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/gi;
+// TRYB tak samo jak AKCJA - musi dotrzec do klienta zywcem, bo to on ma
+// dostep do urzadzenia i wykonuje kroki (patrz runRoutineSteps w app.js).
+const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/gi;
 const PROJEKT_RE = /\[PROJEKT:\s*([^\]]+)\]/gi;
 const WYDATEK_RE = /\[WYDATEK:\s*([^,\]]+),\s*([^,\]]+)(?:,\s*([^\]]+))?\]/gi;
 const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE, PROJEKT_RE];
@@ -37,7 +40,7 @@ function stripTags(text) {
 }
 
 function stripTagsForHistory(text) {
-  return stripTags(text).replace(AKCJA_RE, '');
+  return stripTags(text).replace(AKCJA_RE, '').replace(TRYB_RE, '');
 }
 
 function extractTag(text, re) {
@@ -116,7 +119,8 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
   Po znaczniku napisz JEDNO krotkie zdanie w swoim stylu, ze zabierasz sie za projekt. Konkretne liczby i werdykt dopisze system tuz pod Twoja wypowiedzia - nie uprzedzaj ich i nie zmyslaj.
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
   - otworz-spotify, otworz-youtube-music, otworz-przegladarke, glosniej, ciszej, wycisz, pobudka, odtworz-pauza, nastepny-utwor, poprzedni-utwor - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka"). Klawisze medialne dzialaja z dowolnym odtwarzaczem, ktory akurat gra.
-  - otworz-eksplorator, zablokuj-ekran, zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer - dostepne TYLKO na desktopie. "zrzut-ekranu" zapisuje obraz ekranu w folderze Dokumenty\\Jarvis. "uspij-komputer" uzywaj wylacznie na jednoznaczna prosbe - upewnij sie krotko, zanim to zrobisz.`;
+  - otworz-eksplorator, zablokuj-ekran, zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer - dostepne TYLKO na desktopie. "zrzut-ekranu" zapisuje obraz ekranu w folderze Dokumenty\\Jarvis. "uspij-komputer" uzywaj wylacznie na jednoznaczna prosbe - upewnij sie krotko, zanim to zrobisz.
+- [TRYB: nazwa] - gdy uzytkownik prosi o uruchomienie wczesniej zapisanego trybu/rutyny po nazwie (np. "wlacz tryb dobranoc"). Nowe tryby tworzy sie tylko przez rozmowe glosowa - w czacie pisanym mozesz jedynie URUCHOMIC juz istniejacy, nie tworzyc nowego.`;
 
 const GUEST_RULES = `
 ROZMAWIASZ Z GOSCIEM, nie ze swoim wlascicielem. Nie znasz tej osoby.

@@ -19,6 +19,9 @@ import * as bus from './bus.js';
 import { attachHud } from './hud.js';
 import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
 import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
+import { maybeSendBriefing } from './briefing.js';
+import * as printer from './printer.js';
+import * as calendar from './calendar.js';
 import { scanReceipt } from '../modules/receipts/scan.js';
 import {
   listTopics as listSentinelTopics,
@@ -219,7 +222,11 @@ app.get('/api/cron/tick', async (req, res) => {
     await push.sendToAll({ title: 'J.A.R.V.I.S. przypomina', body: reminder.text });
     memory.markReminderSent(reminder.id);
   }
-  res.json({ ok: true, sent: due.length });
+  const briefing = await maybeSendBriefing().catch((err) => {
+    console.error('Odprawa nieudana:', err.message);
+    return { sent: false };
+  });
+  res.json({ ok: true, sent: due.length, briefing: briefing.sent ? briefing.kind : null });
 });
 
 // --- Image generation ---
@@ -280,6 +287,95 @@ app.get('/api/cad/:id/stl', requireOwner, (req, res) => {
   res.set('Content-Type', 'model/stl');
   res.set('Content-Disposition', `attachment; filename="jarvis-${req.params.id}.stl"`);
   res.send(buf);
+});
+
+// Wysylka gotowego modelu do drukarki (OctoPrint) - patrz printer.js.
+// Nieaktywna jesli PRINTER_URL/PRINTER_API_KEY nie sa ustawione; zwraca
+// wtedy jasny blad zamiast cichego "nic sie nie stalo".
+app.post('/api/cad/:id/print', requireOwner, async (req, res) => {
+  const buf = cad.stl(req.params.id);
+  if (!buf) return res.status(404).json({ error: 'Model nie znaleziony (mogl wygasnac).' });
+  try {
+    await printer.uploadAndPrint(buf, `jarvis-${req.params.id}.stl`);
+    bus.publish('cad', 'print.sent', `model ${req.params.id} wyslany do druku`, { level: 'ok' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/printer/status', requireOwner, async (req, res) => {
+  res.json({ configured: printer.isConfigured(), job: await printer.jobStatus() });
+});
+
+// --- Kalendarz Google --- tylko wlasciciel. Autoryzacja to jednorazowy
+// reczny krok: wlasciciel wchodzi na /api/calendar/auth zalogowany, Google
+// pyta o zgode we WLASNEJ przegladarce, a callback ponizej zapisuje token.
+const oauthStates = new Map();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+app.get('/api/calendar/auth', requireOwner, (req, res) => {
+  if (!calendar.isOAuthConfigured()) {
+    return res.status(400).json({ error: 'Brak GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REDIRECT_URI w konfiguracji.' });
+  }
+  const state = globalThis.crypto.randomUUID();
+  oauthStates.set(state, Date.now() + OAUTH_STATE_TTL_MS);
+  res.redirect(calendar.authUrl(state));
+});
+
+// Google przekierowuje tutaj BEZ naszych naglowkow autoryzacji (to zwykle
+// przekierowanie przegladarki) - stad brak requireOwner. Bezpieczenstwo
+// daje jednorazowy "state" wygenerowany tylko po tym, jak wlasciciel juz
+// przeszedl requireOwner na /api/calendar/auth powyzej, plus fakt, ze sam
+// "code" jest jednorazowy i zwiazany z naszym client_id/redirect_uri.
+app.get('/api/calendar/oauth/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  const expiry = state && oauthStates.get(state);
+  if (state) oauthStates.delete(state);
+  if (error) return res.status(400).send(`Kalendarz: Google zwrocil blad (${error}).`);
+  if (!expiry || Date.now() > expiry) return res.status(400).send('Kalendarz: nieprawidlowy albo wygasly stan autoryzacji, sprobuj ponownie.');
+  if (!code) return res.status(400).send('Kalendarz: brak kodu autoryzacji.');
+  try {
+    await calendar.exchangeCode(code);
+    res.send('Kalendarz polaczony. Mozesz zamknac te karte i wrocic do Jarvisa.');
+  } catch (err) {
+    res.status(502).send(`Kalendarz: nie udalo sie dokonczyc polaczenia (${err.message}).`);
+  }
+});
+
+app.get('/api/calendar/status', requireOwner, (req, res) => {
+  res.json({ configured: calendar.isOAuthConfigured(), connected: calendar.isConnected() });
+});
+
+app.get('/api/calendar/events', requireOwner, async (req, res) => {
+  try {
+    res.json(await calendar.listUpcoming(Number(req.query.limit) || 10));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.post('/api/calendar/events', requireOwner, async (req, res) => {
+  try {
+    const { title, startISO, endISO, description } = req.body || {};
+    res.status(201).json(await calendar.createEvent({ title, startISO, endISO, description }));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// --- Tryby (rutyny) --- tylko wlasciciel. Tworzy sie je tylko glosem
+// (function calling), ale uruchamiac mozna tez z czatu pisanego - stad
+// GET po nazwie, ktorego uzywa klient po zobaczeniu znacznika [TRYB: ...]
+// w streamowanej odpowiedzi (patrz TRYB_RE w app.js).
+app.get('/api/routines', requireOwner, (req, res) => {
+  res.json(memory.getRoutines());
+});
+
+app.get('/api/routines/:name', requireOwner, (req, res) => {
+  const routine = memory.getRoutine(req.params.name);
+  if (!routine) return res.status(404).json({ error: 'Nie znam trybu o tej nazwie.' });
+  res.json(routine);
 });
 
 // --- Vision (analiza obrazu z kamery) --- tylko wlasciciel

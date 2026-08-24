@@ -12,6 +12,9 @@ const EMPTY_STORE = {
   reminders: [],
   pushSubscriptions: [],
   expenses: [],
+  routines: [],
+  briefing: { lastMorningAt: null, lastEveningAt: null },
+  googleRefreshToken: null,
 };
 
 // Stan trzymamy w pamieci procesu, a zapisujemy async/debounced, zamiast
@@ -233,6 +236,67 @@ export function removeExpense(id) {
   data.expenses = data.expenses.filter((e) => e.id !== id);
   save(data);
   return data.expenses;
+}
+
+// --- Tryby (rutyny) ---
+// Nazwane paczki krokow z istniejacego slownika akcji urzadzenia - Jarvis
+// tworzy je na zyczenie (glosem, przez function calling) i odtwarza po
+// nazwie. Zadnej nowej logiki wykonania: kroki to te same DEVICE_ACTIONS,
+// ktore juz dzialaja pojedynczo - tryb to tylko ich kolejnosc.
+export function getRoutines() {
+  return load().routines || [];
+}
+
+export function getRoutine(name) {
+  const clean = String(name || '').trim().toLowerCase();
+  return (load().routines || []).find((r) => r.name === clean) || null;
+}
+
+export function saveRoutine(name, steps) {
+  const clean = String(name || '').trim().toLowerCase();
+  if (!clean || !Array.isArray(steps) || !steps.length) return getRoutines();
+  const data = load();
+  if (!Array.isArray(data.routines)) data.routines = [];
+  const existing = data.routines.find((r) => r.name === clean);
+  if (existing) existing.steps = steps;
+  else data.routines.push({ name: clean, steps, createdAt: Date.now() });
+  save(data);
+  return data.routines;
+}
+
+export function removeRoutine(name) {
+  const clean = String(name || '').trim().toLowerCase();
+  const data = load();
+  data.routines = (data.routines || []).filter((r) => r.name !== clean);
+  save(data);
+  return data.routines;
+}
+
+// --- Kalendarz Google ---
+export function getGoogleRefreshToken() {
+  return load().googleRefreshToken || null;
+}
+
+export function setGoogleRefreshToken(token) {
+  const data = load();
+  data.googleRefreshToken = token || null;
+  save(data);
+}
+
+// --- Odprawa (briefing) ---
+// Znacznik "ostatnio wyslano" per pora dnia, zeby /api/cron/tick (odpytywany
+// z zewnatrz co ~10 min) nie wyslal tej samej odprawy kilka razy w oknie
+// docelowej godziny.
+export function getBriefingState() {
+  return load().briefing || { lastMorningAt: null, lastEveningAt: null };
+}
+
+export function markBriefingSent(kind) {
+  const data = load();
+  if (!data.briefing) data.briefing = { lastMorningAt: null, lastEveningAt: null };
+  if (kind === 'morning') data.briefing.lastMorningAt = Date.now();
+  else if (kind === 'evening') data.briefing.lastEveningAt = Date.now();
+  save(data);
 }
 
 // Podsumowanie za ostatnie N dni, z rozbiciem na kategorie.

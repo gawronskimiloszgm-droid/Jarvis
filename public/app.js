@@ -292,6 +292,28 @@ function mountCadView(model) {
   cadView = window.CADView(cv, model);
 }
 
+// Przycisk drukowania jest wspolny dla obu ukladow panelu (wspornik i
+// zlozenie z brył) - zawsze widoczny, bo brak skonfigurowanej drukarki to
+// stan normalny, nie blad: serwer po prostu odpowie jasnym komunikatem.
+function printButton(id) {
+  const btn = el('button', 'btn', 'WYDRUKUJ');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const prevText = btn.textContent;
+    btn.textContent = 'WYSYLAM...';
+    try {
+      await api(`/api/cad/${id}/print`, { method: 'POST' });
+      toast('Wyslano do drukarki.', 'ok');
+    } catch (err) {
+      toast(err.message || 'Nie udalo sie wyslac do drukarki.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  });
+  return btn;
+}
+
 function drawCadInfo(model) {
   const box = $('#cadInfo');
   if (!box) return;
@@ -333,7 +355,7 @@ function drawCadInfo(model) {
     const dl = el('a', 'btn', 'POBIERZ STL');
     dl.href = `/api/cad/${model.id}/stl`;
     dl.setAttribute('download', `jarvis-${model.id}.stl`);
-    actions.append(dl);
+    actions.append(dl, printButton(model.id));
     box.appendChild(actions);
     return;
   }
@@ -392,7 +414,7 @@ function drawCadInfo(model) {
   const dl = el('a', 'btn', 'POBIERZ STL');
   dl.href = `/api/cad/${model.id}/stl`;
   dl.setAttribute('download', `jarvis-${model.id}.stl`);
-  actions.append(heat, dl);
+  actions.append(heat, dl, printButton(model.id));
   box.appendChild(actions);
 }
 
@@ -2337,6 +2359,17 @@ function isNativeShell() {
   return Boolean(window.Capacitor?.isNativePlatform?.());
 }
 
+// Tryb to tylko nazwana kolejnosc krokow steruj_urzadzeniem - wykonujemy je
+// PO KOLEI (nie Promise.all) z krotka przerwa miedzy nimi, bo niektore akcje
+// (np. otworz-aplikacje -> potem klawisz medialny) potrzebuja chwili, zeby
+// druga strona zdazyla zareagowac, zanim przyjdzie kolejny krok.
+async function runRoutineSteps(steps) {
+  for (const step of steps || []) {
+    if (step?.akcja) await runDeviceAction(step.akcja);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 async function runDeviceAction(name) {
   if (!isOwner()) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
@@ -2448,6 +2481,7 @@ function pushSaid(who, text) {
 
 const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
 const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
+const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/g;
 
 async function sendTyped(text) {
   window.SFX?.play('send');
@@ -2476,9 +2510,20 @@ async function sendTyped(text) {
           runDeviceAction(m[1].trim());
         }
       }
+      for (const m of full.matchAll(TRYB_RE)) {
+        const key = `tryb:${m[1]}`;
+        if (!done.has(key)) {
+          done.add(key);
+          api(`/api/routines/${encodeURIComponent(m[1].trim())}`)
+            .then((r) => runRoutineSteps(r.steps))
+            .catch(() => toast(`Nie znam trybu: ${m[1].trim()}`));
+        }
+      }
       node.textContent = '';
       node.appendChild(el('span', 'who', 'JARVIS'));
-      node.appendChild(document.createTextNode(full.replace(ACT_RE, '').replace(IMG_RE, '').replace(CAD_RE, '')));
+      node.appendChild(
+        document.createTextNode(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, ''))
+      );
       $('#talkFeed').scrollTop = $('#talkFeed').scrollHeight;
     }
     const cadHit = full.match(CAD_RE);
@@ -2503,7 +2548,7 @@ async function sendTyped(text) {
       im.alt = 'Wygenerowany obraz';
       node.appendChild(im);
     }
-    speak(full.replace(ACT_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
+    speak(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
     if (isOwner()) refreshOwnerPanes();
   } catch (err) {
     node.remove();
@@ -2981,6 +3026,7 @@ async function liveStart() {
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
     else if (m.type === 'deviceAction') runDeviceAction(m.action);
     else if (m.type === 'appAction') runAppAction(m.action, m.text);
+    else if (m.type === 'runRoutine') runRoutineSteps(m.steps);
     else if (m.type === 'fileAction') handleFileAction(m);
     else if (m.type === 'error') {
       toast(`Rozmowa: ${m.message}`);

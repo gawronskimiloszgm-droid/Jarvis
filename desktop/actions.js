@@ -79,6 +79,22 @@ async function takeScreenshot() {
   return { ok: true, nazwa: name };
 }
 
+// Jak takeScreenshot, ale bez zapisu na dysk - zwraca same bajty (base64)
+// do analizy przez model. To dwie osobne funkcje celowo: "zrzut-ekranu"
+// zostawia trwaly plik w Dokumenty\Jarvis (user o to prosi wprost), a
+// "co na ekranie" to ulotne spojrzenie, ktore nie powinno zasmiecac dysku
+// przy kazdym pytaniu.
+async function captureScreenForVision() {
+  const { size, scaleFactor } = screen.getPrimaryDisplay();
+  const thumbnailSize = {
+    width: Math.round(size.width * scaleFactor),
+    height: Math.round(size.height * scaleFactor),
+  };
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize });
+  if (!sources.length) return { ok: false, error: 'Nie udalo sie odczytac ekranu.' };
+  return { ok: true, imageBase64: sources[0].thumbnail.toPNG().toString('base64'), mimeType: 'image/png' };
+}
+
 // AC/DC - "Back in Black". Identyfikator sprawdzony, nie zgadywany.
 const WAKE_TRACK_ID = process.env.JARVIS_WAKE_TRACK || '08mG3Y1vljYA6bvDt4Wqkj';
 
@@ -112,6 +128,7 @@ const ACTIONS = {
   'nastepny-utwor': async () => tapKey(VK.NEXT),
   'poprzedni-utwor': async () => tapKey(VK.PREV),
   'zrzut-ekranu': takeScreenshot,
+  'zrzut-i-opisz': captureScreenForVision,
   'zamknij-okno': async () => tapCombo(VK.ALT, VK.F4),
   'pokaz-pulpit': async () => tapCombo(VK.LWIN, VK.D),
   'uspij-komputer': async () =>

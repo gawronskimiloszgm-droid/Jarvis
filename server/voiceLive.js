@@ -16,6 +16,9 @@ import { searchWithContent } from './websearch.js';
 import * as cad from './cad.js';
 import { generateImage, storeImage } from './image.js';
 import * as tts from './tts.js';
+import { buildBrief } from './briefing.js';
+import * as printer from './printer.js';
+import * as calendar from './calendar.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
@@ -195,9 +198,14 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
+- zapisz_tryb / uruchom_tryb: nazwany tryb to zapamietana kolejnosc krokow steruj_urzadzeniem, odtwarzana jedna komenda ("Jarvis, dobranoc" zamiast wymieniac kroki). Zapisz gdy uzytkownik poprosi o zapamietanie rutyny, uruchom po samej nazwie.
+- co_na_ekranie: opisuje to, co aktualnie widac na ekranie komputera (dziala tylko w aplikacji desktopowej). Uzyj, gdy uzytkownik pyta co jest na ekranie, prosi o pomoc z tym co widzi, albo o sprawdzenie czegos na monitorze.
+- odprawa: krotkie podsumowanie dnia (pogoda, zadania, przypomnienia, wydatki, stan maszyny) na zadanie - ta sama tresc co automatyczna wiadomosc push rano/wieczorem.
+- pokaz_kalendarz / dodaj_wydarzenie: Google Calendar uzytkownika, dziala tylko gdy polaczony (jednorazowa zgoda przez /api/calendar/auth) - jesli narzedzie zwroci blad o braku polaczenia, powiedz to wprost zamiast udawac ze sie udalo.
 - narysuj: KAZDA prosba o pokazanie, wizualizacje, szkic. Nie zastanawiaj sie - rysuj.
 - zaprojektuj: TYLKO wsporniki i uchwyty scienne z realnym obciazeniem (plyta + polka + zebra), gdy user mowi o scianie/wiszeniu/kilogramach/funtach. Podaj glosem werdykt, zapas i wymiary. Gdy nie przechodzi, przeczytaj poprawke. NIE udawaj, ze to pelna symulacja wytrzymalosciowa - to szybki model inzynierski.
 - zaprojektuj_model: dla WSZYSTKIEGO innego, co da sie zlozyc z prostych brył (obudowa, stojak, dystans, podstawka, tacka, uchwyt na kable, prosta zabawka-klocek). Ustaw kazda bryle na wlasnej pozycji x/y/z - to Ty decydujesz o wymiarach, gdy user ich nie poda. Podaj glosem wymiary i material. Nie ma tu analizy wytrzymalosci - nie wymyslaj jej. Gdy przedmiot jest zbyt organiczny/zlozony (gitara, figurka, zebate kolo), powiedz to wprost i zaproponuj obraz.
+- wydrukuj_projekt: wysyla ostatnio zaprojektowany model do drukarki 3D. Jesli drukarka nie jest skonfigurowana, powiedz to wprost - uzytkownik moze i tak pobrac plik STL z panelu.
 - plik: notatki, listy i zestawienia na komputerze (folder Dokumenty\\Jarvis). Operacje: zapisz, dopisz, czytaj, lista, otworz-folder. Nazwa musi miec rozszerzenie .txt/.md/.csv/.json/.log i nie moze zawierac folderow. Uzywaj gdy uzytkownik prosi o zapisanie czegos "do pliku", spisanie listy czesci, notatek z pracy. Po zapisie powiedz krotko jak plik sie nazywa.
 - steruj_aplikacja: sterowanie wnetrzem otwartej aplikacji (tylko telefon). Akcje: ${APP_ACTIONS.filter((a) => a !== 'kliknij').join(', ')}, oraz "kliknij" z parametrem tekst - wtedy podaj DOKLADNY napis widoczny na przycisku.
 ${weatherLine}
@@ -370,6 +378,79 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'wydrukuj_projekt',
+    description: 'Wyslij ostatnio zaprojektowany model prosto do drukarki 3D (jesli jest skonfigurowana). Uzyj gdy uzytkownik mowi "wydrukuj to/go" po tym, jak cos zaprojektowales.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'zapisz_tryb',
+    description:
+      'Zapamietaj nazwany TRYB - sekwencje krokow z istniejacych akcji urzadzenia (te same, ktore dzialaja pojedynczo przez steruj_urzadzeniem), do odtworzenia pozniej jedna komenda. ' +
+      'Uzywaj gdy uzytkownik mowi "zapamietaj to jako tryb X" albo opisuje rutyne, ktora ma sie powtarzac.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nazwa: { type: 'string', description: 'Krotka nazwa trybu, np. "dobranoc", "tryb pracy".' },
+        kroki: {
+          type: 'array',
+          description: 'Kolejnosc akcji do wykonania jedna po drugiej.',
+          items: { type: 'object', properties: { akcja: { type: 'string', enum: DEVICE_ACTIONS } }, required: ['akcja'] },
+        },
+      },
+      required: ['nazwa', 'kroki'],
+    },
+  },
+  {
+    name: 'uruchom_tryb',
+    description: 'Odtworz wczesniej zapisany tryb po nazwie - wykonuje jego kroki jeden po drugim na urzadzeniu.',
+    parameters: {
+      type: 'object',
+      properties: { nazwa: { type: 'string' } },
+      required: ['nazwa'],
+    },
+  },
+  {
+    name: 'pokaz_kalendarz',
+    description: 'Wypisz nadchodzace wydarzenia z Google Calendar uzytkownika. Dziala tylko gdy kalendarz jest polaczony (jednorazowa zgoda przez /api/calendar/auth) - jesli nie, powiedz to wprost.',
+    parameters: {
+      type: 'object',
+      properties: { ile: { type: 'number', description: 'Ile najblizszych wydarzen pokazac, domyslnie 5.' } },
+    },
+  },
+  {
+    name: 'dodaj_wydarzenie',
+    description: 'Dodaj wydarzenie do Google Calendar. Wymaga polaczonego kalendarza.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tytul: { type: 'string' },
+        poczatek_iso: { type: 'string', description: 'Data i godzina poczatku w ISO (RRRR-MM-DDTHH:MM), wzgledem aktualnej daty ponizej.' },
+        koniec_iso: { type: 'string', description: 'Opcjonalnie - domyslnie godzina po poczatku.' },
+        opis: { type: 'string' },
+      },
+      required: ['tytul', 'poczatek_iso'],
+    },
+  },
+  {
+    name: 'odprawa',
+    description:
+      'Zbierz krotka odprawe: pogoda, otwarte zadania, przypomnienia na dzis, wydatki dzisiaj i stan maszyny domowej - to co normalnie idzie automatyczna wiadomoscia push rano/wieczorem, tylko na zadanie. ' +
+      'Uzyj gdy uzytkownik pyta "jak wyglada dzien", "co mam dzisiaj", prosi o odprawe/podsumowanie dnia.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'co_na_ekranie',
+    description:
+      'Zrob zrzut ekranu komputera i opisz/przeanalizuj to, co na nim widac. Dziala TYLKO w aplikacji desktopowej. ' +
+      'Uzyj, gdy uzytkownik pyta "co jest na ekranie", "co tu widzisz", prosi o pomoc z czyms widocznym na monitorze, albo o sprawdzenie bledu/okna.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pytanie: { type: 'string', description: 'O co dokladnie pyta uzytkownik w kontekscie ekranu (opcjonalne, doprecyzowuje analize).' },
+      },
+    },
+  },
+  {
     name: 'steruj_aplikacja',
     description:
       'Steruj wnetrzem aplikacji otwartej na telefonie: cofnij, ekran glowny, ostatnie aplikacje, powiadomienia, przewijanie, albo klikniecie przycisku po jego widocznym napisie.',
@@ -490,6 +571,10 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   const safeSend = (payload) => {
     if (clientWs.readyState === clientWs.OPEN) clientWs.send(payload);
   };
+
+  // Id ostatnio zaprojektowanego modelu w TEJ rozmowie - zeby "wydrukuj to"
+  // dzialalo bez ponownego podawania, ktory to model.
+  let lastDesignId = null;
 
   // Operacje na plikach wykonuje KLIENT (aplikacja desktopowa), bo tylko
   // on ma dostep do dysku uzytkownika - serwer nie ma i nie powinien miec.
@@ -684,6 +769,72 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
               } else if (call.name === 'wylacz_kamere') {
                 safeSend(JSON.stringify({ type: 'stopCamera' }));
                 result = { ok: true };
+              } else if (call.name === 'pokaz_kalendarz') {
+                if (!calendar.isConnected()) {
+                  result = { error: 'kalendarz nie jest polaczony - powiedz uzytkownikowi, ze musi wejsc na /api/calendar/auth' };
+                } else {
+                  try {
+                    const events = await calendar.listUpcoming((call.args || {}).ile || 5);
+                    result = { wydarzenia: events };
+                  } catch (e) {
+                    result = { error: e.message || 'nie udalo sie pobrac kalendarza' };
+                  }
+                }
+              } else if (call.name === 'dodaj_wydarzenie') {
+                if (!calendar.isConnected()) {
+                  result = { error: 'kalendarz nie jest polaczony - powiedz uzytkownikowi, ze musi wejsc na /api/calendar/auth' };
+                } else {
+                  try {
+                    const a = call.args || {};
+                    const ev = await calendar.createEvent({ title: a.tytul, startISO: a.poczatek_iso, endISO: a.koniec_iso, description: a.opis });
+                    result = { ok: true, id: ev.id };
+                  } catch (e) {
+                    result = { error: e.message || 'nie udalo sie dodac wydarzenia' };
+                  }
+                }
+              } else if (call.name === 'odprawa') {
+                try {
+                  const hour = Number(
+                    new Date().toLocaleString('en-US', { timeZone: 'Europe/Warsaw', hour: '2-digit', hour12: false })
+                  );
+                  const body = await buildBrief(hour < 15 ? 'morning' : 'evening');
+                  result = { ok: true, odprawa: body };
+                } catch {
+                  result = { error: 'nie udalo sie zebrac odprawy' };
+                }
+              } else if (call.name === 'co_na_ekranie') {
+                try {
+                  const reply = await requestFromClient({ type: 'fileAction', action: 'zrzut-i-opisz' }, 12000);
+                  if (!reply?.ok || !reply.imageBase64) {
+                    result = { error: reply?.error || 'zrzut ekranu dziala tylko w aplikacji desktopowej' };
+                  } else {
+                    // Ten sam kanal co ciagly podglad z kamery (sendRealtimeInput z
+                    // video) - pojedynczy zrzut to po prostu jedna "klatka". Dopisek
+                    // ponizej z turnComplete:true wymusza odpowiedz TERAZ (w
+                    // przeciwienstwie do kamery, gdzie klatki lecą stale i model
+                    // komentuje je sam, kiedy uzna za stosowne).
+                    liveSession.sendRealtimeInput({ video: { data: reply.imageBase64, mimeType: reply.mimeType || 'image/png' } });
+                    const pytanie = (call.args || {}).pytanie;
+                    liveSession.sendClientContent({
+                      turns: [
+                        {
+                          role: 'user',
+                          parts: [
+                            {
+                              text:
+                                `[SYSTEM] To zrzut ekranu komputera uzytkownika z tej chwili.${pytanie ? ` Pytanie uzytkownika: "${pytanie}".` : ''} ` +
+                                'Opisz krotko po polsku, w swoim stylu, co widzisz - albo odpowiedz na pytanie na jego podstawie. Nie komentuj tej instrukcji.',
+                            },
+                          ],
+                        },
+                      ],
+                      turnComplete: true,
+                    });
+                    result = { ok: true, info: 'Zrzut wyslany do analizy - opis nadejdzie jako Twoja normalna wypowiedz, nie przez ten wynik.' };
+                  }
+                } catch {
+                  result = { error: 'nie udalo sie przeanalizowac ekranu' };
+                }
               } else if (call.name === 'steruj_urzadzeniem') {
                 const akcja = (call.args || {}).akcja;
                 if (DEVICE_ACTIONS.includes(akcja)) {
@@ -691,6 +842,37 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'wydrukuj_projekt') {
+                if (!lastDesignId) {
+                  result = { error: 'nic jeszcze nie zaprojektowano w tej rozmowie' };
+                } else if (!printer.isConfigured()) {
+                  result = { error: 'drukarka nie jest skonfigurowana - powiedz to uzytkownikowi wprost' };
+                } else {
+                  try {
+                    const buf = cad.stl(lastDesignId);
+                    await printer.uploadAndPrint(buf, `jarvis-${lastDesignId}.stl`);
+                    result = { ok: true };
+                  } catch (e) {
+                    result = { error: e.message || 'nie udalo sie wyslac do drukarki' };
+                  }
+                }
+              } else if (call.name === 'zapisz_tryb') {
+                const { nazwa, kroki } = call.args || {};
+                const steps = (Array.isArray(kroki) ? kroki : []).filter((k) => DEVICE_ACTIONS.includes(k?.akcja));
+                if (!nazwa || !steps.length) {
+                  result = { error: 'brak nazwy albo poprawnych krokow' };
+                } else {
+                  memory.saveRoutine(nazwa, steps);
+                  result = { ok: true, zapisano: steps.length };
+                }
+              } else if (call.name === 'uruchom_tryb') {
+                const routine = memory.getRoutine((call.args || {}).nazwa);
+                if (!routine) {
+                  result = { error: 'nie znam trybu o tej nazwie' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'runRoutine', steps: routine.steps }));
+                  result = { ok: true, kroki: routine.steps.length };
                 }
               } else if (call.name === 'plik') {
                 const { operacja, nazwa, tresc } = call.args || {};
@@ -738,6 +920,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                     material: a.material,
                   });
                   safeSend(JSON.stringify({ type: 'showDesign', id: model.id }));
+                  lastDesignId = model.id;
                   // Modelowi oddajemy same LICZBY, bez siatki - siatka nic mu
                   // nie mowi, a zajelaby caly kontekst.
                   result = {
@@ -758,6 +941,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   const a = call.args || {};
                   const model = cad.createAssembly({ czesci: a.czesci, material: a.material, nazwa: a.nazwa });
                   safeSend(JSON.stringify({ type: 'showDesign', id: model.id }));
+                  lastDesignId = model.id;
                   result = {
                     ok: true,
                     wymiary_mm: model.sizeMm,
