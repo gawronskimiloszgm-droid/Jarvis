@@ -17,6 +17,7 @@
 import * as memory from './memory.js';
 import { consolidateFacts, condenseHistory } from './jarvis.js';
 import { sweep as sweepSentinel } from './sentinel.js';
+import { runCheck as runProactiveCheck } from './proactive.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -88,6 +89,13 @@ export function startUpkeep() {
       }
     } catch (err) {
       console.error('Wartownik tematow nieudany:', err.message);
+    }
+    try {
+      // Bez wspolrzednych - to cykl w tle, nie zapytanie z telefonu. Kontrole
+      // zalezne od GPS (np. pogoda na trasie) po prostu same siebie pomijaja.
+      await runProactiveCheck(null);
+    } catch (err) {
+      console.error('Warstwa proaktywna nieudana:', err.message);
     }
   }, PING_MS);
 

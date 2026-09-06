@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#03060c" />
-<title>J.A.R.V.I.S. — Centrum Operacyjne</title>
+<meta name="theme-color" content="#08080d" />
+<title>J.A.R.V.I.S.</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -17,7 +17,7 @@
   <!-- Ekran startowy -->
   <div class="boot" id="boot">
     <canvas class="boot-canvas" id="bootCanvas"></canvas>
-    <div class="boot-name" id="bootName">J A R V I S</div>
+    <div class="boot-name" id="bootName">Jarvis</div>
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
@@ -25,22 +25,22 @@
   <div class="auth-veil" id="authVeil" hidden>
     <form class="auth-box" id="authForm">
       <div class="auth-mark"><span></span><span></span><span></span></div>
-      <div class="auth-title">J.A.R.V.I.S.</div>
-      <div class="auth-sub">CENTRUM OPERACYJNE · UWIERZYTELNIANIE</div>
+      <div class="auth-title">Witaj z powrotem</div>
+      <div class="auth-sub">Jarvis · Twój osobisty asystent</div>
       <label class="auth-field">
-        <span>UZYTKOWNIK</span>
+        <span>Uzytkownik</span>
         <input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" />
       </label>
       <label class="auth-field">
-        <span>HASLO</span>
+        <span>Haslo</span>
         <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" />
       </label>
       <div class="auth-actions">
-        <button type="submit" class="btn primary">ZALOGUJ</button>
-        <button type="button" class="btn" id="authGuestBtn">TRYB GOSCIA</button>
+        <button type="submit" class="btn primary">Zaloguj</button>
+        <button type="button" class="btn ghost" id="authGuestBtn">Tryb goscia</button>
       </div>
       <div class="auth-error" id="authError" hidden></div>
-      <div class="auth-note">Bez zalogowania dziala rozmowa, pogoda i wyszukiwanie. Pamiec, zadania, kamera i sterowanie komputerem sa zastrzezone.</div>
+      <div class="auth-note">Bez logowania dziala rozmowa, pogoda i wyszukiwanie. Pamiec, zadania, kamera i sterowanie komputerem sa zastrzezone dla wlasciciela.</div>
     </form>
   </div>
 
@@ -50,8 +50,8 @@
       <div class="idle-id">
         <span class="dot"></span>
         <span>
-          <b id="idleStatus">SYSTEM GOTOWY</b>
-          <i id="idleSession">SESJA ---- · v4.2.0</i>
+          <b id="idleStatus">System gotowy</b>
+          <i id="idleSession">Sesja ---- · v5.0</i>
         </span>
       </div>
       <div class="idle-time">
@@ -63,12 +63,12 @@
     <div class="idle-core">
       <canvas id="coreCanvas"></canvas>
       <button class="core-hit" id="coreHit" title="Kliknij, zeby wyciszyc / wznowic rozmowe"></button>
-      <div class="core-state" id="coreState">GOTOWY</div>
+      <div class="core-state" id="coreState">Gotowy</div>
     </div>
 
     <div class="idle-cards" id="idleCards"></div>
 
-    <button class="idle-enter" id="idleEnter">CENTRUM OPERACYJNE <span>&rsaquo;</span></button>
+    <button class="idle-enter" id="idleEnter">Otworz centrum <span>&rarr;</span></button>
   </div>
 
   <!-- CENTRUM OPERACYJNE -->
@@ -76,7 +76,7 @@
     <header class="ops-head">
       <button class="brand" id="brandBtn" title="Powrot do rdzenia">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span class="brand-txt"><b>JARVIS</b><i>CENTRUM OPERACYJNE</i></span>
+        <span class="brand-txt"><b>Jarvis</b><i>Centrum operacyjne</i></span>
       </button>
 
       <div class="head-status">
@@ -88,22 +88,22 @@
 
       <div class="head-stats" id="headStats"></div>
 
-      <button class="btn ghost" id="paletteBtn">SZUKAJ POLECENIA <span class="kbd">Ctrl K</span></button>
+      <button class="btn ghost" id="paletteBtn">Szukaj <span class="kbd">Ctrl K</span></button>
 
       <button class="btn mic" id="micBtn">
         <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
-        <span id="micLabel">NASLUCH</span>
+        <span id="micLabel">Nasluch</span>
       </button>
 
-      <button class="btn danger" id="exitBtn">WYJDZ</button>
+      <button class="btn danger" id="exitBtn">Wyjdz</button>
     </header>
 
     <div class="ops-body">
       <nav class="ops-nav" id="opsNav">
-        <span class="nav-cap">MODULY</span>
+        <span class="nav-cap">Moduly</span>
         <div class="nav-list" id="navList"></div>
         <div class="nav-foot">
-          <span class="nav-cap">RDZEN AI</span>
+          <span class="nav-cap">Rdzen AI</span>
           <div class="bar"><i id="loadBar"></i></div>
           <span class="nav-meta" id="loadMeta">gotowy</span>
         </div>
@@ -123,13 +123,13 @@
       <aside class="ops-side">
         <div class="side-core">
           <canvas id="sideCore"></canvas>
-          <div class="side-state" id="sideState">GOTOWY</div>
+          <div class="side-state" id="sideState">Gotowy</div>
         </div>
-        <div class="side-head"><span>ROZMOWA</span><b id="sideCount">0</b></div>
+        <div class="side-head"><span>Rozmowa</span><b id="sideCount">0</b></div>
         <div class="feed" id="talkFeed"></div>
         <form class="side-form" id="talkForm">
           <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
-          <button class="btn" type="submit">OK</button>
+          <button class="btn primary" type="submit">&rarr;</button>
         </form>
       </aside>
     </div>

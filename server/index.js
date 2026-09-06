@@ -17,6 +17,86 @@ import * as image from './image.js';
 import * as cad from './cad.js';
 import * as bus from './bus.js';
 import { attachHud } from './hud.js';
+import devicesRouter from './devices.js';
+import agentCoreRouter from './agentCore.js';
+import proactiveRouter from './proactive.js';
+
+// --- pamiec i kontekst ---
+import { episodicMemoryRouter } from './episodicMemory.js';
+import { factsRouter } from './factLifecycle.js';
+import { knowledgeGraphRouter } from './knowledgeGraph.js';
+import { memoryExportRouter } from './memoryExport.js';
+import { memorySearchRouter } from './memorySearch.js';
+import { memoryVersionsRouter } from './memoryVersions.js';
+import { relationsRouter } from './relations.js';
+
+// --- glos i rozmowa ---
+import bargeInRouter from './bargeIn.js';
+import conversationStatsRouter from './conversationStats.js';
+import languageDetectRouter from './languageDetect.js';
+import liveTranscriptRouter from './liveTranscript.js';
+import moodDetectRouter from './moodDetect.js';
+import nightModeRouter from './nightMode.js';
+import routineMacrosRouter from './routineMacros.js';
+import sessionLogRouter from './sessionLog.js';
+import voiceHistoryRouter from './voiceHistory.js';
+import wakeWordsRouter from './wakeWords.js';
+
+// --- dom / IoT ---
+import iotRouter from '../modules/iot/index.js';
+
+// --- kalendarz i produktywnosc ---
+import { router as productivityRouter } from './productivity.js';
+import { router as outlookRouter } from './outlookCalendar.js';
+
+// --- zdrowie i dobrostan ---
+import { router as healthRouter } from './health.js';
+import { router as googleFitRouter } from './googleFit.js';
+import { router as mealVisionRouter } from './mealVision.js';
+
+// --- finanse ---
+import financeRouter from './finance.js';
+
+// --- bezpieczenstwo / sentinel / perimeter ---
+import priceWatchRoutes from './routes/priceWatch.js';
+import breachCheckRoutes from './routes/breachCheck.js';
+import reputationWatchRoutes from './routes/reputationWatch.js';
+import threatNotifyRoutes from './routes/threatNotify.js';
+import knownFacesRoutes from './routes/knownFaces.js';
+import audioAlertRoutes from './routes/audioAlert.js';
+import rtspCameraRoutes from './routes/rtspCamera.js';
+import securityLogRoutes from './routes/securityLog.js';
+import vacationModeRoutes from './routes/vacationMode.js';
+import loginWatchRoutes from './routes/loginWatch.js';
+import { recordLogin } from '../modules/security/loginWatch.js';
+
+// --- wizja / kamera ---
+import vision2Router from './vision2.js';
+import pantryRouter from './pantry.js';
+import plantCareRouter from './plantCare.js';
+import outfitCheckRouter from './outfitCheck.js';
+import productIdRouter from './productId.js';
+import docSummaryRouter from './docSummary.js';
+import roomRepaintRouter from './roomRepaint.js';
+
+// --- CAD / druk 3D ---
+import cadExtraRouter from '../modules/cad-extra/index.js';
+
+// --- komunikacja ---
+import commsRouter from './comms.js';
+
+// --- podroze i transport ---
+import travelRouter from './travel/index.js';
+
+// --- wiedza / research ---
+import knowledgeBaseRouter from './knowledgeBase.js';
+import researchRouter from './research.js';
+
+// --- sterowanie / rozrywka / meta ---
+import desktopAppsRouter from './desktopApps.js';
+import entertainmentRouter from './entertainment.js';
+import gamesRouter from './games.js';
+import metaRouter from './meta.js';
 import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
 import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
 import { maybeSendBriefing } from './briefing.js';
@@ -41,6 +121,88 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(devicesRouter);
+app.use(agentCoreRouter);
+app.use(proactiveRouter);
+
+// --- pamiec i kontekst (biblioteki wewnetrznych funkcji sciagniete z 13
+// rownoleglych partii pracy - kazda montowana pod wlasnym, absolutnym albo
+// prefiksowanym zestawem sciezek, zeby nic sie nie nadpisywalo) ---
+app.use(episodicMemoryRouter);
+app.use(factsRouter);
+app.use(knowledgeGraphRouter);
+app.use(memoryExportRouter);
+app.use(memorySearchRouter);
+app.use(memoryVersionsRouter);
+app.use(relationsRouter);
+
+// --- glos i rozmowa ---
+app.use(bargeInRouter);
+app.use(conversationStatsRouter);
+app.use(languageDetectRouter);
+app.use(liveTranscriptRouter);
+app.use(moodDetectRouter);
+app.use(nightModeRouter);
+app.use(routineMacrosRouter);
+app.use(sessionLogRouter);
+app.use(voiceHistoryRouter);
+app.use(wakeWordsRouter);
+
+// --- dom / IoT (Home Assistant) ---
+app.use('/api/iot', iotRouter);
+
+// --- kalendarz i produktywnosc ---
+app.use('/api/productivity', productivityRouter);
+app.use('/api/outlook', outlookRouter);
+
+// --- zdrowie i dobrostan ---
+app.use('/api/health', healthRouter);
+app.use('/api/googlefit', googleFitRouter);
+app.use('/api/meals', mealVisionRouter);
+
+// --- finanse ---
+app.use('/api/finance', financeRouter);
+
+// --- bezpieczenstwo / sentinel / perimeter ---
+app.use('/api/price-watch', priceWatchRoutes);
+app.use('/api/breach', breachCheckRoutes);
+app.use('/api/reputation', reputationWatchRoutes);
+app.use('/api/perimeter/threat', threatNotifyRoutes);
+app.use('/api/known-faces', knownFacesRoutes);
+app.use('/api/audio-alert', audioAlertRoutes);
+app.use('/api/rtsp-cameras', rtspCameraRoutes);
+app.use('/api/security-log', securityLogRoutes);
+app.use('/api/vacation', vacationModeRoutes);
+app.use('/api/login-watch', loginWatchRoutes);
+
+// --- wizja / kamera ---
+app.use('/api/vision2', vision2Router);
+app.use('/api/pantry', pantryRouter);
+app.use('/api/plants', plantCareRouter);
+app.use('/api/outfit', outfitCheckRouter);
+app.use('/api/product', productIdRouter);
+app.use('/api/documents', docSummaryRouter);
+app.use('/api/room', roomRepaintRouter);
+
+// --- CAD / druk 3D (rozszerzenia) --- router sam nie ma requireOwner (patrz
+// jego wlasny komentarz), wiec doklejamy go tutaj, tak jak przy montowaniu.
+app.use('/api/cad-extra', requireOwner, cadExtraRouter);
+
+// --- komunikacja (mail/SMS/Telegram sa zamontowane WEWNATRZ commsRouter) ---
+app.use('/api/comms', commsRouter);
+
+// --- podroze i transport ---
+app.use('/api/travel', travelRouter);
+
+// --- wiedza / research ---
+app.use('/api/knowledge', knowledgeBaseRouter);
+app.use('/api/research', researchRouter);
+
+// --- sterowanie / rozrywka / meta ---
+app.use('/api/desktop', desktopAppsRouter);
+app.use('/api/entertainment', entertainmentRouter);
+app.use('/api/games', gamesRouter);
+app.use('/api/meta', metaRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -72,6 +234,7 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Nieprawidlowy uzytkownik lub haslo.' });
   }
   bus.publish('auth', 'owner.login', 'wlasciciel zalogowany', { level: 'ok' });
+  recordLogin(req);
   res.json({ token: issueToken(), role: 'owner' });
 });
 

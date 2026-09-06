@@ -96,6 +96,7 @@ const MODULES = [
   { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
+  { id: 'agent', title: 'Agent', sub: 'wieloetapowe rozumowanie', owner: true, panels: ['agent'] },
   { id: 'set', title: 'Ustawienia', sub: 'profil asystenta', panels: ['settings'] },
   { id: 'logs', title: 'Logi', sub: 'strumien zdarzen', panels: ['logs'] },
 ];
@@ -678,6 +679,105 @@ const PANEL_DEFS = {
     },
   },
 
+  agent: {
+    title: 'AGENT - WIELOETAPOWE ROZUMOWANIE',
+    glyph: '◈',
+    owner: true,
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+      const note = el(
+        'div',
+        'sub',
+        'Do pytan wymagajacych kilku krokow naraz (np. "sprawdz pogode i moj kalendarz i powiedz czy zdaze") - Jarvis sam dobiera i laczy narzedzia, zamiast odpowiadac z jednego kontekstu.'
+      );
+      note.style.marginBottom = '10px';
+
+      const f = el('form', 'field col');
+      const i = el('input', 'inp');
+      i.placeholder = 'Cel dla agenta...';
+      i.autocomplete = 'off';
+      const b = el('button', 'btn primary', 'URUCHOM');
+      b.type = 'submit';
+      f.append(i, b);
+
+      const log = el('div');
+      log.id = 'agentLog';
+      const result = el('div', 'row-text');
+      result.id = 'agentResult';
+      const pending = el('div');
+      pending.id = 'agentPending';
+
+      body.append(note, f, pending, log, result);
+
+      function renderLog(entries) {
+        log.innerHTML = '';
+        (entries || []).forEach((step) => {
+          const row = el('div', 'kv');
+          row.append(el('span', null, step.narzedzie), el('b', null, JSON.stringify(step.wynik).slice(0, 80)));
+          log.appendChild(row);
+        });
+      }
+
+      function renderPending(data) {
+        pending.innerHTML = '';
+        if (!data?.needsConfirmation) return;
+        const box = el('div', 'row');
+        const txt = el('div', 'row-text', `Agent chce wykonac: ${data.pendingCall.name} (${JSON.stringify(data.pendingCall.args)})`);
+        txt.style.flex = '1';
+        const okBtn = el('button', 'btn primary', 'POTWIERDZ');
+        okBtn.addEventListener('click', async () => {
+          b.disabled = true;
+          try {
+            const res = await api('/api/agent/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runId: data.runId }),
+            });
+            renderLog(res.log);
+            renderPending(res);
+            result.textContent = res.text || '';
+          } catch (err) {
+            toast(err.message);
+          } finally {
+            b.disabled = false;
+          }
+        });
+        const noBtn = el('button', 'btn danger', 'ANULUJ');
+        noBtn.addEventListener('click', () => {
+          pending.innerHTML = '';
+        });
+        box.append(txt, okBtn, noBtn);
+        pending.appendChild(box);
+      }
+
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const goal = i.value.trim();
+        if (!goal) return;
+        b.disabled = true;
+        result.textContent = '';
+        pending.innerHTML = '';
+        log.innerHTML = '';
+        try {
+          const res = await api('/api/agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ goal, location: store.location }),
+          });
+          renderLog(res.log);
+          renderPending(res);
+          result.textContent = res.text || '';
+          logEvent('agent', `zapytanie: ${goal}`);
+        } catch (err) {
+          toast(err.message);
+        } finally {
+          b.disabled = false;
+        }
+      });
+    },
+  },
+
   settings: {
     title: 'PROFIL ASYSTENTA',
     glyph: '⚙',
@@ -763,6 +863,48 @@ const PANEL_DEFS = {
         toast(p === 'granted' ? 'Powiadomienia wlaczone.' : 'Powiadomienia odrzucone.', p === 'granted' ? 'ok' : 'bad');
       });
       body.appendChild(notif);
+
+      if (isOwner()) {
+        const sep2 = el('div', 'sub', 'PROAKTYWNOSC I URZADZENIA');
+        sep2.style.margin = '14px 0 8px';
+        body.appendChild(sep2);
+
+        const dndRow = el('div', 'row');
+        const dndTxt = el('div');
+        dndTxt.style.flex = '1';
+        dndTxt.append(el('div', 'row-text', 'Nie przeszkadzac'), el('div', 'sub', 'Jarvis wstrzymuje zaczepki z wlasnej inicjatywy (przypomnienia zaplanowane recznie i tak dojda)'));
+        const dndCb = el('input', 'row-check');
+        dndCb.type = 'checkbox';
+        dndRow.append(dndTxt, dndCb);
+        body.appendChild(dndRow);
+
+        api('/api/proactive/dnd').then((d) => { dndCb.checked = Boolean(d.active); }).catch(() => {});
+        dndCb.addEventListener('change', async () => {
+          try {
+            await api('/api/proactive/dnd', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ active: dndCb.checked, minutes: dndCb.checked ? 240 : 0 }),
+            });
+            logEvent('ustawienia', `nie przeszkadzac: ${dndCb.checked ? 'wlaczone (4h)' : 'wylaczone'}`);
+          } catch (err) {
+            toast(err.message);
+          }
+        });
+
+        const devBox = el('div');
+        devBox.className = 'sub';
+        devBox.style.marginTop = '10px';
+        devBox.textContent = 'Sprawdzanie polaczonych urzadzen...';
+        body.appendChild(devBox);
+        api('/api/devices')
+          .then(({ devices }) => {
+            devBox.textContent = devices.length
+              ? `POLACZONE TERAZ: ${devices.map((d) => d.name).join(', ')}`
+              : 'Brak innych polaczonych urzadzen w tej chwili.';
+          })
+          .catch(() => { devBox.textContent = ''; });
+      }
     },
   },
 
@@ -1355,10 +1497,12 @@ function startGalaxy(cv) {
 // potrzeby silnika 3D/WebGL (appka celowo zostaje przy 2D canvas, zeby
 // dzialac w pelni offline jako PWA).
 
-const CORE_ORANGE = (a) => `rgba(255, 130, 40, ${a})`;
-const CORE_AMBER = (a) => `rgba(255, 178, 90, ${a})`;
-const CORE_HOT = (a) => `rgba(255, 232, 190, ${a})`;
-const CORE_WHITE = (a) => `rgba(255, 250, 240, ${a})`;
+// Paleta rdzenia - fioletowo-blekitna plazma (spojna z akcentem calego
+// interfejsu, --blue/--ice), zamiast dawnego pomaranczowego ognia.
+const CORE_ORANGE = (a) => `rgba(124, 92, 255, ${a})`;
+const CORE_AMBER = (a) => `rgba(99, 150, 255, ${a})`;
+const CORE_HOT = (a) => `rgba(180, 210, 255, ${a})`;
+const CORE_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
 
 // Uklad wlokien/iskier/wezlow losowany RAZ przy starcie (nie w kazdej
 // klatce) i trzymany w ukladzie WZGLEDNYM (ulamek promienia "base") - tak
@@ -1449,13 +1593,13 @@ function ellipseRing(ctx, cx, cy, base, r, squash, tilt, color, lw) {
 // Napis rysujemy litera po literze. ctx.letterSpacing jest nowe i nie
 // wszedzie dziala, a odstep miedzy literami to tu polowa charakteru.
 function drawWordmark(ctx, cx, cy, base, lvl) {
-  const word = 'JARVIS';
-  const size = base * 0.15;
-  ctx.font = `600 ${size}px 'Consolas', 'SF Mono', 'Roboto Mono', monospace`;
+  const word = 'Jarvis';
+  const size = base * 0.17;
+  ctx.font = `800 ${size}px 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
 
-  const gap = size * 0.34;
+  const gap = size * 0.02;
   const widths = [...word].map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
 
@@ -1469,7 +1613,7 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.miterLimit = 2;
-  ctx.strokeStyle = 'rgba(20, 8, 0, 0.75)';
+  ctx.strokeStyle = 'rgba(6, 4, 16, 0.75)';
   ctx.lineWidth = size * 0.16;
   ctx.shadowColor = CORE_ORANGE(0.9);
   ctx.shadowBlur = base * 0.08;
@@ -1533,7 +1677,7 @@ function startCoreVisual(cv, seed = 42) {
     const breathe = 0.5 + Math.sin(t * 0.85) * 0.5;
     halo.addColorStop(0, CORE_ORANGE(0.16 + lvl * 0.2 + breathe * 0.04));
     halo.addColorStop(0.65, CORE_ORANGE(0.05 + lvl * 0.08));
-    halo.addColorStop(1, 'rgba(255, 130, 40, 0)');
+    halo.addColorStop(1, 'rgba(124, 92, 255, 0)');
     ctx.beginPath();
     ctx.arc(cx, cy, base * 1.08, 0, Math.PI * 2);
     ctx.fillStyle = halo;
@@ -1593,7 +1737,7 @@ function startCoreVisual(cv, seed = 42) {
       const grad = bloomCtx.createLinearGradient(cx, cy, cx + Math.cos(ang) * endR, cy + Math.sin(ang) * endR);
       grad.addColorStop(0, CORE_HOT(0.6 + pulse * 0.25 + lvl * 0.2));
       grad.addColorStop(0.4, CORE_ORANGE(0.36 + pulse * 0.14 + lvl * 0.15));
-      grad.addColorStop(1, 'rgba(255, 130, 40, 0)');
+      grad.addColorStop(1, 'rgba(124, 92, 255, 0)');
       bloomCtx.strokeStyle = grad;
       bloomCtx.lineWidth = f.width * (0.8 + lvl * 0.6);
       bloomCtx.stroke();
@@ -1657,7 +1801,7 @@ function startCoreVisual(cv, seed = 42) {
     core.addColorStop(0, CORE_WHITE(0.95));
     core.addColorStop(0.3, CORE_HOT(0.75 + lvl * 0.2));
     core.addColorStop(0.65, CORE_ORANGE(0.4 + lvl * 0.15));
-    core.addColorStop(1, 'rgba(255, 130, 40, 0)');
+    core.addColorStop(1, 'rgba(124, 92, 255, 0)');
     bloomCtx.beginPath();
     bloomCtx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
     bloomCtx.fillStyle = core;
@@ -2601,6 +2745,30 @@ function hudUrl() {
   return `${proto}//${location.host}/ws/hud?token=${encodeURIComponent(store.token || '')}`;
 }
 
+// Tozsamosc TEGO urzadzenia w rejestrze cross-device (server/devices.js).
+// Trzymana w localStorage, nie w store (ktory zeruje sie przy wylogowaniu) -
+// to samo urzadzenie ma zostac rozpoznawalne nawet po ponownym zalogowaniu.
+function deviceIdentity() {
+  let id = localStorage.getItem('jarvis_device_id');
+  if (!id) {
+    id = `dev_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    localStorage.setItem('jarvis_device_id', id);
+  }
+  const deviceType = window.jarvisDesktop ? 'desktop' : isNativeShell() ? 'phone' : 'web';
+  const name = deviceType === 'desktop' ? 'Komputer' : deviceType === 'phone' ? 'Telefon' : 'Przegladarka';
+  return { deviceId: id, deviceType, name };
+}
+
+// Wiadomosc przekazana z innego urzadzenia przez /api/devices/:id/relay albo
+// device.relay - jedyna, konkretna rzecz jaka na razie umie zrobic, to
+// wykonac akcje z tego samego, zamknietego slownika co [AKCJA: ...] w
+// czacie (runDeviceAction) - zadnej dowolnej komendy.
+function handleDeviceRelay(payload) {
+  if (payload?.type === 'run-action' && payload.action) {
+    runDeviceAction(payload.action);
+  }
+}
+
 // Stan systemu maluje caly interfejs: przy 'threat' motyw robi sie
 // alarmowy, przy 'design' chlodny. Trzymamy go na <body>, zeby arkusz
 // stylow mogl przestawic zmienne kolorow w jednym miejscu.
@@ -2669,6 +2837,7 @@ function hudConnect() {
   ws.addEventListener('open', () => {
     hudRetry = 0;
     logEvent('telemetria', 'kanal zdarzen otwarty', 'ok');
+    ws.send(JSON.stringify({ type: 'device.hello', ...deviceIdentity() }));
   });
 
   ws.addEventListener('message', (e) => {
@@ -2685,6 +2854,8 @@ function hudConnect() {
       (msg.events || []).forEach(handleHudEvent);
     } else if (msg.type === 'event') {
       handleHudEvent(msg.event);
+    } else if (msg.type === 'device.message') {
+      handleDeviceRelay(msg.payload);
     }
   });
 
@@ -3270,14 +3441,10 @@ function doLogout() {
 // ---------- Sekwencja startowa ----------
 
 const BOOT_LINES = [
-  'core.init  rdzen jarvis',
-  'auth.mod   warstwa uprawnien ...... <b>OK</b>',
-  'audio.io   kanal glosowy 16k/24k .. <b>OK</b>',
-  'net.link   polaczenie szyfrowane .. <b>OK</b>',
-  'mem.load   pamiec dlugoterminowa .. <b>OK</b>',
-  'sense.geo  lokalizacja ............ <b>OK</b>',
-  'ui.stage   przestrzen robocza ..... <b>OK</b>',
-  'system gotowy. <b>WSZYSTKIE UKLADY SPRAWNE</b>',
+  'Budze rdzen...',
+  'Laczenie z pamiecia...',
+  'Otwieranie kanalu glosowego...',
+  'Gotowe.',
 ];
 
 function bootVisual(cv) {
@@ -3297,19 +3464,30 @@ function bootVisual(cv) {
     const c = size / 2;
     t += 0.02;
 
-    for (let i = 0; i < 4; i++) {
-      const p = (t * 0.4 + i * 0.25) % 1;
-      ctx.beginPath();
-      ctx.arc(c, c, p * c * 0.95, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(34, 224, 255, ${(1 - p) * 0.7})`;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
+    // Miekka poswiata + smukly pierscien wypelniania - minimalistyczny
+    // splash zamiast dawnego terminalowego dziennika rozruchu.
+    const glow = ctx.createRadialGradient(c, c, 0, c, c, c);
+    glow.addColorStop(0, 'rgba(124, 108, 255, 0.22)');
+    glow.addColorStop(1, 'rgba(124, 108, 255, 0)');
+    ctx.beginPath();
+    ctx.arc(c, c, c, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(c, c, c * 0.3, t * 2, t * 2 + Math.PI * 1.3);
-    ctx.strokeStyle = 'rgba(34, 224, 255, 0.95)';
-    ctx.lineWidth = 2.5;
+    ctx.arc(c, c, c * 0.72, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(c, c, c * 0.72, t * 2.2, t * 2.2 + Math.PI * 0.6);
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, '#7c6cff');
+    grad.addColorStop(1, '#22d3ee');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
     ctx.stroke();
 
     requestAnimationFrame(draw);
@@ -3321,9 +3499,8 @@ async function runBoot() {
   const log = $('#bootLog');
   bootVisual($('#bootCanvas'));
   for (const line of BOOT_LINES) {
-    log.innerHTML += `${line}\n`;
-    log.scrollTop = log.scrollHeight;
-    await new Promise((r) => setTimeout(r, 170));
+    log.textContent = line;
+    await new Promise((r) => setTimeout(r, 320));
   }
 }
 

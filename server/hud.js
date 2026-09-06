@@ -8,6 +8,7 @@
 // tresci ze spotkan - to nie sa dane dla trybu goscia.
 
 import * as bus from './bus.js';
+import { handleDeviceMessage, unregisterDevice } from './devices.js';
 
 const HEARTBEAT_MS = 25000;
 
@@ -67,20 +68,26 @@ export function attachHud(ws) {
   }, HEARTBEAT_MS);
 
   ws.on('message', (raw) => {
-    // Jedyne, co przyjmujemy od klienta, to ping - HUD nie steruje niczym
-    // przez ten kanal, od tego sa zwykle endpointy REST z autoryzacja.
+    // Poza pingiem, klient moze tylko zglosic sie do rejestru urzadzen
+    // (device.hello/device.relay) - patrz devices.js. HUD sam niczym nie
+    // steruje, od tego sa zwykle endpointy REST z autoryzacja.
     let msg = null;
     try {
       msg = JSON.parse(String(raw));
     } catch {
       return;
     }
-    if (msg?.type === 'ping') send(ws, { type: 'pong', at: Date.now() });
+    if (msg?.type === 'ping') {
+      send(ws, { type: 'pong', at: Date.now() });
+      return;
+    }
+    handleDeviceMessage(ws, msg);
   });
 
   const close = () => {
     clearInterval(beat);
     clients.delete(ws);
+    unregisterDevice(ws);
   };
 
   ws.on('close', close);

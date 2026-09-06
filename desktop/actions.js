@@ -119,6 +119,22 @@ const ACTIONS = {
     await shell.openExternal('https://google.com');
     return { ok: true };
   },
+  'otworz-discord': async () => {
+    await shell.openExternal('discord:').catch(() => shell.openExternal('https://discord.com/app'));
+    return { ok: true };
+  },
+  'otworz-teams': async () => {
+    await shell.openExternal('msteams:').catch(() => shell.openExternal('https://teams.microsoft.com'));
+    return { ok: true };
+  },
+  'otworz-slack': async () => {
+    await shell.openExternal('slack://open').catch(() => shell.openExternal('https://slack.com/signin'));
+    return { ok: true };
+  },
+  'otworz-vscode': async () => {
+    await shell.openExternal('vscode://').catch(() => runWindowsCommand('code'));
+    return { ok: true };
+  },
   'otworz-eksplorator': async () => runWindowsCommand('explorer.exe'),
   'zablokuj-ekran': async () => runWindowsCommand('rundll32.exe user32.dll,LockWorkStation'),
   glosniej: async () => tapKey(VK.VOL_UP, 3),
