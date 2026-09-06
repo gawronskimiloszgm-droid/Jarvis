@@ -17,7 +17,7 @@
   <!-- Ekran startowy -->
   <div class="boot" id="boot">
     <canvas class="boot-canvas" id="bootCanvas"></canvas>
-    <div class="boot-name" id="bootName">Jarvis</div>
+    <div class="boot-name" id="bootName">J A R V I S</div>
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
@@ -99,40 +99,32 @@
     </header>
 
     <div class="ops-body">
-      <nav class="ops-nav" id="opsNav">
-        <span class="nav-cap">Moduly</span>
-        <div class="nav-list" id="navList"></div>
-        <div class="nav-foot">
-          <span class="nav-cap">Rdzen AI</span>
-          <div class="bar"><i id="loadBar"></i></div>
-          <span class="nav-meta" id="loadMeta">gotowy</span>
-        </div>
-      </nav>
-
-      <main class="ops-main" id="opsMain">
-        <div class="mod-head">
-          <div>
-            <h1 id="modTitle">Pulpit</h1>
-            <p id="modSub">przeglad operacyjny</p>
+      <div class="board" id="board">
+        <!-- Rozmowa - zawsze na tablicy, bez przycisku zamkniecia, ale
+             rownie przeciagalna/skalowalna jak kazde inne holo-okno. -->
+        <section class="holo-window" data-win="talk" id="winTalk">
+          <div class="holo-titlebar" data-drag>
+            <span class="holo-dot"></span>
+            <span class="holo-title"><span class="holo-ico">&#9673;</span>Rozmowa</span>
+            <span class="holo-badge" id="sideCount">0</span>
           </div>
-          <span class="mod-badge" id="modBadge"></span>
-        </div>
-        <div class="mod-body" id="modBody"></div>
-      </main>
-
-      <aside class="ops-side">
-        <div class="side-core">
-          <canvas id="sideCore"></canvas>
-          <div class="side-state" id="sideState">Gotowy</div>
-        </div>
-        <div class="side-head"><span>Rozmowa</span><b id="sideCount">0</b></div>
-        <div class="feed" id="talkFeed"></div>
-        <form class="side-form" id="talkForm">
-          <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
-          <button class="btn primary" type="submit">&rarr;</button>
-        </form>
-      </aside>
+          <div class="holo-body">
+            <div class="side-core">
+              <canvas id="sideCore"></canvas>
+              <div class="side-state" id="sideState">Gotowy</div>
+            </div>
+            <div class="feed" id="talkFeed"></div>
+            <form class="side-form" id="talkForm">
+              <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
+              <button class="btn primary" type="submit">&rarr;</button>
+            </form>
+          </div>
+          <div class="holo-resize" data-resize></div>
+        </section>
+      </div>
     </div>
+
+    <nav class="dock" id="dock"></nav>
   </div>
 
   <!-- Paleta polecen -->

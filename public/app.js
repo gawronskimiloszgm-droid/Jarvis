@@ -101,12 +101,285 @@ const MODULES = [
   { id: 'logs', title: 'Logi', sub: 'strumien zdarzen', panels: ['logs'] },
 ];
 
-const MOUNTED = new Map();
-const LIVE_PANELS = new Set();
-let activeModule = null;
+const MODULE_ICONS = {
+  dash: '◈', sys: '◉', tasks: '☷', know: '⚙', money: '◆',
+  eye: '◉', perimeter: '△', machine: '■', sentinel: '◎', cad: '⬢',
+  find: '●', dev: '⬡', agent: '◇', set: '⚙', logs: '≡',
+};
 
+const LIVE_PANELS = new Set();
 const panelLive = (id) => LIVE_PANELS.has(id);
 const moduleById = (id) => MODULES.find((m) => m.id === id);
+
+// ---------- Silnik holo-okien (swobodna tablica) ----------
+//
+// Zamiast jednego widocznego modulu w stalym ukladzie: kazdy modul to
+// niezalezne okno na planszy (#board), ktore mozna przeciagac, skalowac i
+// zamykac. Uklad (pozycja/rozmiar/czy otwarte) zapisuje sie lokalnie per
+// okno, wiec plansza wraca dokladnie taka, jaka ja zostawiles.
+
+const WINDOWS = new Map(); // id -> { win, body }
+const openIds = new Set();
+let activeModule = null; // ostatnio dotkniete okno - do polaczen typu "odswiezaj tylko gdy widoczne"
+let topZ = 10;
+let cascadeN = 0;
+
+function isWindowOpen(id) {
+  return openIds.has(id);
+}
+
+function winKey(id) {
+  return `jarvis.win.${id}`;
+}
+
+function loadWinState(id) {
+  try {
+    return JSON.parse(localStorage.getItem(winKey(id)));
+  } catch {
+    return null;
+  }
+}
+
+function saveWinState(id, patch) {
+  try {
+    localStorage.setItem(winKey(id), JSON.stringify({ ...loadWinState(id), ...patch }));
+  } catch {
+    /* localStorage moze byc niedostepny (tryb prywatny) - uklad po prostu nie przetrwa */
+  }
+}
+
+function defaultGeometry() {
+  const w = Math.min(400, window.innerWidth - 40);
+  const h = Math.min(360, window.innerHeight - 190);
+  const step = cascadeN % 6;
+  cascadeN++;
+  return { x: 24 + step * 26, y: 24 + step * 22, w, h };
+}
+
+// Okno nie moze uciec calkiem poza ekran - inaczej latwo je "zgubic"
+// przeciagajac za krawedz, bez zadnego sposobu, zeby je odzyskac.
+function clampGeometry(x, y, w, h) {
+  const maxX = Math.max(4, window.innerWidth - Math.min(160, w));
+  const maxY = Math.max(4, window.innerHeight - Math.min(120, h) - 60);
+  return { x: Math.min(Math.max(4, x), maxX), y: Math.min(Math.max(4, y), maxY) };
+}
+
+function bringToFront(win) {
+  topZ += 1;
+  win.style.zIndex = String(topZ);
+}
+
+function makeDraggable(win, id) {
+  const bar = win.querySelector('[data-drag]');
+  if (!bar) return;
+  let dragging = false;
+  let ox = 0;
+  let oy = 0;
+
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    bar.setPointerCapture(e.pointerId);
+    ox = e.clientX - win.offsetLeft;
+    oy = e.clientY - win.offsetTop;
+    bringToFront(win);
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const { x, y } = clampGeometry(e.clientX - ox, e.clientY - oy, win.offsetWidth, win.offsetHeight);
+    win.style.left = `${x}px`;
+    win.style.top = `${y}px`;
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    saveWinState(id, { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight, open: true });
+  };
+  bar.addEventListener('pointerup', stop);
+  bar.addEventListener('pointercancel', stop);
+}
+
+function makeResizable(win, id, minW = 260, minH = 180) {
+  const handle = win.querySelector('[data-resize]');
+  if (!handle) return;
+  let resizing = false;
+
+  handle.addEventListener('pointerdown', (e) => {
+    resizing = true;
+    handle.setPointerCapture(e.pointerId);
+    bringToFront(win);
+    e.stopPropagation();
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    const rect = win.getBoundingClientRect();
+    const w = Math.max(minW, Math.min(window.innerWidth - rect.left - 8, e.clientX - rect.left));
+    const h = Math.max(minH, Math.min(window.innerHeight - rect.top - 8, e.clientY - rect.top));
+    win.style.width = `${w}px`;
+    win.style.height = `${h}px`;
+  });
+  const stop = () => {
+    if (!resizing) return;
+    resizing = false;
+    saveWinState(id, { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight, open: true });
+  };
+  handle.addEventListener('pointerup', stop);
+  handle.addEventListener('pointercancel', stop);
+}
+
+function applyGeometry(win, geo) {
+  win.style.left = `${geo.x}px`;
+  win.style.top = `${geo.y}px`;
+  win.style.width = `${geo.w}px`;
+  win.style.height = `${geo.h}px`;
+}
+
+function buildWindowChrome(id, title, icon) {
+  const win = el('section', 'holo-window');
+  win.dataset.win = id;
+
+  const bar = el('div', 'holo-titlebar');
+  bar.setAttribute('data-drag', '');
+  const titleEl = el('span', 'holo-title');
+  titleEl.append(el('span', 'holo-ico', icon || '◇'), document.createTextNode(title));
+  const controls = el('div', 'holo-controls');
+  const closeBtn = el('button', 'holo-x', '×');
+  closeBtn.type = 'button';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeWindow(id);
+  });
+  controls.appendChild(closeBtn);
+  bar.append(el('span', 'holo-dot'), titleEl, controls);
+
+  const body = el('div', 'holo-body');
+  const resize = el('div', 'holo-resize');
+  resize.setAttribute('data-resize', '');
+
+  win.append(bar, body, resize);
+  win.addEventListener('pointerdown', () => bringToFront(win));
+  makeDraggable(win, id);
+  makeResizable(win, id);
+  return { win, body };
+}
+
+function openWindow(id) {
+  const mod = moduleById(id);
+  if (!mod) return;
+  if (mod.owner && !isOwner()) {
+    toast('Ten modul wymaga zalogowania.');
+    return;
+  }
+
+  let entry = WINDOWS.get(id);
+  if (!entry) {
+    const { win, body } = buildWindowChrome(id, mod.title, MODULE_ICONS[id]);
+    mod.panels.forEach((pid) => {
+      const def = PANEL_DEFS[pid];
+      if (!def) return;
+      const card = el('div', `card${def.wide ? ' wide' : ''}`);
+      const head = el('div', 'card-head');
+      head.append(el('span', 'gl', def.glyph), el('span', null, def.title));
+      const cbody = el('div', 'card-body');
+      card.append(head, cbody);
+      body.appendChild(card);
+      LIVE_PANELS.add(pid);
+      def.build(cbody);
+    });
+    $('#board').appendChild(win);
+    entry = { win, body };
+    WINDOWS.set(id, entry);
+    applyGeometry(win, loadWinState(id) || defaultGeometry());
+  }
+
+  entry.win.hidden = false;
+  openIds.add(id);
+  bringToFront(entry.win);
+  mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
+  // Zapisujemy PELNA geometrie (nie tylko "open") - inaczej to wywolanie
+  // scalaloby sie z tym, co jest w localStorage TERAZ i przy pierwszym
+  // otwarciu (gdy jeszcze nic tam nie ma) wycieloby x/y/w/h ustawione
+  // przez applyGeometry przed chwila, zostawiajac tylko {open:true} na
+  // zawsze - okno traci pozycje przy kazdym kolejnym wczytaniu strony.
+  saveWinState(id, { x: entry.win.offsetLeft, y: entry.win.offsetTop, w: entry.win.offsetWidth, h: entry.win.offsetHeight, open: true });
+  activeModule = id;
+  syncDock();
+}
+
+function closeWindow(id) {
+  const entry = WINDOWS.get(id);
+  if (!entry) return;
+  entry.win.hidden = true;
+  openIds.delete(id);
+  saveWinState(id, { open: false });
+  syncDock();
+}
+
+function buildDock() {
+  const dock = $('#dock');
+  dock.innerHTML = '';
+  MODULES.forEach((m) => {
+    const b = el('button', 'dock-btn');
+    b.type = 'button';
+    b.dataset.mod = m.id;
+    b.append(el('span', 'dock-ico', MODULE_ICONS[m.id] || '◇'), el('span', 'dock-lbl', m.title));
+    b.addEventListener('click', () => openWindow(m.id));
+    dock.appendChild(b);
+  });
+  syncDock();
+}
+
+function syncDock() {
+  document.querySelectorAll('.dock-btn').forEach((b) => {
+    const m = moduleById(b.dataset.mod);
+    b.classList.toggle('on', openIds.has(b.dataset.mod));
+    b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
+  });
+}
+
+// Pierwsze uruchomienie: otwieramy tylko Pulpit. Kolejne wizyty: przywracamy
+// dokladnie to, co bylo otwarte (uklad, ktory user zostawil) - zgodnie z
+// zalozeniem "przestrzen robocza zapamietuje sie miedzy uruchomieniami".
+function restoreBoard() {
+  const anySaved = MODULES.some((m) => localStorage.getItem(winKey(m.id)) != null);
+  if (!anySaved) {
+    openWindow('dash');
+    return;
+  }
+  MODULES.forEach((m) => {
+    if (loadWinState(m.id)?.open && (!m.owner || isOwner())) openWindow(m.id);
+  });
+}
+
+// Po wylogowaniu okna wlasciciela znikaja RAZEM z wczytana trescia -
+// inaczej gosc zobaczylby cudze zadania czy pamiec.
+function dropOwnerModules() {
+  MODULES.filter((m) => m.owner).forEach((m) => {
+    const entry = WINDOWS.get(m.id);
+    if (!entry) return;
+    if (m.id === 'eye') camOff();
+    entry.win.remove();
+    WINDOWS.delete(m.id);
+    openIds.delete(m.id);
+    m.panels.forEach((p) => LIVE_PANELS.delete(p));
+  });
+  if (!openIds.size) openWindow('dash');
+  syncDock();
+}
+
+// Rozmowa jest jedynym holo-oknem, ktore juz istnieje w znaczniku strony
+// (nie buduje go PANEL_DEFS) - tylko podpinamy przeciaganie/skalowanie i
+// przywracamy zapisany uklad, tak samo jak przy oknach modulow.
+function initTalkWindow() {
+  const win = $('#winTalk');
+  if (!win) return;
+  makeDraggable(win, 'talk');
+  makeResizable(win, 'talk', 300, 320);
+  win.addEventListener('pointerdown', () => bringToFront(win));
+  const saved = loadWinState('talk') || { x: window.innerWidth - 380, y: 24, w: 356, h: Math.min(560, window.innerHeight - 140) };
+  applyGeometry(win, { ...saved, ...clampGeometry(saved.x, saved.y, saved.w, saved.h) });
+  bringToFront(win);
+}
 
 // ---------- Dziennik zdarzen ----------
 // Prawdziwe zdarzenia aplikacji, nie generowany szum: logowanie, mikrofon,
@@ -144,7 +417,7 @@ function drawLogs() {
 function enterOps(moduleId) {
   $('#idle').hidden = true;
   $('#ops').hidden = false;
-  showModule(moduleId || activeModule || 'dash');
+  if (moduleId) openWindow(moduleId);
 }
 
 function exitOps() {
@@ -156,100 +429,6 @@ function opsVisible() {
   return !$('#ops').hidden;
 }
 
-// ---------- Kolumna modulow ----------
-
-function buildNav() {
-  const list = $('#navList');
-  list.innerHTML = '';
-  MODULES.forEach((m, i) => {
-    const b = el('button', 'nav-btn');
-    b.dataset.mod = m.id;
-    b.append(
-      el('span', 'num', String(i + 1).padStart(2, '0')),
-      el('span', 'lbl', m.title),
-      el('span', 'badge', m.badge || '')
-    );
-    b.addEventListener('click', () => showModule(m.id));
-    list.appendChild(b);
-  });
-  syncNav();
-}
-
-function syncNav() {
-  document.querySelectorAll('[data-mod]').forEach((b) => {
-    const m = moduleById(b.dataset.mod);
-    b.classList.toggle('on', b.dataset.mod === activeModule);
-    b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
-  });
-}
-
-function mountModule(id) {
-  const mod = moduleById(id);
-  if (!mod) return null;
-  if (mod.owner && !isOwner()) return null;
-
-  const existing = MOUNTED.get(id);
-  if (existing) return existing;
-
-  const section = el('div', 'cards');
-  mod.panels.forEach((pid) => {
-    const def = PANEL_DEFS[pid];
-    if (!def) return;
-    const card = el('div', `card${def.wide ? ' wide' : ''}`);
-    const head = el('div', 'card-head');
-    head.append(el('span', 'gl', def.glyph), el('span', null, def.title));
-    const body = el('div', 'card-body');
-    card.append(head, body);
-    section.appendChild(card);
-    LIVE_PANELS.add(pid);
-    def.build(body);
-  });
-  section.hidden = true;
-  $('#modBody').appendChild(section);
-  MOUNTED.set(id, section);
-  return section;
-}
-
-function showModule(id) {
-  const mod = moduleById(id);
-  if (!mod) return;
-  if (mod.owner && !isOwner()) {
-    toast('Ten modul wymaga zalogowania.');
-    return;
-  }
-
-  const section = mountModule(id);
-  if (!section) return;
-  mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
-
-  MOUNTED.forEach((sec, key) => {
-    sec.hidden = key !== id;
-  });
-
-  $('#modTitle').textContent = mod.title;
-  $('#modSub').textContent = mod.sub;
-  const badge = $('#modBadge');
-  badge.textContent = mod.badge || '';
-  badge.hidden = !mod.badge;
-
-  activeModule = id;
-  syncNav();
-}
-
-// Po wylogowaniu moduly wlasciciela znikaja RAZEM z wczytana trescia -
-// inaczej gosc zobaczylby cudze zadania czy pamiec.
-function dropOwnerModules() {
-  MODULES.filter((m) => m.owner).forEach((m) => {
-    const sec = MOUNTED.get(m.id);
-    if (!sec) return;
-    if (m.id === 'eye') camOff();
-    sec.remove();
-    MOUNTED.delete(m.id);
-    m.panels.forEach((p) => LIVE_PANELS.delete(p));
-  });
-  if (!activeModule || moduleById(activeModule)?.owner) showModule('dash');
-  syncNav();
-}
 
 // ---------- Projektowanie 3D ----------
 
@@ -1497,11 +1676,11 @@ function startGalaxy(cv) {
 // potrzeby silnika 3D/WebGL (appka celowo zostaje przy 2D canvas, zeby
 // dzialac w pelni offline jako PWA).
 
-// Paleta rdzenia - fioletowo-blekitna plazma (spojna z akcentem calego
-// interfejsu, --blue/--ice), zamiast dawnego pomaranczowego ognia.
-const CORE_ORANGE = (a) => `rgba(124, 92, 255, ${a})`;
-const CORE_AMBER = (a) => `rgba(99, 150, 255, ${a})`;
-const CORE_HOT = (a) => `rgba(180, 210, 255, ${a})`;
+// Paleta rdzenia - reaktor cyjanowo-blekitny (spojny z akcentem --blue/--ice
+// calego interfejsu), zamiast dawnego pomaranczowego ognia.
+const CORE_ORANGE = (a) => `rgba(51, 224, 255, ${a})`;
+const CORE_AMBER = (a) => `rgba(80, 190, 255, ${a})`;
+const CORE_HOT = (a) => `rgba(190, 240, 255, ${a})`;
 const CORE_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
 
 // Uklad wlokien/iskier/wezlow losowany RAZ przy starcie (nie w kazdej
@@ -1593,13 +1772,13 @@ function ellipseRing(ctx, cx, cy, base, r, squash, tilt, color, lw) {
 // Napis rysujemy litera po literze. ctx.letterSpacing jest nowe i nie
 // wszedzie dziala, a odstep miedzy literami to tu polowa charakteru.
 function drawWordmark(ctx, cx, cy, base, lvl) {
-  const word = 'Jarvis';
-  const size = base * 0.17;
-  ctx.font = `800 ${size}px 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif`;
+  const word = 'JARVIS';
+  const size = base * 0.14;
+  ctx.font = `600 ${size}px 'JetBrains Mono', 'SF Mono', 'Consolas', monospace`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
 
-  const gap = size * 0.02;
+  const gap = size * 0.32;
   const widths = [...word].map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
 
@@ -1677,7 +1856,7 @@ function startCoreVisual(cv, seed = 42) {
     const breathe = 0.5 + Math.sin(t * 0.85) * 0.5;
     halo.addColorStop(0, CORE_ORANGE(0.16 + lvl * 0.2 + breathe * 0.04));
     halo.addColorStop(0.65, CORE_ORANGE(0.05 + lvl * 0.08));
-    halo.addColorStop(1, 'rgba(124, 92, 255, 0)');
+    halo.addColorStop(1, 'rgba(51, 224, 255, 0)');
     ctx.beginPath();
     ctx.arc(cx, cy, base * 1.08, 0, Math.PI * 2);
     ctx.fillStyle = halo;
@@ -1737,7 +1916,7 @@ function startCoreVisual(cv, seed = 42) {
       const grad = bloomCtx.createLinearGradient(cx, cy, cx + Math.cos(ang) * endR, cy + Math.sin(ang) * endR);
       grad.addColorStop(0, CORE_HOT(0.6 + pulse * 0.25 + lvl * 0.2));
       grad.addColorStop(0.4, CORE_ORANGE(0.36 + pulse * 0.14 + lvl * 0.15));
-      grad.addColorStop(1, 'rgba(124, 92, 255, 0)');
+      grad.addColorStop(1, 'rgba(51, 224, 255, 0)');
       bloomCtx.strokeStyle = grad;
       bloomCtx.lineWidth = f.width * (0.8 + lvl * 0.6);
       bloomCtx.stroke();
@@ -1801,7 +1980,7 @@ function startCoreVisual(cv, seed = 42) {
     core.addColorStop(0, CORE_WHITE(0.95));
     core.addColorStop(0.3, CORE_HOT(0.75 + lvl * 0.2));
     core.addColorStop(0.65, CORE_ORANGE(0.4 + lvl * 0.15));
-    core.addColorStop(1, 'rgba(124, 92, 255, 0)');
+    core.addColorStop(1, 'rgba(51, 224, 255, 0)');
     bloomCtx.beginPath();
     bloomCtx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
     bloomCtx.fillStyle = core;
@@ -2144,7 +2323,7 @@ function startMachinePolling() {
   machineTimer = setInterval(() => {
     const visible =
       panelLive('machine') &&
-      activeModule === 'machine' &&
+      isWindowOpen('machine') &&
       opsVisible() &&
       document.visibilityState === 'visible';
     if (visible) loadMachines();
@@ -3370,13 +3549,16 @@ function applyRole(role) {
   const changed = store.role !== role;
   store.role = role;
   if (role === 'owner') {
+    // Okna wlasciciela zamkniete przy poprzednim wylogowaniu wracaja, jesli
+    // byly otwarte, gdy zniknely - ta sama zasada co przy zwyklym starcie.
+    MODULES.filter((m) => m.owner && loadWinState(m.id)?.open && !isWindowOpen(m.id)).forEach((m) => openWindow(m.id));
     refreshOwnerPanes();
     hudConnect();
   } else {
     dropOwnerModules();
     hudDisconnect();
   }
-  syncNav();
+  syncDock();
   refreshHeadStats();
   if (changed) logEvent('auth', role === 'owner' ? 'zalogowano wlasciciela' : 'tryb goscia');
 }
@@ -3467,8 +3649,8 @@ function bootVisual(cv) {
     // Miekka poswiata + smukly pierscien wypelniania - minimalistyczny
     // splash zamiast dawnego terminalowego dziennika rozruchu.
     const glow = ctx.createRadialGradient(c, c, 0, c, c, c);
-    glow.addColorStop(0, 'rgba(124, 108, 255, 0.22)');
-    glow.addColorStop(1, 'rgba(124, 108, 255, 0)');
+    glow.addColorStop(0, 'rgba(51, 224, 255, 0.22)');
+    glow.addColorStop(1, 'rgba(51, 224, 255, 0)');
     ctx.beginPath();
     ctx.arc(c, c, c, 0, Math.PI * 2);
     ctx.fillStyle = glow;
@@ -3483,8 +3665,8 @@ function bootVisual(cv) {
     ctx.beginPath();
     ctx.arc(c, c, c * 0.72, t * 2.2, t * 2.2 + Math.PI * 0.6);
     const grad = ctx.createLinearGradient(0, 0, size, size);
-    grad.addColorStop(0, '#7c6cff');
-    grad.addColorStop(1, '#22d3ee');
+    grad.addColorStop(0, '#33e0ff');
+    grad.addColorStop(1, '#9df3ff');
     ctx.strokeStyle = grad;
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
@@ -3535,8 +3717,9 @@ async function boot() {
 
   startGalaxy($('#galaxyCanvas'));
 
-  buildNav();
-  showModule('dash');
+  buildDock();
+  initTalkWindow();
+  restoreBoard();
   refreshHeadStats();
   drawIdleCards();
 
