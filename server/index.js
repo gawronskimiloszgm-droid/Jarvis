@@ -9,53 +9,53 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
-import * as jarvis from './jarvis.js';
-import * as tts from './tts.js';
-import * as memory from './memory.js';
-import * as push from './push.js';
-import * as image from './image.js';
-import * as cad from './cad.js';
-import * as bus from './bus.js';
-import { attachHud } from './hud.js';
-import devicesRouter from './devices.js';
-import agentCoreRouter from './agentCore.js';
-import proactiveRouter from './proactive.js';
+import * as jarvis from './core/jarvis.js';
+import * as tts from './voice/tts.js';
+import * as memory from './memory/memory.js';
+import * as push from './connect/push.js';
+import * as image from './vision/image.js';
+import * as cad from './home/cad.js';
+import * as bus from './core/bus.js';
+import { attachHud } from './core/hud.js';
+import devicesRouter from './home/devices.js';
+import agentCoreRouter from './core/agentCore.js';
+import proactiveRouter from './home/proactive.js';
 
 // --- pamiec i kontekst ---
-import { episodicMemoryRouter } from './episodicMemory.js';
-import { factsRouter } from './factLifecycle.js';
-import { knowledgeGraphRouter } from './knowledgeGraph.js';
-import { memoryExportRouter } from './memoryExport.js';
-import { memorySearchRouter } from './memorySearch.js';
-import { memoryVersionsRouter } from './memoryVersions.js';
-import { relationsRouter } from './relations.js';
+import { episodicMemoryRouter } from './memory/episodicMemory.js';
+import { factsRouter } from './memory/factLifecycle.js';
+import { knowledgeGraphRouter } from './memory/knowledgeGraph.js';
+import { memoryExportRouter } from './memory/memoryExport.js';
+import { memorySearchRouter } from './memory/memorySearch.js';
+import { memoryVersionsRouter } from './memory/memoryVersions.js';
+import { relationsRouter } from './memory/relations.js';
 
 // --- glos i rozmowa ---
-import bargeInRouter from './bargeIn.js';
-import conversationStatsRouter from './conversationStats.js';
-import languageDetectRouter from './languageDetect.js';
-import liveTranscriptRouter from './liveTranscript.js';
-import moodDetectRouter from './moodDetect.js';
-import nightModeRouter from './nightMode.js';
-import routineMacrosRouter from './routineMacros.js';
-import sessionLogRouter from './sessionLog.js';
-import voiceHistoryRouter from './voiceHistory.js';
-import wakeWordsRouter from './wakeWords.js';
+import bargeInRouter from './voice/bargeIn.js';
+import conversationStatsRouter from './voice/conversationStats.js';
+import languageDetectRouter from './voice/languageDetect.js';
+import liveTranscriptRouter from './voice/liveTranscript.js';
+import moodDetectRouter from './voice/moodDetect.js';
+import nightModeRouter from './voice/nightMode.js';
+import routineMacrosRouter from './voice/routineMacros.js';
+import sessionLogRouter from './memory/sessionLog.js';
+import voiceHistoryRouter from './voice/voiceHistory.js';
+import wakeWordsRouter from './voice/wakeWords.js';
 
 // --- dom / IoT ---
 import iotRouter from '../modules/iot/index.js';
 
 // --- kalendarz i produktywnosc ---
-import { router as productivityRouter } from './productivity.js';
-import { router as outlookRouter } from './outlookCalendar.js';
+import { router as productivityRouter } from './connect/productivity.js';
+import { router as outlookRouter } from './connect/outlookCalendar.js';
 
 // --- zdrowie i dobrostan ---
-import { router as healthRouter } from './health.js';
-import { router as googleFitRouter } from './googleFit.js';
-import { router as mealVisionRouter } from './mealVision.js';
+import { router as healthRouter } from './connect/health.js';
+import { router as googleFitRouter } from './connect/googleFit.js';
+import { router as mealVisionRouter } from './vision/mealVision.js';
 
 // --- finanse ---
-import financeRouter from './finance.js';
+import financeRouter from './connect/finance.js';
 
 // --- bezpieczenstwo / sentinel / perimeter ---
 import priceWatchRoutes from './routes/priceWatch.js';
@@ -71,37 +71,37 @@ import loginWatchRoutes from './routes/loginWatch.js';
 import { recordLogin } from '../modules/security/loginWatch.js';
 
 // --- wizja / kamera ---
-import vision2Router from './vision2.js';
-import pantryRouter from './pantry.js';
-import plantCareRouter from './plantCare.js';
-import outfitCheckRouter from './outfitCheck.js';
-import productIdRouter from './productId.js';
-import docSummaryRouter from './docSummary.js';
-import roomRepaintRouter from './roomRepaint.js';
+import vision2Router from './vision/vision2.js';
+import pantryRouter from './connect/pantry.js';
+import plantCareRouter from './connect/plantCare.js';
+import outfitCheckRouter from './vision/outfitCheck.js';
+import productIdRouter from './vision/productId.js';
+import docSummaryRouter from './vision/docSummary.js';
+import roomRepaintRouter from './vision/roomRepaint.js';
 
 // --- CAD / druk 3D ---
 import cadExtraRouter from '../modules/cad-extra/index.js';
 
 // --- komunikacja ---
-import commsRouter from './comms.js';
+import commsRouter from './connect/comms.js';
 
 // --- podroze i transport ---
 import travelRouter from './travel/index.js';
 
 // --- wiedza / research ---
-import knowledgeBaseRouter from './knowledgeBase.js';
-import researchRouter from './research.js';
+import knowledgeBaseRouter from './memory/knowledgeBase.js';
+import researchRouter from './connect/research.js';
 
 // --- sterowanie / rozrywka / meta ---
-import desktopAppsRouter from './desktopApps.js';
-import entertainmentRouter from './entertainment.js';
-import gamesRouter from './games.js';
-import metaRouter from './meta.js';
-import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './cameras.js';
-import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './telemetry.js';
-import { maybeSendBriefing } from './briefing.js';
-import * as printer from './printer.js';
-import * as calendar from './calendar.js';
+import desktopAppsRouter from './connect/desktopApps.js';
+import entertainmentRouter from './connect/entertainment.js';
+import gamesRouter from './connect/games.js';
+import metaRouter from './core/meta.js';
+import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './vision/cameras.js';
+import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './home/telemetry.js';
+import { maybeSendBriefing } from './core/briefing.js';
+import * as printer from './home/printer.js';
+import * as calendar from './connect/calendar.js';
 import { scanReceipt } from '../modules/receipts/scan.js';
 import {
   listTopics as listSentinelTopics,
@@ -110,10 +110,10 @@ import {
   setPaused as setSentinelPaused,
   getFindings as getSentinelFindings,
   sweep as sweepSentinelNow,
-} from './sentinel.js';
-import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voiceLive.js';
-import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './auth.js';
-import { startUpkeep } from './upkeep.js';
+} from './home/sentinel.js';
+import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voice/voiceLive.js';
+import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './core/auth.js';
+import { startUpkeep } from './core/upkeep.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

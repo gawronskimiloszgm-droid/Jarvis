@@ -12,8 +12,8 @@
 // tylko EKSPORTUJE funkcje - index.js jest na liscie zakazanych do edycji
 // w tym batchu.
 
-import * as memory from '../../server/memory.js';
-import * as bus from '../../server/bus.js';
+import * as memory from '../../server/memory/memory.js';
+import * as bus from '../../server/core/bus.js';
 
 const MAX_HISTORY = 200;
 // Ile godzin tolerancji wokol dotychczas widzianych por logowania, zanim

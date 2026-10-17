@@ -7,7 +7,7 @@
 // Gemini), 404 gdy nie znaleziono zasobu po id.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 
 import * as flights from './flights.js';
 import * as transit from './transit.js';

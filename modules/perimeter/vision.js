@@ -7,9 +7,9 @@
 // i zwalnialo odpowiedz bez żadnej korzysci.
 
 import { GoogleGenAI } from '@google/genai';
-import { imagePart } from '../../server/vision.js';
+import { imagePart } from '../../server/vision/vision.js';
 
-import { withModel } from '../../server/geminiChain.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

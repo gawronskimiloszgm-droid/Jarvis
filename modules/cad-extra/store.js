@@ -4,7 +4,7 @@
 // na calym obiekcie stanu, wiec caly ten katalog trzyma swoje dane pod
 // jednym nowym kluczem `cadExtra`, tak jak np. `routines` czy `expenses`).
 
-import { load, save } from '../../server/memory.js';
+import { load, save } from '../../server/memory/memory.js';
 
 function ensureCadExtra(data) {
   if (!data.cadExtra || typeof data.cadExtra !== 'object') {

@@ -1,8 +1,8 @@
 // Router HTTP dla kamer RTSP zewnetrznych (modules/security/rtspCamera.js).
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
-import * as bus from '../bus.js';
+import { requireOwner } from '../core/auth.js';
+import * as bus from '../core/bus.js';
 import { listConfiguredCameras, captureFrame, isFfmpegAvailable } from '../../modules/security/rtspCamera.js';
 
 const router = Router();

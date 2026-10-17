@@ -7,7 +7,7 @@
 
 import { nanoid } from 'nanoid';
 import { readData, writeData, round } from './store.js';
-import { get as getCadModel } from '../../server/cad.js';
+import { get as getCadModel } from '../../server/home/cad.js';
 import { recordPrinted } from './filament.js';
 
 // Gramy na godzine przy typowym 20% wypelnieniu i sredniej predkosci -

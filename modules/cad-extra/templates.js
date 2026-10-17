@@ -7,7 +7,7 @@
 // dzieki temu utworzony model od razu dziala z istniejacymi endpointami
 // /api/cad/:id, /api/cad/:id/stl i /api/cad/:id/print.
 
-import { create as createDesign, createAssembly } from '../../server/cad.js';
+import { create as createDesign, createAssembly } from '../../server/home/cad.js';
 
 // Otwory montazowe Raspberry Pi (Model 2B/3B/4B) sa w rozstawie 58x49 mm,
 // wciete 3.5 mm od krawedzi plytki 85x56 mm - podstawke robimy troche

@@ -10,9 +10,9 @@
 // dla odprawy porannej/wieczornej.
 
 import * as scenes from './scenes.js';
-import * as bus from '../../server/bus.js';
-import { getWeather } from '../../server/weather.js';
-import { load, save } from '../../server/memory.js';
+import * as bus from '../../server/core/bus.js';
+import { getWeather } from '../../server/core/weather.js';
+import { load, save } from '../../server/memory/memory.js';
 import { nanoid } from 'nanoid';
 
 const TOLERANCE_MIN = Number(process.env.IOT_SCHEDULE_TOLERANCE_MIN || 10);

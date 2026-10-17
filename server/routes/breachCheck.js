@@ -3,8 +3,8 @@
 // serwera i historii przegladarki), a poza ta funkcja nigdzie dalej.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
-import * as bus from '../bus.js';
+import { requireOwner } from '../core/auth.js';
+import * as bus from '../core/bus.js';
 import { checkPasswordBreach, checkEmailBreach, isEmailCheckConfigured } from '../../modules/security/breachCheck.js';
 
 const router = Router();

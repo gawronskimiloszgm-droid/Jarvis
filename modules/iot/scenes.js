@@ -5,7 +5,7 @@
 // przerywania na pierwszym bledzie, plus log co sie udalo/nie udalo.
 
 import * as ha from './homeAssistant.js';
-import * as bus from '../../server/bus.js';
+import * as bus from '../../server/core/bus.js';
 import * as lockModule from './lock.js';
 
 /**

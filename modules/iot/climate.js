@@ -6,7 +6,7 @@
 // wygodniej powiedziec "ustaw 21 stopni w salonie".
 
 import * as ha from './homeAssistant.js';
-import { load, save } from '../../server/memory.js';
+import { load, save } from '../../server/memory/memory.js';
 
 function data() {
   const d = load();

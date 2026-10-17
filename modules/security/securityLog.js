@@ -10,8 +10,8 @@
 // server/routes/securityLog.js, zeby to zaczelo dzialac, bez osobnego
 // wywolania startu.
 
-import * as memory from '../../server/memory.js';
-import * as bus from '../../server/bus.js';
+import * as memory from '../../server/memory/memory.js';
+import * as bus from '../../server/core/bus.js';
 
 // Zrodla traktowane jako "bezpieczenstwo". Domyslnie oryginalna trojka z
 // zadania (sentinel/perimeter/security) plus zrodla nowych modulow z tego

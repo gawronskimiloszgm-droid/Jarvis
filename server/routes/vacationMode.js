@@ -1,7 +1,7 @@
 // Router HTTP dla trybu "wakacje" (modules/security/vacationMode.js).
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { start, stop, status } from '../../modules/security/vacationMode.js';
 
 const router = Router();

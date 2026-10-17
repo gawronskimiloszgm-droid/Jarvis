@@ -6,8 +6,8 @@
 // tylko go importujemy) - przypomnienie tworzone jest RAZ, gdy dokument
 // wpada w okno 90 dni, zeby nie zasypywac przypomnieniami przy kazdym cyklu.
 
-import * as memory from '../memory.js';
-import * as bus from '../bus.js';
+import * as memory from '../memory/memory.js';
+import * as bus from '../core/bus.js';
 import { loadTravel, saveTravel, newId } from './store.js';
 
 const WARNING_DAYS = 90;

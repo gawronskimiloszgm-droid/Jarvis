@@ -3,7 +3,7 @@
 // patrz komentarz na gorze securityLog.js.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { getHistory, exportCSV, exportJSON, watchedSources } from '../../modules/security/securityLog.js';
 
 const router = Router();

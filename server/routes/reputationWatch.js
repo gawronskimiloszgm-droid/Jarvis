@@ -1,7 +1,7 @@
 // Router HTTP dla monitoringu reputacji (modules/security/reputationWatch.js).
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { listWatches, addWatch, removeWatch, setPaused, getFindings, sweep } from '../../modules/security/reputationWatch.js';
 
 const router = Router();

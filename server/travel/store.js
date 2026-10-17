@@ -6,7 +6,7 @@
 // miejscu i wola z powrotem save(data).
 
 import { nanoid } from 'nanoid';
-import * as memory from '../memory.js';
+import * as memory from '../memory/memory.js';
 
 /** Zwraca cala pamiec (jak memory.load()), z zagwarantowanym data.travel.* */
 export function loadTravel() {

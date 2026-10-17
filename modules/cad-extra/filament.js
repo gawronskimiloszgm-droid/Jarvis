@@ -7,7 +7,7 @@
 // "stanu biezacego", ktory moglby sie rozjechac.
 
 import { readData, writeData, round } from './store.js';
-import { publish } from '../../server/bus.js';
+import { publish } from '../../server/core/bus.js';
 
 const ALERT_THRESHOLD_PCT = 10;
 

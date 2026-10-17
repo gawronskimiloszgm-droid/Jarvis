@@ -2,7 +2,7 @@
 // Sam zapis logowania (recordLogin) wywoluje server/index.js - patrz raport.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { getHistory } from '../../modules/security/loginWatch.js';
 
 const router = Router();

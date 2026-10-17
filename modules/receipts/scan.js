@@ -9,8 +9,8 @@
 // juz wyswietlonymi, sprawdzalnymi liczbami.
 
 import { GoogleGenAI } from '@google/genai';
-import { imagePart } from '../../server/vision.js';
-import { withModel } from '../../server/geminiChain.js';
+import { imagePart } from '../../server/vision/vision.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

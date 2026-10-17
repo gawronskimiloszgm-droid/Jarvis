@@ -5,9 +5,9 @@
 // (data.reputation) i osobny bus source, zeby nie mieszac z tematami
 // wartownika ogolnego ani nie deczyc jego limitow/interwalu.
 
-import * as memory from '../../server/memory.js';
-import * as bus from '../../server/bus.js';
-import { searchWeb } from '../../server/websearch.js';
+import * as memory from '../../server/memory/memory.js';
+import * as bus from '../../server/core/bus.js';
+import { searchWeb } from '../../server/connect/websearch.js';
 import { summarizeFindings } from '../sentinel/summarize.js';
 
 const MIN_INTERVAL_MS = Number(process.env.REPUTATION_MIN_INTERVAL_MS || 24 * 60 * 60 * 1000);

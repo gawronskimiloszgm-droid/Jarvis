@@ -8,7 +8,7 @@
 // grzecznie informuje o braku konfiguracji zamiast rzucac wyjatkiem
 // (dokladnie ten sam wzor co server/printer.js).
 
-import * as bus from '../bus.js';
+import * as bus from '../core/bus.js';
 import { loadTravel, saveTravel, newId } from './store.js';
 
 const FLIGHTS_API_URL = process.env.FLIGHTS_API_URL || '';

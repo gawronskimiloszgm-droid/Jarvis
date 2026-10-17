@@ -6,7 +6,7 @@
 // Cykliczne sprawdzanie (sweepCourier, wolane ze scheduler.js) alarmuje przez
 // bus.publish TYLKO gdy status sie realnie zmienil.
 
-import * as bus from '../bus.js';
+import * as bus from '../core/bus.js';
 import { loadTravel, saveTravel, newId } from './store.js';
 
 const COURIER_TRACKING_API_URL = process.env.COURIER_TRACKING_API_URL || '';

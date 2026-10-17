@@ -4,7 +4,7 @@
 // komentarz na gorze modules/security/knownFaces.js.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { listPeople, registerPerson, removePerson, matchFace } from '../../modules/security/knownFaces.js';
 
 const router = Router();

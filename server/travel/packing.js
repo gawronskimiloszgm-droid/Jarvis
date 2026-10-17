@@ -8,8 +8,8 @@
 // tez daty podrozy, zeby uwzglednic pore roku/dlugosc pobytu w tresci listy.
 
 import { GoogleGenAI } from '@google/genai';
-import { withModel } from '../geminiChain.js';
-import { getWeather } from '../weather.js';
+import { withModel } from '../core/geminiChain.js';
+import { getWeather } from '../core/weather.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

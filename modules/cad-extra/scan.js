@@ -11,9 +11,9 @@
 // niedoskonaly JSON od modelu da jakis rozsadny model zamiast bledu.
 
 import { GoogleGenAI } from '@google/genai';
-import { imagePart } from '../../server/vision.js';
-import { withModel } from '../../server/geminiChain.js';
-import { createAssembly } from '../../server/cad.js';
+import { imagePart } from '../../server/vision/vision.js';
+import { withModel } from '../../server/core/geminiChain.js';
+import { createAssembly } from '../../server/home/cad.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

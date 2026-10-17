@@ -2,6 +2,17 @@
 
 Osobisty asystent AI w stylu J.A.R.V.I.S. — dziala jako aplikacja webowa (PWA), ktora mozna zainstalowac na telefonie i komputerze. Rozmawia (glosowo i tekstowo), zapamietuje fakty o Tobie i zwraca sie per "sir".
 
+Kod serwera jest poukladany tematycznie, zeby latwiej bylo go ulepszac:
+
+- `server/core` — osobowosc, rozmowa, logowanie
+- `server/memory` — pamiec i fakty
+- `server/voice` — glos
+- `server/vision` — kamera i obrazki
+- `server/home` — dom, drukarka, czujnosc
+- `server/connect` — poczta, kalendarz, pieniadze, zdrowie
+- `server/travel` — podroze
+- `server/routes` — bezpieczenstwo
+
 ## 1. Uruchomienie lokalne
 
 ```bash

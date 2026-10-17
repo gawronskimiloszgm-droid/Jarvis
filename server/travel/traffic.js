@@ -6,7 +6,7 @@
 // porownuja z nim biezacy czas i alarmuja przez bus.publish, gdy przekracza
 // prog (domyslnie +50%).
 
-import * as bus from '../bus.js';
+import * as bus from '../core/bus.js';
 import { loadTravel, saveTravel } from './store.js';
 import { route } from './geo.js';
 

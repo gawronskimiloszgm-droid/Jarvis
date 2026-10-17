@@ -13,9 +13,9 @@
 // weather.js (zakazane w tym batchu) o pole hourly z Open-Meteo.
 
 import * as ha from './homeAssistant.js';
-import * as bus from '../../server/bus.js';
-import { getWeather, getWeatherByCoords } from '../../server/weather.js';
-import { load, save } from '../../server/memory.js';
+import * as bus from '../../server/core/bus.js';
+import { getWeather, getWeatherByCoords } from '../../server/core/weather.js';
+import { load, save } from '../../server/memory/memory.js';
 
 const REALERT_GAP_MS = 60 * 60 * 1000; // nie powtarzaj tego samego alertu czesciej niz co godzine
 

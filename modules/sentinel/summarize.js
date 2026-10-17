@@ -7,7 +7,7 @@
 // nowego" fragmenty wystarczaja; po szczegoly uzytkownik ma linki.
 
 import { GoogleGenAI } from '@google/genai';
-import { withModel } from '../../server/geminiChain.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

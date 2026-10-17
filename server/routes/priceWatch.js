@@ -3,7 +3,7 @@
 // patrz raport koncowy co do wpiecia w server/index.js.
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { listWatches, addWatch, removeWatch, setPaused, getHistory, sweep } from '../../modules/security/priceWatch.js';
 
 const router = Router();

@@ -9,7 +9,7 @@
 // informuje, zamiast udawac sukces.
 
 import { GoogleGenAI, Type } from '@google/genai';
-import { withModel } from '../geminiChain.js';
+import { withModel } from '../core/geminiChain.js';
 import { loadTravel, saveTravel, newId } from './store.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });

@@ -9,10 +9,10 @@
 // przekreslona cena promocyjna obok regularnej) - regex tu by sie nie obronil.
 
 import { GoogleGenAI } from '@google/genai';
-import * as memory from '../../server/memory.js';
-import * as bus from '../../server/bus.js';
-import { searchWeb } from '../../server/websearch.js';
-import { withModel } from '../../server/geminiChain.js';
+import * as memory from '../../server/memory/memory.js';
+import * as bus from '../../server/core/bus.js';
+import { searchWeb } from '../../server/connect/websearch.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

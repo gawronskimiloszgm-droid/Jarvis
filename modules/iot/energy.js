@@ -9,8 +9,8 @@
 // zeby sam ocenil kontekst.
 
 import * as ha from './homeAssistant.js';
-import * as bus from '../../server/bus.js';
-import { load, save } from '../../server/memory.js';
+import * as bus from '../../server/core/bus.js';
+import { load, save } from '../../server/memory/memory.js';
 
 const DEFAULT_THRESHOLD_PCT = Number(process.env.IOT_ENERGY_ANOMALY_PCT || 50); // % odchylenia od sredniej 7-dniowej
 const REALERT_GAP_MS = 6 * 60 * 60 * 1000; // nie spamuj tym samym alertem czesciej niz co 6h

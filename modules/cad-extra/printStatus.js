@@ -13,8 +13,8 @@
 // w upkeep.js, moze zamiast tego wywolywac stad pollPrintStatus() recznie
 // (patrz raport koncowy).
 
-import { jobStatus, isConfigured } from '../../server/printer.js';
-import { publish } from '../../server/bus.js';
+import { jobStatus, isConfigured } from '../../server/home/printer.js';
+import { publish } from '../../server/core/bus.js';
 
 const DEFAULT_INTERVAL_MS = Number(process.env.CAD_EXTRA_PRINT_POLL_MS || 60 * 1000);
 

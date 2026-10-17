@@ -20,8 +20,8 @@ import { evaluateFatigue, listFatigueScenarios } from './stressExtra.js';
 import { parseBinarySTL, trisToObj } from './stlTools.js';
 import { checkPrintability, defaultBed } from './printability.js';
 import { scanObjectToModel } from './scan.js';
-import { isConfigured as printerConfigured } from '../../server/printer.js';
-import { get as getCadModel } from '../../server/cad.js';
+import { isConfigured as printerConfigured } from '../../server/home/printer.js';
+import { get as getCadModel } from '../../server/home/cad.js';
 
 const router = Router();
 

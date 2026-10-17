@@ -10,8 +10,8 @@
 // definiuje wlasny, nazwany pod swoj typ danych.
 
 import { GoogleGenAI } from '@google/genai';
-import * as bus from '../../server/bus.js';
-import { withModel } from '../../server/geminiChain.js';
+import * as bus from '../../server/core/bus.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

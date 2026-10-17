@@ -16,7 +16,7 @@
 // w projekcie (kamery, pamiec, kalendarz...).
 
 import { Router } from 'express';
-import { requireOwner } from '../../server/auth.js';
+import { requireOwner } from '../../server/core/auth.js';
 import * as ha from './homeAssistant.js';
 import * as covers from './covers.js';
 import * as lockModule from './lock.js';

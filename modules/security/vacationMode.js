@@ -11,8 +11,8 @@
 // idealnie rowna siatka to wlasnie sygnal dla kogos obserwujacego dom, ze
 // to automat, nie obecnosc.
 
-import * as memory from '../../server/memory.js';
-import * as bus from '../../server/bus.js';
+import * as memory from '../../server/memory/memory.js';
+import * as bus from '../../server/core/bus.js';
 
 const DEVICES = ['swiatlo_salon', 'swiatlo_sypialnia', 'swiatlo_korytarz', 'radio'];
 

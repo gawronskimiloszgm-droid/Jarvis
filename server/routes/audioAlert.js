@@ -1,7 +1,7 @@
 // Router HTTP dla klasyfikacji dzwieku (modules/security/audioClassify.js).
 
 import { Router } from 'express';
-import { requireOwner } from '../auth.js';
+import { requireOwner } from '../core/auth.js';
 import { classifyAudio } from '../../modules/security/audioClassify.js';
 
 const router = Router();

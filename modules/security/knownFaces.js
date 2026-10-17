@@ -11,9 +11,9 @@
 // jako podpowiedz ("prawdopodobnie to Anna"), nie jako dowod tozsamosci.
 
 import { GoogleGenAI } from '@google/genai';
-import * as memory from '../../server/memory.js';
-import { imagePart } from '../../server/vision.js';
-import { withModel } from '../../server/geminiChain.js';
+import * as memory from '../../server/memory/memory.js';
+import { imagePart } from '../../server/vision/vision.js';
+import { withModel } from '../../server/core/geminiChain.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

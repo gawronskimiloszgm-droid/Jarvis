@@ -12,8 +12,8 @@
 //
 // Wywolanie: patrz raport koncowy - dokladne miejsce w server/cameras.js.
 
-import * as bus from '../../server/bus.js';
-import * as push from '../../server/push.js';
+import * as bus from '../../server/core/bus.js';
+import * as push from '../../server/connect/push.js';
 
 // Ten sam "wybuch" ruchu (osoba w kadrze przez dluzsza chwile) nie powinien
 // wywolac push co kilka sekund - telefon budzony w kolko przestaje byc
