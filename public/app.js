@@ -301,6 +301,11 @@ function openWindow(id) {
   openIds.add(id);
   bringToFront(entry.win);
   mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
+  // Zapisujemy PELNA geometrie (nie tylko "open") - inaczej to wywolanie
+  // scalaloby sie z tym, co jest w localStorage TERAZ i przy pierwszym
+  // otwarciu (gdy jeszcze nic tam nie ma) wycieloby x/y/w/h ustawione
+  // przez applyGeometry przed chwila, zostawiajac tylko {open:true} na
+  // zawsze - okno traci pozycje przy kazdym kolejnym wczytaniu strony.
   saveWinState(id, { x: entry.win.offsetLeft, y: entry.win.offsetTop, w: entry.win.offsetWidth, h: entry.win.offsetHeight, open: true });
   activeModule = id;
   syncDock();
