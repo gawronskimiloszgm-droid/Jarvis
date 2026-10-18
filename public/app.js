@@ -1,4 +1,4 @@
-// J.A.R.V.I.S. - warstwa interfejsu zbudowana od zera.
+// J.A.R.V.I.S. - warstwa interfejsu klienta.
 //
 // Zamiast statycznego ukladu: przestrzen robocza z panelami, ktore mozna
 // swobodnie przesuwac i skalowac (mysza i palcem). Uklad zapisuje sie
@@ -44,7 +44,8 @@ const el = (tag, cls, text) => {
 
 function toast(msg, kind = 'bad') {
   const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
-  $('#toasts').appendChild(n);
+  const container = $('#toasts');
+  if (container) container.appendChild(n);
   window.SFX?.play(kind === 'ok' ? 'ok' : 'err');
   setTimeout(() => n.remove(), 4800);
 }
@@ -72,34 +73,57 @@ function setState(text) {
   if (idle) idle.textContent = text;
 }
 
+// ---------- Definicje paneli ----------
+
+const PANEL_DEFS = {
+  clock: {
+    glyph: '🕒',
+    title: 'Czas',
+    build: (root) => {
+      const box = el('div', 'kv');
+      box.innerHTML = '<span>Czas lokalny</span><b id="panelClock">--:--</b>';
+      root.appendChild(box);
+    },
+    refresh: () => {
+      const elClock = $('#panelClock');
+      if (elClock) elClock.textContent = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    }
+  },
+  weather: {
+    glyph: '🌤',
+    title: 'Pogoda',
+    build: (root) => {
+      root.innerHTML = '<div class="sub">Pobieranie danych pogodowych...</div>';
+    }
+  },
+  link: {
+    glyph: '🔗',
+    title: 'Status Łącza',
+    build: (root) => {
+      root.innerHTML = '<div class="kv"><span>Połączenie</span><b class="good">ONLINE</b></div>';
+    }
+  }
+};
+
 // ---------- Moduly ----------
-//
-// Dwa ekrany: SPOCZYNEK (sam rdzen, zegar, skroty) i CENTRUM OPERACYJNE
-// (naglowek, kolumna modulow, tresc, stala kolumna rozmowy).
-//
-// Rozmowa NIE jest modulem - siedzi na stale w prawej kolumnie, wiec
-// transkrypcja jest widoczna niezaleznie od tego, co ogladasz.
-//
-// Kazdy modul buduje sie raz i zostaje w DOM (chowamy, nie kasujemy) -
-// dzieki temu kamera nie gasnie przy zajrzeniu gdzie indziej.
 
 const MODULES = [
   { id: 'edith', title: 'Edith', sub: 'ochrona', owner: true, panels: [] },
   { id: 'dash', title: 'Pulpit', sub: 'przeglad operacyjny', badge: 'LIVE', panels: ['clock', 'weather', 'link'] },
   { id: 'sys', title: 'Systemy', sub: 'stan urzadzenia i lacza', panels: ['link'] },
-  { id: 'tasks', title: 'Zadania', sub: 'kolejka i przypomnienia', owner: true, panels: ['tasks', 'alerts'] },
-  { id: 'know', title: 'Wiedza', sub: 'pamiec i kronika rozmow', owner: true, panels: ['mind'] },
-  { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: ['money'] },
-  { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: ['eye'] },
-  { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: ['perimeter'] },
-  { id: 'machine', title: 'Maszyna', sub: 'obciazenie laptopa', owner: true, panels: ['machine'] },
-  { id: 'sentinel', title: 'Wartownik', sub: 'sledzone tematy', owner: true, panels: ['sentinel'] },
-  { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
-  { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
-  { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
-  { id: 'agent', title: 'Agent', sub: 'wieloetapowe rozumowanie', owner: true, panels: ['agent'] },
-  { id: 'set', title: 'Ustawienia', sub: 'profil asystenta', panels: ['settings'] },
-  { id: 'logs', title: 'Logi', sub: 'strumien zdarzen', panels: ['logs'] },
+  { id: 'tasks', title: 'Zadania', sub: 'kolejka i przypomnienia', owner: true, panels: [] },
+  { id: 'know', title: 'Wiedza', sub: 'pamiec i kronika rozmow', owner: true, panels: [] },
+  { id: 'money', title: 'Wydatki', sub: 'rejestr i podsumowanie', owner: true, panels: [] },
+  { id: 'eye', title: 'Kamera', sub: 'podglad na zywo', owner: true, panels: [] },
+  { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: [] },
+  { id: 'machine', title: 'Maszyna', sub: 'obciazenie laptopa', owner: true, panels: [] },
+  { id: 'sentinel', title: 'Wartownik', sub: 'sledzone tematy', owner: true, panels: [] },
+  { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: [] },
+  { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: [] },
+  { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: [] },
+  { id: 'agent', title: 'Agent', sub: 'wieloetapowe rozumowanie', owner: true, panels: [] },
+  { id: 'set', title: 'Ustawienia', sub: 'profil asystenta', panels: [] },
+  { id: 'logs', title: 'Logi', sub: 'strumien zdarzen', panels: [] },
 ];
 
 const MODULE_ICONS = {
@@ -109,25 +133,15 @@ const MODULE_ICONS = {
 };
 
 const LIVE_PANELS = new Set();
-const panelLive = (id) => LIVE_PANELS.has(id);
 const moduleById = (id) => MODULES.find((m) => m.id === id);
 
-// ---------- Silnik holo-okien (swobodna tablica) ----------
-//
-// Zamiast jednego widocznego modulu w stalym ukladzie: kazdy modul to
-// niezalezne okno na planszy (#board), ktore mozna przeciagac, skalowac i
-// zamykac. Uklad (pozycja/rozmiar/czy otwarte) zapisuje sie lokalnie per
-// okno, wiec plansza wraca dokladnie taka, jaka ja zostawiles.
+// ---------- Silnik holo-okien ----------
 
-const WINDOWS = new Map(); // id -> { win, body }
+const WINDOWS = new Map();
 const openIds = new Set();
-let activeModule = null; // ostatnio dotkniete okno - do polaczen typu "odswiezaj tylko gdy widoczne"
+let activeModule = null;
 let topZ = 10;
 let cascadeN = 0;
-
-function isWindowOpen(id) {
-  return openIds.has(id);
-}
 
 function winKey(id) {
   return `jarvis.win.${id}`;
@@ -145,7 +159,7 @@ function saveWinState(id, patch) {
   try {
     localStorage.setItem(winKey(id), JSON.stringify({ ...loadWinState(id), ...patch }));
   } catch {
-    /* localStorage moze byc niedostepny (tryb prywatny) - uklad po prostu nie przetrwa */
+    /* localStorage niedostepny */
   }
 }
 
@@ -157,8 +171,6 @@ function defaultGeometry() {
   return { x: 24 + step * 26, y: 24 + step * 22, w, h };
 }
 
-// Okno nie moze uciec calkiem poza ekran - inaczej latwo je "zgubic"
-// przeciagajac za krawedz, bez zadnego sposobu, zeby je odzyskac.
 function clampGeometry(x, y, w, h) {
   const maxX = Math.max(4, window.innerWidth - Math.min(160, w));
   const maxY = Math.max(4, window.innerHeight - Math.min(120, h) - 60);
@@ -291,7 +303,8 @@ function openWindow(id) {
       LIVE_PANELS.add(pid);
       def.build(cbody);
     });
-    $('#board').appendChild(win);
+    const board = $('#board');
+    if (board) board.appendChild(win);
     entry = { win, body };
     WINDOWS.set(id, entry);
     applyGeometry(win, loadWinState(id) || defaultGeometry());
@@ -317,6 +330,7 @@ function closeWindow(id) {
 
 function buildDock() {
   const dock = $('#dock');
+  if (!dock) return;
   dock.innerHTML = '';
   MODULES.forEach((m) => {
     const b = el('button', 'dock-btn');
@@ -337,8 +351,108 @@ function syncDock() {
   });
 }
 
-// Inicjalizacja przy pierwszym wczytaniu
+// Bezpieczne ukrywanie ekranu bootloadera
+function hideBootScreen() {
+  const boot = document.getElementById('boot');
+  if (boot) {
+    boot.classList.add('gone');
+    setTimeout(() => {
+      boot.style.display = 'none';
+    }, 600);
+  }
+}
+
+// Obsługa logowania / autoryzacji
+function initAuth() {
+  const form = document.getElementById('authForm');
+  const guestBtn = document.getElementById('authGuestBtn');
+  const veil = document.getElementById('authVeil');
+
+  if (guestBtn) {
+    guestBtn.addEventListener('click', () => {
+      store.role = 'guest';
+      if (veil) veil.hidden = true;
+      toast('Zalogowano w trybie Gościa', 'ok');
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const user = document.getElementById('authUser')?.value;
+      const password = document.getElementById('authPassword')?.value;
+      try {
+        const res = await api('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user, password })
+        });
+        store.token = res.token;
+        store.role = 'owner';
+        localStorage.setItem('jarvis.token', res.token);
+        localStorage.setItem('jarvis.user', user);
+        if (veil) veil.hidden = true;
+        toast('Autoryzacja pomyślna', 'ok');
+        syncDock();
+      } catch (err) {
+        const errEl = document.getElementById('authError');
+        if (errEl) {
+          errEl.textContent = err.message;
+          errEl.hidden = false;
+        }
+      }
+    });
+  }
+}
+
+// Nawigacja między ekranem IDLE a CENTRUM OPERACYJNYM
+function initNavigation() {
+  const enterBtn = document.getElementById('idleEnter');
+  const exitBtn = document.getElementById('exitBtn');
+  const idle = document.getElementById('idle');
+  const ops = document.getElementById('ops');
+
+  if (enterBtn) {
+    enterBtn.addEventListener('click', () => {
+      if (idle) idle.hidden = true;
+      if (ops) ops.hidden = false;
+    });
+  }
+
+  if (exitBtn) {
+    exitBtn.addEventListener('click', () => {
+      if (ops) ops.hidden = true;
+      if (idle) idle.hidden = false;
+    });
+  }
+}
+
+// Inicjalizacja zegara
+function updateClock() {
+  const clock = document.getElementById('idleClock');
+  const dateEl = document.getElementById('idleDate');
+  const now = new Date();
+  if (clock) {
+    clock.textContent = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  }
+  if (dateEl) {
+    dateEl.textContent = now.toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  PANEL_DEFS.clock.refresh();
+}
+
+// Główny start po załadowaniu DOM
 window.addEventListener('DOMContentLoaded', () => {
-  buildDock();
-  openWindow('dash');
+  try {
+    buildDock();
+    openWindow('dash');
+    initAuth();
+    initNavigation();
+    setInterval(updateClock, 1000);
+    updateClock();
+  } catch (err) {
+    console.error("Błąd podczas startu aplikacji:", err);
+  } finally {
+    setTimeout(hideBootScreen, 1000);
+  }
 });
