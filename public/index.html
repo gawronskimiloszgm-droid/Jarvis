@@ -3,52 +3,67 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#000000" />
-<title>J.A.R.V.I.S.</title>
+<meta name="theme-color" content="#000205" />
+<title>J.A.R.V.I.S. // NEURAL OS</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
-<link rel="stylesheet" href="/style.css" />
-<link rel="stylesheet" href="/edith.css" />
+<link rel="stylesheet" href="/style.css?v=NeuralOS" />
 </head>
 <body data-posture="nominal">
-  <!-- Tło kosmiczne i czarna przestrzeń -->
+  <div class="fui-grid-bg"></div>
   <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
 
-  <!-- Pasek stanu na samej górze (dyskretny HUD) -->
-  <header class="jarvis-header">
-    <div class="sys-status">
-      <span class="dot"></span>
-      <span id="idleStatus">JARVIS ONLINE</span>
-    </div>
-    <div class="jarvis-title">J.A.R.V.I.S.</div>
-    <div class="clock-display">
-      <b id="idleClock">--:--</b>
-    </div>
-  </header>
+  <div class="idle" id="idle">
+    <header class="fui-top-bar">
+      <div class="sys-id"><span class="dot"></span><span id="idleStatus">SYSTEM NOMINAL</span></div>
+      <div class="sys-title">J.A.R.V.I.S.</div>
+      <div class="sys-time"><b id="idleClock">--:--</b></div>
+    </header>
+    
+    <div class="fui-panes-container">
+      <!-- Pływające panele FUI (szkło) -->
+      <aside class="fui-pane glass" data-pane="health">
+        <header class="pane-head">SYSTEM INTEGRITY</header>
+        <div class="pane-body">
+          <div class="kv"><span>CPU</span><b class="good">NOMINAL</b></div>
+          <div class="kv"><span>MEMORY</span><b>7.8 GB</b></div>
+          <div class="kv"><span>NETWORK</span><b>1.2 Gbps</b></div>
+        </div>
+      </aside>
 
-  <!-- Główny kinowy rdzeń holograficzny (Kula AI) -->
-  <main class="core-container">
-    <div class="hologram-rings" aria-hidden="true">
-      <i></i><i></i><i></i><i></i>
+      <aside class="fui-pane glass" data-pane="neural">
+        <header class="pane-head">NEURAL LOGS</header>
+        <div class="pane-body">
+          <ul class="list" id="neuralLogs">
+            <li>ANALYZING COMMAND STRUCTURE...</li>
+            <li>OPTIMIZING TASK QUEUE...</li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Centralny rdzeń sieci neuronowej (Geometryczna Kula) -->
+      <main class="neural-core">
+        <div class="fui-rings" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
+        <canvas id="coreCanvas"></canvas>
+        <button class="core-hit" id="coreHit" title="Aktywuj wskaźnik głosu"></button>
+        <div class="core-state" id="coreState">Gotowy, sir...</div>
+      </main>
     </div>
-    <canvas id="coreCanvas"></canvas>
-    <button class="core-click-area" id="coreHit" title="Kliknij, aby rozmawiać"></button>
-    <div class="core-status-text" id="coreState">OCZEKIWANIE NA POLECENIE, SIR...</div>
-  </main>
 
-  <!-- Dolny kinowy interfejs rozmowy (bez paneli i docka) -->
-  <footer class="interaction-bar">
-    <div class="feed-container" id="talkFeed"></div>
-    <form class="command-form" id="talkForm">
-      <button class="mic-button" id="micBtn" type="button" title="Mikrofon">
-        <span class="mic-bars"><i></i><i></i><i></i></span>
-      </button>
-      <input class="command-input" id="talkInput" placeholder="Słucham, sir..." autocomplete="off" />
-      <button class="send-button" type="submit">Wprowadź</button>
-    </form>
-  </footer>
+    <footer class="interaction-zone">
+      <div class="feed" id="talkFeed"></div>
+      <form class="fui-form" id="talkForm">
+        <button class="btn mic" id="micBtn" type="button">
+          <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
+        </button>
+        <input class="inp" id="talkInput" placeholder="Słucham, sir..." autocomplete="off" />
+        <button class="btn primary" type="submit">Wprowadź</button>
+      </form>
+    </footer>
+  </div>
 
-  <!-- Dyskretne toasty/powiadomienia w rogu -->
   <div class="toasts" id="toasts"></div>
 </body>
 <script src="/sfx.js"></script>
