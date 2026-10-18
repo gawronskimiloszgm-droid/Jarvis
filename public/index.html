@@ -9,9 +9,18 @@
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/iron.css" />
 <link rel="stylesheet" href="/edith.css" />
 </head>
 <body>
+  <div class="iron-sky" aria-hidden="true">
+    <div class="iron-vignette"></div>
+    <div class="iron-scan"></div>
+    <div class="iron-frame">
+      <i></i><i></i><i></i><i></i>
+    </div>
+    <div class="iron-ticks"></div>
+  </div>
   <div class="grid-field" aria-hidden="true"></div>
   <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
 
@@ -62,6 +71,9 @@
     </div>
 
     <div class="idle-core">
+      <div class="reactor" aria-hidden="true">
+        <span></span><span></span><span></span><span></span>
+      </div>
       <canvas id="coreCanvas"></canvas>
       <button class="core-hit" id="coreHit" title="Kliknij, zeby wyciszyc / wznowic rozmowe"></button>
       <div class="core-state" id="coreState">Gotowy</div>
