@@ -3,189 +3,54 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#000205" />
-<title>J.A.R.V.I.S. // PROTOCOL MK-VIII</title>
+<meta name="theme-color" content="#000000" />
+<title>J.A.R.V.I.S.</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
-<link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="stylesheet" href="/edith.css" />
 </head>
 <body data-posture="nominal">
-  <!-- Dynamiczny, holograficzny tów siatki i kosmosu -->
-  <div class="holo-grid-bg"></div>
+  <!-- Tło kosmiczne i czarna przestrzeń -->
   <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
 
-  <!-- Ramka systemowa Stark HUD -->
-  <div class="mk-frame" aria-hidden="true">
-    <span></span><span></span><span></span><span></span>
-  </div>
+  <!-- Pasek stanu na samej górze (dyskretny HUD) -->
+  <header class="jarvis-header">
+    <div class="sys-status">
+      <span class="dot"></span>
+      <span id="idleStatus">JARVIS ONLINE</span>
+    </div>
+    <div class="jarvis-title">J.A.R.V.I.S.</div>
+    <div class="clock-display">
+      <b id="idleClock">--:--</b>
+    </div>
+  </header>
 
-  <!-- Ekran startowy (Boot Sequence) -->
-  <div class="boot" id="boot">
-    <div class="boot-reactor-ring"></div>
-    <canvas class="boot-canvas" id="bootCanvas"></canvas>
-    <div class="boot-name" id="bootName">J.A.R.V.I.S. OS</div>
-    <pre class="boot-log" id="bootLog">Inicjalizowanie rdzenia kwantowego...</pre>
-  </div>
+  <!-- Główny kinowy rdzeń holograficzny (Kula AI) -->
+  <main class="core-container">
+    <div class="hologram-rings" aria-hidden="true">
+      <i></i><i></i><i></i><i></i>
+    </div>
+    <canvas id="coreCanvas"></canvas>
+    <button class="core-click-area" id="coreHit" title="Kliknij, aby rozmawiać"></button>
+    <div class="core-status-text" id="coreState">OCZEKIWANIE NA POLECENIE, SIR...</div>
+  </main>
 
-  <!-- Ekran autoryzacji użytkownika -->
-  <div class="auth-veil" id="authVeil" hidden>
-    <form class="auth-box" id="authForm">
-      <div class="auth-scanner-line"></div>
-      <div class="auth-mark">
-        <i></i><i></i><i></i>
-      </div>
-      <div class="auth-title">Autoryzacja Dostępu</div>
-      <div class="auth-sub">Protokół Bezpieczeństwa Stark Industries</div>
-      <label class="auth-field">
-        <span>Identyfikator (Sir)</span>
-        <input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" placeholder="Wpisz użytkownika..." />
-      </label>
-      <label class="auth-field">
-        <span>Klucz Szyfrujący</span>
-        <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••••••" />
-      </label>
-      <div class="auth-actions">
-        <button type="submit" class="btn primary">Autoryzuj</button>
-        <button type="button" class="btn ghost" id="authGuestBtn">Tryb Gościa</button>
-      </div>
-      <div class="auth-error" id="authError" hidden></div>
-      <div class="auth-note">Gość ma ograniczony dostęp do czatu. Pełna kontrola komputera i pamięci wymaga uprawnień właściciela.</div>
+  <!-- Dolny kinowy interfejs rozmowy (bez paneli i docka) -->
+  <footer class="interaction-bar">
+    <div class="feed-container" id="talkFeed"></div>
+    <form class="command-form" id="talkForm">
+      <button class="mic-button" id="micBtn" type="button" title="Mikrofon">
+        <span class="mic-bars"><i></i><i></i><i></i></span>
+      </button>
+      <input class="command-input" id="talkInput" placeholder="Słucham, sir..." autocomplete="off" />
+      <button class="send-button" type="submit">Wprowadź</button>
     </form>
-  </div>
+  </footer>
 
-  <!-- Ekran spoczynku (Idle State z centralnym reaktorem) -->
-  <div class="idle" id="idle">
-    <header class="mk-top">
-      <div class="idle-id">
-        <span class="dot"></span>
-        <span><b id="idleStatus">Rdzeń Aktywny</b><i id="idleSession">MK-VIII PROTOCOL</i></span>
-      </div>
-      <div class="mk-word">J.A.R.V.I.S.</div>
-      <div class="idle-time">
-        <b id="idleClock">--:--</b>
-        <i id="idleDate">---</i>
-      </div>
-    </header>
-    
-    <div class="idle-core">
-      <div class="mk-rings" aria-hidden="true">
-        <i></i><i></i><i></i><i></i>
-      </div>
-      <canvas id="coreCanvas"></canvas>
-      <button class="core-hit" id="coreHit" title="Aktywuj mikrofon głosowy"></button>
-      <div class="core-state" id="coreState">Oczekiwanie na komendę...</div>
-    </div>
-
-    <div class="idle-cards" id="idleCards"></div>
-    <button class="idle-enter" id="idleEnter">Otwórz Centrum Dowodzenia</button>
-  </div>
-
-  <!-- Główne Centrum Operacyjne (Ops) -->
-  <div class="ops" id="ops" hidden>
-    <header class="ops-head">
-      <button class="brand" id="brandBtn" type="button">
-        <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span class="brand-txt"><b>Jarvis</b><i>Centrum Operacyjne</i></span>
-      </button>
-      <div class="head-status"><span class="dot"></span><span id="headStatus">system nominalny</span></div>
-      <div class="head-spacer"></div>
-      <div class="head-stats" id="headStats"></div>
-      <button class="btn ghost" id="paletteBtn" type="button">Szybkie Szukaj (Ctrl+K)</button>
-      <button class="btn mic" id="micBtn" type="button">
-        <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
-        <span id="micLabel">Nasłuch</span>
-      </button>
-      <button class="btn danger" id="exitBtn" type="button">Uśpij</button>
-    </header>
-
-    <nav class="dock" id="dock"></nav>
-
-    <div class="ops-body">
-      <div class="board" id="board">
-        <!-- Stałe okno czatu głosowego i tekstowego -->
-        <section class="holo-window" data-win="talk" id="winTalk">
-          <div class="holo-titlebar" data-drag>
-            <span class="holo-dot"></span>
-            <span class="holo-title"><span class="holo-ico">◇</span> Kanał Komunikacji Głosowej</span>
-            <span class="holo-badge" id="sideCount">0</span>
-          </div>
-          <div class="holo-body">
-            <div class="side-core">
-              <canvas id="sideCore"></canvas>
-              <div class="side-state" id="sideState">Gotowy</div>
-            </div>
-            <div class="feed" id="talkFeed"></div>
-            <form class="side-form" id="talkForm">
-              <input class="inp" id="talkInput" placeholder="Wydaj rozkaz systemowy..." autocomplete="off" />
-              <button class="btn primary" type="submit">Wyślij</button>
-            </form>
-          </div>
-          <div class="holo-resize" data-resize></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Szybka paleta poleceń (Command Palette) -->
-  <div class="palette" id="palette" hidden>
-    <div class="palette-box">
-      <input class="palette-input" id="paletteInput" placeholder="Wpisz komendę lub szukaj modułu..." autocomplete="off" />
-      <div class="palette-list" id="paletteList"></div>
-    </div>
-  </div>
-
-  <!-- System powiadomień toasty -->
+  <!-- Dyskretne toasty/powiadomienia w rogu -->
   <div class="toasts" id="toasts"></div>
-
-  <!-- Panel E.D.I.T.H. (Ochrona i polityka bezpieczeństwa) -->
-  <section class="edith" id="edith" hidden>
-    <header class="edith-top">
-      <div class="edith-mark"></div>
-      <div>
-        <h1>E.D.I.T.H.</h1>
-        <p>Even Dead I'm The Hero — Protokół Nadzoru Systemu</p>
-      </div>
-      <div class="spacer"></div>
-      <button class="ghost" id="edithClose" type="button">Powrót do Jarvisa</button>
-    </header>
-    <nav class="edith-tabs">
-      <button type="button" data-tab="rozmowa" class="on">Protokoły</button>
-      <button type="button" data-tab="pulpit">Stan Zapory</button>
-      <button type="button" data-tab="zagrozenia">Rejestr Zagrożeń</button>
-      <button type="button" data-tab="skan">Skan Systemu</button>
-      <button type="button" data-tab="raport">Raport Dobowy</button>
-    </nav>
-    <div class="edith-body">
-      <div class="edith-panel on" data-panel="rozmowa">
-        <article class="edith-card edith-talk">
-          <h2>Konsola E.D.I.T.H.</h2>
-          <div class="edith-feed" id="edithFeed"></div>
-          <form class="edith-form" id="edithForm">
-            <input id="edithInput" placeholder="Wydaj polecenie systemowe dla E.D.I.T.H...." autocomplete="off" />
-            <button class="solid" type="submit">Wykonaj</button>
-          </form>
-        </article>
-      </div>
-      <div class="edith-panel" data-panel="pulpit">
-        <article class="edith-card"><h2>Status Ochrony</h2><p id="edithReport">Analiza środowiska...</p></article>
-        <article class="edith-card"><h2>Zasady Bezpieczeństwa</h2><p>Każda komenda systemowa przechodzi restrykcyjną weryfikację. Próby naruszenia struktury rdzenia są natychmiast blokowane.</p></article>
-      </div>
-      <div class="edith-panel" data-panel="zagrozenia">
-        <article class="edith-card"><h2>Zablokowane Próby</h2><ul class="edith-list" id="edithAlerts"></ul></article>
-      </div>
-      <div class="edith-panel" data-panel="skan">
-        <article class="edith-card"><h2>Diagnostyka Windows</h2><p id="edithScan">Brak aktywnego skanu.</p><p><button class="solid" id="edithScanBtn" type="button">Uruchom Skan Ochronny</button></p></article>
-      </div>
-      <div class="edith-panel" data-panel="raport">
-        <article class="edith-card"><h2>Raport Operacyjny</h2><p id="edithReport2">Automatyczny zestaw alertów bezpieczeństwa.</p><p><button class="solid" id="edithReportBtn" type="button">Wygeneruj Raport</button></p></article>
-      </div>
-    </div>
-  </section>
 </body>
 <script src="/sfx.js"></script>
-<script src="/cad-view.js"></script>
-<script src="/edith.js"></script>
 <script src="/app.js"></script>
 </html>
