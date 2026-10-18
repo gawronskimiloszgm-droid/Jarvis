@@ -85,7 +85,10 @@ function createWindow() {
   startWakeWordListener(win);
 }
 
-ipcMain.handle('jarvis-action', (event, name, params) => runAction(name, params));
+// Zaktualizowany handler IPC przekazujacy opcje weryfikacji i autoryzacji E.D.I.T.H.
+ipcMain.handle('jarvis-action', (event, name, params, options = {}) => {
+  return runAction(name, params, options);
+});
 
 app.whenReady().then(() => {
   // Zezwalaj automatycznie na kamere/mikrofon/powiadomienia dla wlasnej aplikacji
