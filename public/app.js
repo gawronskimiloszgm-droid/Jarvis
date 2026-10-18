@@ -3775,9 +3775,6 @@ async function boot() {
   $('#boot').classList.add('gone');
   setTimeout(() => $('#boot').remove(), 800);
 
-  // Dwa rdzenie: duzy na ekranie spoczynku i maly w kolumnie rozmowy.
-  // Kazdy ma wlasna petle rysowania, obie karmione tym samym poziomem
-  // dzwieku, wiec reaguja identycznie.
   startCoreVisual($('#coreCanvas'), 42);
   startCoreVisual($('#sideCore'), 90210);
   $('#coreHit').addEventListener('click', liveToggle);
@@ -3794,6 +3791,7 @@ async function boot() {
   setInterval(refreshLink, 60000);
   setInterval(drawIdleCards, 30000);
   wakeStart();
+  enterOps();
 
   if (store.role !== 'owner') {
     showAuth();

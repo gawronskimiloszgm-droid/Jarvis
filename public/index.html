@@ -3,160 +3,104 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#100806" />
-<title>J.A.R.V.I.S.</title>
+<meta name="theme-color" content="#01040a" />
+<title>JARVIS</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/style.css" />
-<link rel="stylesheet" href="/iron.css" />
 <link rel="stylesheet" href="/edith.css" />
 </head>
 <body>
-  <div class="iron-sky" aria-hidden="true">
-    <div class="iron-vignette"></div>
-    <div class="iron-scan"></div>
-    <div class="iron-frame">
-      <i></i><i></i><i></i><i></i>
-    </div>
-    <div class="iron-ticks"></div>
-  </div>
-  <div class="grid-field" aria-hidden="true"></div>
   <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
+  <div class="mk-frame" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
 
-  <!-- Ekran startowy -->
   <div class="boot" id="boot">
     <canvas class="boot-canvas" id="bootCanvas"></canvas>
-    <div class="boot-name" id="bootName">J A R V I S</div>
+    <div class="boot-name" id="bootName">JARVIS</div>
     <pre class="boot-log" id="bootLog"></pre>
   </div>
 
-  <!-- Logowanie -->
   <div class="auth-veil" id="authVeil" hidden>
     <form class="auth-box" id="authForm">
       <div class="auth-mark"><span></span><span></span><span></span></div>
-      <div class="auth-title">Witaj z powrotem</div>
-      <div class="auth-sub">Jarvis · Twój osobisty asystent</div>
-      <label class="auth-field">
-        <span>Uzytkownik</span>
-        <input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" />
-      </label>
-      <label class="auth-field">
-        <span>Haslo</span>
-        <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" />
-      </label>
+      <div class="auth-title">Identyfikacja</div>
+      <div class="auth-sub">Dostep do rdzenia</div>
+      <label class="auth-field"><span>Uzytkownik</span><input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" /></label>
+      <label class="auth-field"><span>Haslo</span><input class="auth-input" id="authPassword" type="password" autocomplete="current-password" /></label>
       <div class="auth-actions">
-        <button type="submit" class="btn primary">Zaloguj</button>
-        <button type="button" class="btn ghost" id="authGuestBtn">Tryb goscia</button>
+        <button type="submit" class="btn primary">Wejdz</button>
+        <button type="button" class="btn ghost" id="authGuestBtn">Gosc</button>
       </div>
       <div class="auth-error" id="authError" hidden></div>
-      <div class="auth-note">Bez logowania dziala rozmowa, pogoda i wyszukiwanie. Pamiec, zadania, kamera i sterowanie komputerem sa zastrzezone dla wlasciciela.</div>
+      <div class="auth-note">Gosc moze rozmawiac. Pamiec i komputer zostaja dla wlasciciela.</div>
     </form>
   </div>
 
-  <!-- EKRAN SPOCZYNKU: sam rdzen -->
   <div class="idle" id="idle">
-    <div class="idle-top">
-      <div class="idle-id">
-        <span class="dot"></span>
-        <span>
-          <b id="idleStatus">System gotowy</b>
-          <i id="idleSession">Sesja ---- · v5.0</i>
-        </span>
-      </div>
-      <div class="idle-time">
-        <b id="idleClock">--:--</b>
-        <i id="idleDate"></i>
-      </div>
-    </div>
-
+    <header class="mk-top">
+      <div class="idle-id"><span class="dot"></span><span><b id="idleStatus">Rdzen online</b><i id="idleSession">MK-VII</i></span></div>
+      <div class="mk-word">J.A.R.V.I.S.</div>
+      <div class="idle-time"><b id="idleClock">--:--</b><i id="idleDate"></i></div>
+    </header>
     <div class="idle-core">
-      <div class="reactor" aria-hidden="true">
-        <span></span><span></span><span></span><span></span>
-      </div>
+      <div class="mk-rings" aria-hidden="true"><i></i><i></i><i></i></div>
       <canvas id="coreCanvas"></canvas>
-      <button class="core-hit" id="coreHit" title="Kliknij, zeby wyciszyc / wznowic rozmowe"></button>
+      <button class="core-hit" id="coreHit" title="Mikrofon"></button>
       <div class="core-state" id="coreState">Gotowy</div>
     </div>
-
     <div class="idle-cards" id="idleCards"></div>
-
-    <button class="idle-enter" id="idleEnter">Otworz centrum <span>&rarr;</span></button>
+    <button class="idle-enter" id="idleEnter">Centrum dowodzenia</button>
   </div>
 
-  <!-- CENTRUM OPERACYJNE -->
   <div class="ops" id="ops" hidden>
     <header class="ops-head">
-      <button class="brand" id="brandBtn" title="Powrot do rdzenia">
+      <button class="brand" id="brandBtn" type="button">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span class="brand-txt"><b>Jarvis</b><i>Centrum operacyjne</i></span>
+        <span class="brand-txt"><b>Jarvis</b><i>Centrum dowodzenia</i></span>
       </button>
-
-      <div class="head-status">
-        <span class="dot"></span>
-        <span id="headStatus">system gotowy</span>
-      </div>
-
+      <div class="head-status"><span class="dot"></span><span id="headStatus">system gotowy</span></div>
       <div class="head-spacer"></div>
-
       <div class="head-stats" id="headStats"></div>
-
-      <button class="btn ghost" id="paletteBtn">Szukaj <span class="kbd">Ctrl K</span></button>
-
-      <button class="btn mic" id="micBtn">
-        <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
-        <span id="micLabel">Nasluch</span>
-      </button>
-
-      <button class="btn danger" id="exitBtn">Wyjdz</button>
+      <button class="btn ghost" id="paletteBtn" type="button">Szukaj</button>
+      <button class="btn mic" id="micBtn" type="button"><span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span><span id="micLabel">Glos</span></button>
+      <button class="btn danger" id="exitBtn" type="button">Rdzen</button>
     </header>
-
+    <nav class="dock" id="dock"></nav>
     <div class="ops-body">
       <div class="board" id="board">
-        <!-- Rozmowa - zawsze na tablicy, bez przycisku zamkniecia, ale
-             rownie przeciagalna/skalowalna jak kazde inne holo-okno. -->
         <section class="holo-window" data-win="talk" id="winTalk">
           <div class="holo-titlebar" data-drag>
             <span class="holo-dot"></span>
-            <span class="holo-title"><span class="holo-ico">&#9673;</span>Rozmowa</span>
+            <span class="holo-title">Kanal glosowy</span>
             <span class="holo-badge" id="sideCount">0</span>
           </div>
           <div class="holo-body">
-            <div class="side-core">
-              <canvas id="sideCore"></canvas>
-              <div class="side-state" id="sideState">Gotowy</div>
-            </div>
+            <div class="side-core"><canvas id="sideCore"></canvas><div class="side-state" id="sideState">Gotowy</div></div>
             <div class="feed" id="talkFeed"></div>
             <form class="side-form" id="talkForm">
-              <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
-              <button class="btn primary" type="submit">&rarr;</button>
+              <input class="inp" id="talkInput" placeholder="Rozkaz..." autocomplete="off" />
+              <button class="btn primary" type="submit">Wyslij</button>
             </form>
           </div>
           <div class="holo-resize" data-resize></div>
         </section>
       </div>
     </div>
-
-    <nav class="dock" id="dock"></nav>
   </div>
 
-  <!-- Paleta polecen -->
   <div class="palette" id="palette" hidden>
     <div class="palette-box">
-      <input class="palette-input" id="paletteInput" placeholder="Wpisz polecenie albo pytanie..." autocomplete="off" />
+      <input class="palette-input" id="paletteInput" placeholder="Polecenie..." autocomplete="off" />
       <div class="palette-list" id="paletteList"></div>
     </div>
   </div>
-
   <div class="toasts" id="toasts"></div>
 
   <section class="edith" id="edith" hidden>
     <header class="edith-top">
       <div class="edith-mark"></div>
-      <div>
-        <h1>E.D.I.T.H.</h1>
-        <p>Ochrona. Sprawdza Jarvisa i komputer.</p>
-      </div>
+      <div><h1>E.D.I.T.H.</h1><p>Ochrona. Sprawdza Jarvisa i komputer.</p></div>
       <div class="spacer"></div>
       <button class="ghost" id="edithClose" type="button">Wroc do Jarvisa</button>
     </header>
@@ -168,35 +112,12 @@
     </nav>
     <div class="edith-body">
       <div class="edith-panel on" data-panel="pulpit">
-        <article class="edith-card">
-          <h2>Status</h2>
-          <p id="edithReport">Laduje...</p>
-        </article>
-        <article class="edith-card">
-          <h2>Co robi</h2>
-          <p>Kazde polecenie Jarvisa na komputerze przechodzi przez kontrole. Rzeczy grozne — format dysku, wylaczenie antywirusa, kasowanie systemu, kradziez hasel — sa zatrzymywane, a Ty dostajesz alert. Raz na dobe przychodzi krotki raport.</p>
-        </article>
+        <article class="edith-card"><h2>Status</h2><p id="edithReport">Laduje...</p></article>
+        <article class="edith-card"><h2>Co robi</h2><p>Kazde polecenie na komputerze przechodzi przez kontrole. Groźne rzeczy sa zatrzymywane, a Ty dostajesz alert. Raz na dobe przychodzi raport.</p></article>
       </div>
-      <div class="edith-panel" data-panel="zagrozenia">
-        <article class="edith-card">
-          <h2>Dziennik</h2>
-          <ul class="edith-list" id="edithAlerts"></ul>
-        </article>
-      </div>
-      <div class="edith-panel" data-panel="skan">
-        <article class="edith-card">
-          <h2>Komputer</h2>
-          <p id="edithScan">Brak skanu.</p>
-          <p style="margin-top:12px"><button class="solid" id="edithScanBtn" type="button">Skanuj teraz</button></p>
-        </article>
-      </div>
-      <div class="edith-panel" data-panel="raport">
-        <article class="edith-card">
-          <h2>Raport dobowy</h2>
-          <p id="edithReport2">Ten sam skrot, ktory dostajesz jako powiadomienie raz na 24 godziny.</p>
-          <p style="margin-top:12px"><button class="solid" id="edithReportBtn" type="button">Wyslij raport teraz</button></p>
-        </article>
-      </div>
+      <div class="edith-panel" data-panel="zagrozenia"><article class="edith-card"><h2>Dziennik</h2><ul class="edith-list" id="edithAlerts"></ul></article></div>
+      <div class="edith-panel" data-panel="skan"><article class="edith-card"><h2>Komputer</h2><p id="edithScan">Brak skanu.</p><p><button class="solid" id="edithScanBtn" type="button">Skanuj teraz</button></p></article></div>
+      <div class="edith-panel" data-panel="raport"><article class="edith-card"><h2>Raport dobowy</h2><p id="edithReport2">Skrót, który dostajesz raz na 24 godziny.</p><p><button class="solid" id="edithReportBtn" type="button">Wyslij raport teraz</button></p></article></div>
     </div>
   </section>
 </body>
