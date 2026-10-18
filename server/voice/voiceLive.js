@@ -84,6 +84,8 @@ const DEVICE_ACTIONS = [
   'zamknij-okno',
   'pokaz-pulpit',
   'uspij-komputer',
+  'wlacz-edith',
+  'wlacz-jarvis',
 ];
 
 // Sterowanie WNETRZEM aplikacji (usluga dostepnosci, tylko Android).

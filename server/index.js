@@ -114,6 +114,7 @@ import {
 import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voice/voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './core/auth.js';
 import { startUpkeep } from './core/upkeep.js';
+import edithRouter from './security/edith.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -174,6 +175,7 @@ app.use('/api/rtsp-cameras', rtspCameraRoutes);
 app.use('/api/security-log', securityLogRoutes);
 app.use('/api/vacation', vacationModeRoutes);
 app.use('/api/login-watch', loginWatchRoutes);
+app.use(edithRouter);
 
 // --- wizja / kamera ---
 app.use('/api/vision2', vision2Router);

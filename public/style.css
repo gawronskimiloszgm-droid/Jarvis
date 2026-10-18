@@ -11,30 +11,30 @@
    Czcionki bez pobierania z sieci - PWA ma ruszac tez offline. */
 
 :root {
-  --bg: #030507;
-  --bg-deep: #010203;
-  --panel: rgba(10, 28, 38, 0.42);
-  --panel-2: rgba(10, 28, 38, 0.28);
-  --panel-3: rgba(20, 50, 64, 0.4);
-  --line: rgba(70, 220, 255, 0.22);
-  --line-2: rgba(70, 220, 255, 0.13);
-  --line-3: rgba(70, 220, 255, 0.4);
-  --blue: #33e0ff;
-  --ice: #9df3ff;
+  --bg: #100806;
+  --bg-deep: #070403;
+  --panel: rgba(36, 22, 12, 0.55);
+  --panel-2: rgba(36, 22, 12, 0.32);
+  --panel-3: rgba(70, 42, 18, 0.4);
+  --line: rgba(232, 184, 92, 0.28);
+  --line-2: rgba(232, 184, 92, 0.14);
+  --line-3: rgba(232, 184, 92, 0.5);
+  --blue: #e8c27a;
+  --ice: #fff1cf;
   --amber: #ffb648;
   --red: #ff4d6a;
-  --good: #3dffb0;
-  --dim: #7fb3c2;
-  --faint: #3d5c68;
-  --txt: #cdeef7;
-  --bright: #eefcff;
+  --good: #d6ff6b;
+  --dim: #cbb59a;
+  --faint: #6d5844;
+  --txt: #f6ead7;
+  --bright: #fff8ee;
   --mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
-  --sans: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 8px;
+  --sans: 'Segoe UI', 'Inter', system-ui, sans-serif;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --glow: 0 0 0 1px var(--line), 0 0 24px rgba(51, 224, 255, 0.1), inset 0 0 40px rgba(51, 224, 255, 0.03);
+  --glow: 0 0 0 1px var(--line), 0 0 28px rgba(232, 184, 92, 0.12), inset 0 0 40px rgba(232, 184, 92, 0.04);
 }
 
 * { box-sizing: border-box; }
@@ -72,8 +72,8 @@ html, body {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(70, 220, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(70, 220, 255, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(232, 184, 92, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 184, 92, 0.05) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(1200px 800px at 50% 30%, #000 0%, transparent 75%);
 }

@@ -9,6 +9,8 @@ const path = require('path');
 const fsp = require('fs/promises');
 const { shell, app, desktopCapturer, screen } = require('electron');
 const { exec } = require('child_process');
+const { spawn } = require('child_process');
+const { judge } = require('./edithPolicy');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -166,7 +168,106 @@ const FILE_ACTIONS = {
   'otworz-folder-jarvisa': () => files.openFolder(),
 };
 
+function runUserCommand(command) {
+  return new Promise((resolve) => {
+    const isWin = process.platform === 'win32';
+    const cmd = isWin ? 'powershell.exe' : 'bash';
+    const args = isWin
+      ? ['-NoProfile', '-NonInteractive', '-Command', command]
+      : ['-lc', command];
+    const child = spawn(cmd, args, { windowsHide: true });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch (e) { /* juz nie zyje */ }
+    }, 20000);
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+      if (out.length > 12000) out = out.slice(-12000);
+    });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+      if (err.length > 4000) err = err.slice(-4000);
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: e.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const output = (out || err).trim().slice(0, 4000);
+      resolve({ ok: code === 0, code, output });
+    });
+  });
+}
+
+async function securityScan() {
+  if (process.platform !== 'win32') {
+    return {
+      ok: true,
+      summary: 'Ten komputer nie jest Windowsem. Skan ochrony systemowej dziala w aplikacji desktopowej na Windowsie.',
+      defender: null,
+      firewall: null,
+    };
+  }
+  const script = `
+$def = $null
+try {
+  $d = Get-MpComputerStatus
+  $def = [ordered]@{
+    AntivirusEnabled = [bool]$d.AntivirusEnabled
+    RealTimeProtectionEnabled = [bool]$d.RealTimeProtectionEnabled
+    AntivirusSignatureLastUpdated = [string]$d.AntivirusSignatureLastUpdated
+  }
+} catch {
+  $def = @{ error = $_.Exception.Message }
+}
+$fw = @()
+try {
+  $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Name; Enabled = [bool]$_.Enabled } })
+} catch {}
+[ordered]@{ defender = $def; firewall = $fw } | ConvertTo-Json -Compress -Depth 4
+`;
+  const result = await runUserCommand(script);
+  if (!result.output) return { ok: false, error: 'Skan nie zwrocil danych.' };
+  try {
+    const parsed = JSON.parse(result.output);
+    const rt = parsed.defender && parsed.defender.RealTimeProtectionEnabled;
+    const av = parsed.defender && parsed.defender.AntivirusEnabled;
+    const fwOn = Array.isArray(parsed.firewall) && parsed.firewall.every((p) => p.Enabled !== false);
+    const summary = [
+      av === false ? 'Antywirus wylaczony.' : 'Antywirus wlaczony.',
+      rt === false ? 'Ochrona na zywo wylaczona.' : 'Ochrona na zywo wlaczona.',
+      fwOn ? 'Zapora wlaczona.' : 'Zapora ma wylaczony profil.',
+    ].join(' ');
+    return { ok: true, summary, defender: parsed.defender, firewall: parsed.firewall };
+  } catch {
+    return { ok: false, error: 'Nie udalo sie odczytac wyniku skanu.', output: result.output.slice(0, 300) };
+  }
+}
+
 async function runAction(name, params = {}) {
+  if (name === 'skan-bezpieczenstwa') {
+    try {
+      return await securityScan();
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  if (name === 'polecenie') {
+    const verdict = judge('polecenie', params.tresc || params.command || '');
+    if (!verdict.allow) return { ok: false, blocked: true, error: verdict.reason };
+    try {
+      return await runUserCommand(params.tresc || params.command || '');
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  const verdict = judge(name, '');
+  if (!verdict.allow) return { ok: false, blocked: true, error: verdict.reason };
+
   const fileFn = FILE_ACTIONS[name];
   if (fileFn) {
     try {

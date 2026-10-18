@@ -84,6 +84,7 @@ function setState(text) {
 // dzieki temu kamera nie gasnie przy zajrzeniu gdzie indziej.
 
 const MODULES = [
+  { id: 'edith', title: 'Edith', sub: 'ochrona', owner: true, panels: [] },
   { id: 'dash', title: 'Pulpit', sub: 'przeglad operacyjny', badge: 'LIVE', panels: ['clock', 'weather', 'link'] },
   { id: 'sys', title: 'Systemy', sub: 'stan urzadzenia i lacza', panels: ['link'] },
   { id: 'tasks', title: 'Zadania', sub: 'kolejka i przypomnienia', owner: true, panels: ['tasks', 'alerts'] },
@@ -104,7 +105,7 @@ const MODULES = [
 const MODULE_ICONS = {
   dash: '◈', sys: '◉', tasks: '☷', know: '⚙', money: '◆',
   eye: '◉', perimeter: '△', machine: '■', sentinel: '◎', cad: '⬢',
-  find: '●', dev: '⬡', agent: '◇', set: '⚙', logs: '≡',
+  find: '●', dev: '⬡', agent: '◇', set: '⚙', logs: '≡', edith: '◆',
 };
 
 const LIVE_PANELS = new Set();
@@ -264,6 +265,10 @@ function buildWindowChrome(id, title, icon) {
 }
 
 function openWindow(id) {
+  if (id === 'edith') {
+    window.Edith?.open();
+    return;
+  }
   const mod = moduleById(id);
   if (!mod) return;
   if (mod.owner && !isOwner()) {
@@ -2694,6 +2699,14 @@ async function runRoutineSteps(steps) {
 }
 
 async function runDeviceAction(name) {
+  if (name === 'wlacz-edith') {
+    window.Edith?.open();
+    return;
+  }
+  if (name === 'wlacz-jarvis') {
+    window.Edith?.close();
+    return;
+  }
   if (!isOwner()) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
     return;
@@ -2701,6 +2714,11 @@ async function runDeviceAction(name) {
   try {
     if (window.jarvisDesktop) {
       const r = await window.jarvisDesktop.runAction(name);
+      if (r?.blocked) {
+        toast(r.error || 'E.D.I.T.H. zablokowala to dzialanie.');
+        window.Edith?.open();
+        return;
+      }
       if (!r?.ok) toast(`Nie udalo sie: ${name}`);
       return;
     }
@@ -2712,6 +2730,45 @@ async function runDeviceAction(name) {
     toast('Sterowanie dziala w aplikacji desktopowej lub mobilnej.', 'ok');
   } catch {
     toast(`Nie udalo sie: ${name}`);
+  }
+}
+
+async function runShell(command) {
+  if (!isOwner()) {
+    toast('Polecenia na komputerze wymagaja zalogowania.');
+    return;
+  }
+  try {
+    const res = await fetch('/api/edith/review', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ action: 'polecenie', command }),
+    });
+    const verdict = await res.json().catch(() => ({ allow: false, reason: 'E.D.I.T.H. nie odpowiedziala.' }));
+    if (!verdict.allow) {
+      toast(verdict.reason || 'E.D.I.T.H. zablokowala to polecenie.');
+      window.Edith?.open();
+      return;
+    }
+  } catch {
+    toast('E.D.I.T.H. nie odpowiedziala, wiec polecenie nie poszlo.');
+    return;
+  }
+  if (!window.jarvisDesktop) {
+    toast('Polecenia na komputerze dzialaja w aplikacji desktopowej.');
+    return;
+  }
+  try {
+    const r = await window.jarvisDesktop.runAction('polecenie', { tresc: command });
+    if (r?.blocked) {
+      toast(r.error || 'E.D.I.T.H. zablokowala to polecenie.');
+      window.Edith?.open();
+      return;
+    }
+    if (!r?.ok) toast(r?.error || r?.output || 'Polecenie nie wyszlo.');
+    else toast(r.output ? r.output.slice(0, 180) : 'Wykonane.', 'ok');
+  } catch {
+    toast('Polecenie nie wyszlo.');
   }
 }
 
@@ -2804,11 +2861,14 @@ function pushSaid(who, text) {
 
 const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
 const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
+const SHELL_RE = /\[POLECENIE:\s*([^\]]+)\]/g;
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/g;
 
 async function sendTyped(text) {
   window.SFX?.play('send');
   pushSaid('me', text);
+  if (/w[lł][aą]cz\s+edith|otw[oó]rz\s+edith|poka[zż]\s+edith/i.test(text)) window.Edith?.open();
+  if (/w[lł][aą]cz\s+jarvis|wr[oó][cć]\s+do\s+jarvis/i.test(text)) window.Edith?.close();
   setCoreState('MYSLE');
   const node = pushSaid('jv', '');
   try {
@@ -2833,6 +2893,13 @@ async function sendTyped(text) {
           runDeviceAction(m[1].trim());
         }
       }
+      for (const m of full.matchAll(SHELL_RE)) {
+        const key = `sh:${m[1]}`;
+        if (!done.has(key)) {
+          done.add(key);
+          runShell(m[1].trim());
+        }
+      }
       for (const m of full.matchAll(TRYB_RE)) {
         const key = `tryb:${m[1]}`;
         if (!done.has(key)) {
@@ -2845,7 +2912,7 @@ async function sendTyped(text) {
       node.textContent = '';
       node.appendChild(el('span', 'who', 'JARVIS'));
       node.appendChild(
-        document.createTextNode(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, ''))
+        document.createTextNode(full.replace(ACT_RE, '').replace(SHELL_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, ''))
       );
       $('#talkFeed').scrollTop = $('#talkFeed').scrollHeight;
     }
@@ -2871,7 +2938,7 @@ async function sendTyped(text) {
       im.alt = 'Wygenerowany obraz';
       node.appendChild(im);
     }
-    speak(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
+    speak(full.replace(ACT_RE, '').replace(SHELL_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
     if (isOwner()) refreshOwnerPanes();
   } catch (err) {
     node.remove();

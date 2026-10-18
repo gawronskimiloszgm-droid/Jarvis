@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#08080d" />
+<meta name="theme-color" content="#100806" />
 <title>J.A.R.V.I.S.</title>
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/edith.css" />
 </head>
 <body>
   <div class="grid-field" aria-hidden="true"></div>
@@ -136,8 +137,59 @@
   </div>
 
   <div class="toasts" id="toasts"></div>
+
+  <section class="edith" id="edith" hidden>
+    <header class="edith-top">
+      <div class="edith-mark"></div>
+      <div>
+        <h1>E.D.I.T.H.</h1>
+        <p>Ochrona. Sprawdza Jarvisa i komputer.</p>
+      </div>
+      <div class="spacer"></div>
+      <button class="ghost" id="edithClose" type="button">Wroc do Jarvisa</button>
+    </header>
+    <nav class="edith-tabs">
+      <button type="button" data-tab="pulpit" class="on">Pulpit</button>
+      <button type="button" data-tab="zagrozenia">Zagrozenia</button>
+      <button type="button" data-tab="skan">Skan</button>
+      <button type="button" data-tab="raport">Raport</button>
+    </nav>
+    <div class="edith-body">
+      <div class="edith-panel on" data-panel="pulpit">
+        <article class="edith-card">
+          <h2>Status</h2>
+          <p id="edithReport">Laduje...</p>
+        </article>
+        <article class="edith-card">
+          <h2>Co robi</h2>
+          <p>Kazde polecenie Jarvisa na komputerze przechodzi przez kontrole. Rzeczy grozne — format dysku, wylaczenie antywirusa, kasowanie systemu, kradziez hasel — sa zatrzymywane, a Ty dostajesz alert. Raz na dobe przychodzi krotki raport.</p>
+        </article>
+      </div>
+      <div class="edith-panel" data-panel="zagrozenia">
+        <article class="edith-card">
+          <h2>Dziennik</h2>
+          <ul class="edith-list" id="edithAlerts"></ul>
+        </article>
+      </div>
+      <div class="edith-panel" data-panel="skan">
+        <article class="edith-card">
+          <h2>Komputer</h2>
+          <p id="edithScan">Brak skanu.</p>
+          <p style="margin-top:12px"><button class="solid" id="edithScanBtn" type="button">Skanuj teraz</button></p>
+        </article>
+      </div>
+      <div class="edith-panel" data-panel="raport">
+        <article class="edith-card">
+          <h2>Raport dobowy</h2>
+          <p id="edithReport2">Ten sam skrot, ktory dostajesz jako powiadomienie raz na 24 godziny.</p>
+          <p style="margin-top:12px"><button class="solid" id="edithReportBtn" type="button">Wyslij raport teraz</button></p>
+        </article>
+      </div>
+    </div>
+  </section>
 </body>
 <script src="/sfx.js"></script>
 <script src="/cad-view.js"></script>
+<script src="/edith.js"></script>
 <script src="/app.js"></script>
 </html>

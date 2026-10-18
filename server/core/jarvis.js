@@ -5,6 +5,7 @@ import { looksLikeImageRequest, generateImage, storeImage } from '../vision/imag
 import { imagePart } from '../vision/vision.js';
 import * as cad from '../home/cad.js';
 import { looksLikeDesignRequest, parseDesignSpec, looksLikeGeneralDesignRequest } from '../../modules/cad/index.js';
+import { delegateCoding } from '../connect/coders.js';
 
 import { withModel, MODEL_CHAIN } from './geminiChain.js';
 
@@ -28,6 +29,7 @@ const PRZYPOMNIENIE_RE = /\[PRZYPOMNIENIE:\s*([^,\]]+),\s*([^\]]+)\]/gi;
 // (przegladarka/desktop) zywcem w strumieniu, zeby mogl ja tam wykonac.
 // Usuwana jest tylko z tekstu zapisywanego do historii/pamieci.
 const AKCJA_RE = /\[AKCJA:\s*([^\]]+)\]/gi;
+const POLECENIE_RE = /\[POLECENIE:\s*([^\]]+)\]/gi;
 // TRYB tak samo jak AKCJA - musi dotrzec do klienta zywcem, bo to on ma
 // dostep do urzadzenia i wykonuje kroki (patrz runRoutineSteps w app.js).
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/gi;
@@ -40,7 +42,7 @@ function stripTags(text) {
 }
 
 function stripTagsForHistory(text) {
-  return stripTags(text).replace(AKCJA_RE, '').replace(TRYB_RE, '');
+  return stripTags(text).replace(AKCJA_RE, '').replace(POLECENIE_RE, '').replace(TRYB_RE, '');
 }
 
 function extractTag(text, re) {
@@ -120,6 +122,9 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [AKCJA: nazwa] - gdy uzytkownik prosi o wykonanie jednej z ponizszych czynnosci na swoim urzadzeniu. Dziala TYLKO w aplikacji desktopowej lub mobilnej (nie w zwyklej przegladarce) - jesli nie masz pewnosci na jakim urzadzeniu jest uzytkownik, wykonaj akcje i tak (system sam poinformuje go, jesli to niemozliwe). Dozwolone nazwy (nie wymyslaj innych):
   - otworz-spotify, otworz-youtube-music, otworz-przegladarke, otworz-discord, otworz-teams, otworz-slack, otworz-vscode, glosniej, ciszej, wycisz, pobudka, odtworz-pauza, nastepny-utwor, poprzedni-utwor - dostepne wszedzie (desktop i telefon). "pobudka" wlacza AC/DC "Back in Black" (na haslo "Jarvis, pobudka"). Klawisze medialne dzialaja z dowolnym odtwarzaczem, ktory akurat gra.
   - otworz-eksplorator, zablokuj-ekran, zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer - dostepne TYLKO na desktopie. "zrzut-ekranu" zapisuje obraz ekranu w folderze Dokumenty\\Jarvis. "uspij-komputer" uzywaj wylacznie na jednoznaczna prosbe - upewnij sie krotko, zanim to zrobisz.
+  - wlacz-edith - gdy uzytkownik prosi o E.D.I.T.H., ochrone, bezpieczenstwo albo raport bezpieczenstwa. To przelacza ekran na czerwono-czarny panel ochrony.
+  - wlacz-jarvis - gdy uzytkownik chce wrocic z E.D.I.T.H. do zwyklego ekranu.
+- [POLECENIE: komenda] - gdy uzytkownik prosi o cos na komputerze, czego nie ma na liscie akcji (otworz program, sprawdz folder, uruchom projekt). Wpisz TYLKO sama komende, bez wyjasnien. E.D.I.T.H. sprawdza kazde polecenie i zablokuje rzeczy grozne (format dysku, wylaczenie antywirusa, kasowanie systemu, kradziez hasel). Nie probuj omijac tej blokady. Jesli blokada padnie, przyznaj to krotko i nie powtarzaj polecenia.
 - [TRYB: nazwa] - gdy uzytkownik prosi o uruchomienie wczesniej zapisanego trybu/rutyny po nazwie (np. "wlacz tryb dobranoc"). Nowe tryby tworzy sie tylko przez rozmowe glosowa - w czacie pisanym mozesz jedynie URUCHOMIC juz istniejacy, nie tworzyc nowego.`;
 
 const GUEST_RULES = `
@@ -310,6 +315,20 @@ async function proposeAssemblyParts(userMessage) {
 }
 
 export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
+  if (isOwner) {
+    try {
+      const handed = await delegateCoding(userMessage);
+      if (handed) {
+        memory.appendHistory('user', userMessage);
+        onChunk(handed);
+        memory.appendHistory('model', handed);
+        return;
+      }
+    } catch (err) {
+      console.error('Specjalista od kodu niedostepny:', err.message);
+    }
+  }
+
   // Gosc nie widzi historii wlasciciela i nic po sobie nie zostawia.
   const pastHistory = isOwner ? toHistoryContents(memory.getRecentHistory(20)) : [];
   if (isOwner) memory.appendHistory('user', userMessage);
