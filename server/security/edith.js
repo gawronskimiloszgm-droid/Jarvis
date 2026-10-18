@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import { GoogleGenAI } from '@google/genai';
 import { requireOwner } from '../core/auth.js';
 import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
+import { withModel } from '../core/geminiChain.js';
 import { judge } from './edithPolicy.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -10,7 +12,7 @@ const router = Router();
 function bag() {
   const data = memory.load();
   if (!data.edith || typeof data.edith !== 'object') {
-    data.edith = { alerts: [], scans: [], lastReportAt: 0, blocks: 0 };
+    data.edith = { alerts: [], scans: [], lastReportAt: 0, blocks: 0, talk: [] };
   }
   return data.edith;
 }
@@ -132,6 +134,52 @@ router.post('/api/edith/report', requireOwner, async (req, res) => {
   remember();
   pushAlert('E.D.I.T.H. — raport', report.text);
   res.json(report);
+});
+
+const EDITH_VOICE = `Jestes E.D.I.T.H. Osobna od Jarvisa. Nie jestes Jarvisem i nie udajesz go.
+Mowisz krotko, konkretnie, po polsku. Ton suchy, czujny, bez zartow i bez "sir".
+Twoja praca to bezpieczenstwo: wirusy, wycieki, dziwne polecenia, blokady, skany, raport dobowy.
+Nie wykonujesz polecen na komputerze. Jesli ktos prosi o cos groznego, odmawiasz i mowisz dlaczego.
+Nie zapisujesz faktow do pamieci Jarvisa. Nie przejmujesz jego zadan ani kalendarza.
+Jesli pytanie nie dotyczy ochrony, odpowiadasz jednym zdaniem i wracasz do tematu bezpieczenstwa.`;
+
+export async function edithReply(message) {
+  const state = bag();
+  const talk = Array.isArray(state.talk) ? state.talk : [];
+  const history = talk.slice(-12).map((t) => ({
+    role: t.role === 'edith' ? 'model' : 'user',
+    parts: [{ text: String(t.text || '') }],
+  }));
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const report = buildReport();
+  const res = await withModel((model) =>
+    ai.models.generateContent({
+      model,
+      contents: [...history, { role: 'user', parts: [{ text: message }] }],
+      config: {
+        systemInstruction: `${EDITH_VOICE}\n\nAktualny stan: ${report.text}`,
+      },
+    })
+  );
+  const text = String(res.text || '').trim() || 'Nie mam teraz odpowiedzi.';
+  talk.push({ role: 'user', text: message.slice(0, 2000), at: Date.now() });
+  talk.push({ role: 'edith', text: text.slice(0, 4000), at: Date.now() });
+  state.talk = talk.slice(-40);
+  remember();
+  return text;
+}
+
+router.post('/api/edith/chat', requireOwner, async (req, res) => {
+  const message = String(req.body?.message || '').trim();
+  if (!message) return res.status(400).json({ error: 'Brak wiadomosci.' });
+  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'Brak klucza AI.' });
+  try {
+    const text = await edithReply(message);
+    res.json({ text });
+  } catch (err) {
+    console.error('E.D.I.T.H. rozmowa:', err.message);
+    res.status(500).json({ error: 'Edith nie odpowiedziala.' });
+  }
 });
 
 export default router;

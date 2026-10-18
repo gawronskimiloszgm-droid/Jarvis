@@ -83,6 +83,45 @@
     refresh();
   }
 
+  function addLine(who, text) {
+    const feed = root.querySelector('#edithFeed');
+    if (!feed) return;
+    const row = document.createElement('div');
+    row.className = `edith-line ${who === 'me' ? 'me' : 'her'}`;
+    const label = document.createElement('b');
+    label.textContent = who === 'me' ? 'TY' : 'EDITH';
+    row.append(label, document.createTextNode(text));
+    feed.appendChild(row);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  async function sendEdith(text) {
+    addLine('me', text);
+    addLine('her', '...');
+    const feed = root.querySelector('#edithFeed');
+    const pending = feed?.lastElementChild;
+    try {
+      const res = await fetch('/api/edith/chat', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (pending) pending.lastChild.textContent = data.text || data.error || 'Edith milczy.';
+    } catch {
+      if (pending) pending.lastChild.textContent = 'Brak polaczenia z Edith.';
+    }
+  }
+
+  root.querySelector('#edithForm')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = root.querySelector('#edithInput');
+    const text = input?.value.trim();
+    if (!text) return;
+    input.value = '';
+    sendEdith(text);
+  });
+
   root.querySelector('#edithScanBtn')?.addEventListener('click', scanNow);
   root.querySelector('#edithReportBtn')?.addEventListener('click', reportNow);
   root.querySelector('#edithClose')?.addEventListener('click', () => window.Edith.close());
@@ -90,7 +129,7 @@
   window.Edith = {
     open() {
       root.hidden = false;
-      showTab('pulpit');
+      showTab('rozmowa');
       refresh();
       if (window.jarvisDesktop) scanNow();
     },

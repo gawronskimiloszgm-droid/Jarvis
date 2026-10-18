@@ -45,18 +45,10 @@
   letter-spacing: 0.28em;
   font-weight: 600;
 }
-.edith-top p {
-  margin: 2px 0 0;
-  color: #c98484;
-  font-size: 12px;
-}
+.edith-top p { margin: 2px 0 0; color: #c98484; font-size: 12px; }
 .edith-top .spacer { flex: 1; }
 
-.edith-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-}
+.edith-tabs { display: flex; gap: 8px; padding: 12px 20px; flex-wrap: wrap; }
 .edith-tabs button {
   background: transparent;
   color: #e7bcbc;
@@ -65,17 +57,9 @@
   border-radius: 999px;
   cursor: pointer;
 }
-.edith-tabs button.on {
-  background: #ff2a2a;
-  color: #1a0002;
-  border-color: #ff2a2a;
-}
+.edith-tabs button.on { background: #ff2a2a; color: #1a0002; border-color: #ff2a2a; }
 
-.edith-body {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 20px 24px;
-}
+.edith-body { flex: 1; overflow: auto; padding: 8px 20px 24px; }
 .edith-panel { display: none; }
 .edith-panel.on { display: block; }
 
@@ -95,15 +79,20 @@
 }
 .edith-card p { margin: 0; line-height: 1.45; }
 
+.edith-talk { display: flex; flex-direction: column; min-height: 420px; }
+.edith-feed { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; max-height: 52vh; }
+.edith-line { font-size: 14px; line-height: 1.45; }
+.edith-line b { display: block; font-size: 10px; letter-spacing: .16em; color: #ff8d8d; margin-bottom: 3px; }
+.edith-line.me { color: #c9a3a3; }
+.edith-form { display: flex; gap: 8px; margin-top: 12px; }
+.edith-form input { flex: 1; background: #14080a; border: 1px solid rgba(255,70,80,.4); color: #fff; padding: 10px 12px; font: inherit; }
+.edith-form button { border: 0; }
+
 .edith-list { list-style: none; margin: 0; padding: 0; }
-.edith-list li {
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 70, 80, 0.15);
-  font-size: 13px;
-}
+.edith-list li { padding: 10px 0; border-bottom: 1px solid rgba(255, 70, 80, 0.15); font-size: 13px; }
 .edith-list .when { color: #c98484; display: block; font-size: 11px; }
 
-.edith button.solid {
+.edith button.solid, .edith-form button {
   background: #ff2a2a;
   color: #1a0002;
   border: 0;
