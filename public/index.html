@@ -1,71 +1,139 @@
 <!doctype html>
 <html lang="pl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#000205">
-<title>J.A.R.V.I.S. MK-X // Neural OS</title>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#01040a" />
+<title>JARVIS</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/edith.css" />
 </head>
-<body data-posture="nominal">
-<canvas class="bg" id="bg" aria-hidden="true"></canvas>
-<div class="grid"></div><div class="scan"></div>
+<body>
+  <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
+  <div class="mk-frame" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
 
-<div class="app">
-  <header>
-    <div class="sys"><span class="dot"></span><span id="status">SYSTEM NOMINAL</span></div>
-    <div class="title">J.A.R.V.I.S.</div>
-    <div class="clock"><span id="clock">--:--:--</span><small id="date"></small></div>
-  </header>
+  <div class="boot" id="boot">
+    <canvas class="boot-canvas" id="bootCanvas"></canvas>
+    <div class="boot-name" id="bootName">JARVIS</div>
+    <pre class="boot-log" id="bootLog"></pre>
+  </div>
 
-  <main>
-    <div class="col">
-      <section class="pane"><h2>INTEGRALNOŚĆ SYSTEMU</h2>
-        <div class="body">
-          <div class="metric"><div class="row"><span>CPU</span><b id="cpuV">0%</b></div><canvas id="cpuC"></canvas></div>
-          <div class="metric"><div class="row"><span>PAMIĘĆ</span><b id="memV">0 GB</b></div><div class="bar"><i id="memB"></i></div></div>
-          <div class="metric"><div class="row"><span>SIEĆ</span><b id="netV">0 Mbps</b></div><canvas id="netC"></canvas></div>
-          <div class="metric"><div class="row"><span>CZAS PRACY</span><b id="up">00:00</b></div></div>
-        </div>
-      </section>
-      <section class="pane"><h2>POSTAWA</h2>
-        <div class="body modes" id="modes">
-          <button class="chip" data-m="nominal" aria-pressed="true">NOMINALNY</button>
-          <button class="chip" data-m="focus" aria-pressed="false">SKUPIENIE</button>
-          <button class="chip" data-m="threat" aria-pressed="false">ZAGROŻENIE</button>
-          <button class="chip" data-m="recovery" aria-pressed="false">REGENERACJA</button>
-        </div>
-      </section>
+  <div class="auth-veil" id="authVeil" hidden>
+    <form class="auth-box" id="authForm">
+      <div class="auth-mark"><span></span><span></span><span></span></div>
+      <div class="auth-title">Identyfikacja</div>
+      <div class="auth-sub">Dostep do rdzenia</div>
+      <label class="auth-field"><span>Uzytkownik</span><input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" /></label>
+      <label class="auth-field"><span>Haslo</span><input class="auth-input" id="authPassword" type="password" autocomplete="current-password" /></label>
+      <div class="auth-actions">
+        <button type="submit" class="btn primary">Wejdz</button>
+        <button type="button" class="btn ghost" id="authGuestBtn">Gosc</button>
+      </div>
+      <div class="auth-error" id="authError" hidden></div>
+      <div class="auth-note">Gosc moze rozmawiac. Pamiec i komputer zostaja dla wlasciciela.</div>
+    </form>
+  </div>
+
+  <div class="idle" id="idle">
+    <header class="mk-top">
+      <div class="idle-id"><span class="dot"></span><span><b id="idleStatus">Rdzen online</b><i id="idleSession">MK-VII</i></span></div>
+      <div class="mk-word">J.A.R.V.I.S.</div>
+      <div class="idle-time"><b id="idleClock">--:--</b><i id="idleDate"></i></div>
+    </header>
+    <div class="idle-core">
+      <div class="mk-rings" aria-hidden="true"><i></i><i></i><i></i></div>
+      <canvas id="coreCanvas"></canvas>
+      <button class="core-hit" id="coreHit" title="Mikrofon"></button>
+      <div class="core-state" id="coreState">Gotowy</div>
     </div>
+    <div class="idle-cards" id="idleCards"></div>
+    <button class="idle-enter" id="idleEnter">Centrum dowodzenia</button>
+  </div>
 
-    <div class="center">
-      <div class="rings" aria-hidden="true"><i></i><i></i><i></i></div>
-      <canvas id="core" aria-label="Rdzeń J.A.R.V.I.S."></canvas>
-      <button class="core-hit" id="coreHit" aria-label="Włącz lub wyłącz głos"></button>
-      <div class="state" id="state">Gotowy, sir</div>
+  <div class="ops" id="ops" hidden>
+    <header class="ops-head">
+      <button class="brand" id="brandBtn" type="button">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span class="brand-txt"><b>Jarvis</b><i>Centrum dowodzenia</i></span>
+      </button>
+      <div class="head-status"><span class="dot"></span><span id="headStatus">system gotowy</span></div>
+      <div class="head-spacer"></div>
+      <div class="head-stats" id="headStats"></div>
+      <button class="btn ghost" id="paletteBtn" type="button">Szukaj</button>
+      <button class="btn mic" id="micBtn" type="button"><span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span><span id="micLabel">Glos</span></button>
+      <button class="btn danger" id="exitBtn" type="button">Rdzen</button>
+    </header>
+    <nav class="dock" id="dock"></nav>
+    <div class="ops-body">
+      <div class="board" id="board">
+        <section class="holo-window" data-win="talk" id="winTalk">
+          <div class="holo-titlebar" data-drag>
+            <span class="holo-dot"></span>
+            <span class="holo-title">Kanal glosowy</span>
+            <span class="holo-badge" id="sideCount">0</span>
+          </div>
+          <div class="holo-body">
+            <div class="side-core"><canvas id="sideCore"></canvas><div class="side-state" id="sideState">Gotowy</div></div>
+            <div class="feed" id="talkFeed"></div>
+            <form class="side-form" id="talkForm">
+              <input class="inp" id="talkInput" placeholder="Rozkaz..." autocomplete="off" />
+              <button class="btn primary" type="submit">Wyslij</button>
+            </form>
+          </div>
+          <div class="holo-resize" data-resize></div>
+        </section>
+      </div>
     </div>
+  </div>
 
-    <div class="col">
-      <section class="pane" style="flex:1"><h2>LOGI NEURONOWE</h2>
-        <div class="body"><ul class="logs" id="logs"></ul></div>
-      </section>
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box">
+      <input class="palette-input" id="paletteInput" placeholder="Polecenie..." autocomplete="off" />
+      <div class="palette-list" id="paletteList"></div>
     </div>
-  </main>
+  </div>
+  <div class="toasts" id="toasts"></div>
 
-  <footer>
-    <div class="console">
-      <div class="feed" id="feed" aria-live="polite"></div>
-      <form id="form">
-        <button class="btn mic" id="mic" type="button" aria-label="Mikrofon"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></button>
-        <input id="inp" placeholder="Słucham, sir… wpisz „pomoc”" autocomplete="off" aria-label="Polecenie">
-        <button class="btn" type="submit">Wykonaj</button>
-      </form>
-      <div class="hint">pomoc · czas · skan · tryb zagrożenie · głos włącz</div>
+  <section class="edith" id="edith" hidden>
+    <header class="edith-top">
+      <div class="edith-mark"></div>
+      <div><h1>E.D.I.T.H.</h1><p>Ochrona. Sprawdza Jarvisa i komputer.</p></div>
+      <div class="spacer"></div>
+      <button class="ghost" id="edithClose" type="button">Wroc do Jarvisa</button>
+    </header>
+    <nav class="edith-tabs">
+      <button type="button" data-tab="rozmowa" class="on">Rozmowa</button>
+      <button type="button" data-tab="pulpit">Pulpit</button>
+      <button type="button" data-tab="zagrozenia">Zagrozenia</button>
+      <button type="button" data-tab="skan">Skan</button>
+      <button type="button" data-tab="raport">Raport</button>
+    </nav>
+    <div class="edith-body">
+      <div class="edith-panel on" data-panel="rozmowa">
+        <article class="edith-card edith-talk">
+          <h2>Rozmowa z Edith</h2>
+          <div class="edith-feed" id="edithFeed"></div>
+          <form class="edith-form" id="edithForm">
+            <input id="edithInput" placeholder="Napisz do Edith..." autocomplete="off" />
+            <button class="solid" type="submit">Wyslij</button>
+          </form>
+        </article>
+      </div>
+      <div class="edith-panel" data-panel="pulpit">
+        <article class="edith-card"><h2>Status</h2><p id="edithReport">Laduje...</p></article>
+        <article class="edith-card"><h2>Co robi</h2><p>Kazde polecenie na komputerze przechodzi przez kontrole. Groźne rzeczy sa zatrzymywane, a Ty dostajesz alert. Raz na dobe przychodzi raport.</p></article>
+      </div>
+      <div class="edith-panel" data-panel="zagrozenia"><article class="edith-card"><h2>Dziennik</h2><ul class="edith-list" id="edithAlerts"></ul></article></div>
+      <div class="edith-panel" data-panel="skan"><article class="edith-card"><h2>Komputer</h2><p id="edithScan">Brak skanu.</p><p><button class="solid" id="edithScanBtn" type="button">Skanuj teraz</button></p></article></div>
+      <div class="edith-panel" data-panel="raport"><article class="edith-card"><h2>Raport dobowy</h2><p id="edithReport2">Skrót, który dostajesz raz na 24 godziny.</p><p><button class="solid" id="edithReportBtn" type="button">Wyslij raport teraz</button></p></article></div>
     </div>
-  </footer>
-</div>
-
-<script src="app.js"></script>
+  </section>
 </body>
+<script src="/sfx.js"></script>
+<script src="/cad-view.js"></script>
+<script src="/edith.js"></script>
+<script src="/app.js"></script>
 </html>
