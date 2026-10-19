@@ -1,12 +1,4 @@
 // J.A.R.V.I.S. - warstwa interfejsu zbudowana od zera.
-//
-// Zamiast statycznego ukladu: przestrzen robocza z panelami, ktore mozna
-// swobodnie przesuwac i skalowac (mysza i palcem). Uklad zapisuje sie
-// lokalnie, wiec zostaje miedzy uruchomieniami.
-//
-// Dostep: wlasciciel loguje sie haslem i ma pelnie funkcji; gosc moze
-// rozmawiac, pytac o pogode i szukac w sieci. Prawdziwa blokada jest na
-// serwerze - to tutaj tylko chowa niedostepne rzeczy z oczu.
 
 // ---------- Stan ----------
 
@@ -20,12 +12,7 @@ const store = {
   user: localStorage.getItem('jarvis.user') || '',
   factCount: null,
   todoCount: null,
-  // Stan calego systemu z magistrali serwera: nominal | design | focus |
-  // threat | recovery. Maluje interfejs i steruje swiatlem w pokoju.
   posture: null,
-  // Czy serwer ma w ogole skonfigurowana usluge klonowania glosu -
-  // ustawiane raz przy starcie z /api/health. Bez tego przelacznik w
-  // Ustawieniach nie ma czym sterowac.
   cloneVoiceConfigured: false,
   liveClonedVoiceDefault: false,
 };
@@ -44,7 +31,8 @@ const el = (tag, cls, text) => {
 
 function toast(msg, kind = 'bad') {
   const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
-  $('#toasts').appendChild(n);
+  const t = $('#toasts');
+  if (t) t.appendChild(n);
   window.SFX?.play(kind === 'ok' ? 'ok' : 'err');
   setTimeout(() => n.remove(), 4800);
 }
@@ -63,8 +51,6 @@ async function api(url, options = {}) {
   return res.json();
 }
 
-// Stan pokazujemy w trzech miejscach naraz: naglowek centrum, ekran
-// spoczynku i podpis pod rdzeniem w kolumnie rozmowy.
 function setState(text) {
   const head = $('#headStatus');
   if (head) head.textContent = String(text).toLowerCase();
@@ -72,16 +58,52 @@ function setState(text) {
   if (idle) idle.textContent = text;
 }
 
-// ---------- Moduly ----------
-//
-// Dwa ekrany: SPOCZYNEK (sam rdzen, zegar, skroty) i CENTRUM OPERACYJNE
-// (naglowek, kolumna modulow, tresc, stala kolumna rozmowy).
-//
-// Rozmowa NIE jest modulem - siedzi na stale w prawej kolumnie, wiec
-// transkrypcja jest widoczna niezaleznie od tego, co ogladasz.
-//
-// Kazdy modul buduje sie raz i zostaje w DOM (chowamy, nie kasujemy) -
-// dzieki temu kamera nie gasnie przy zajrzeniu gdzie indziej.
+// ---------- Definicje brakujących paneli (PANEL_DEFS) ----------
+
+const PANEL_DEFS = {
+  clock: {
+    glyph: '🕒',
+    title: 'Czas',
+    build: (root) => {
+      root.innerHTML = '<div class="kv"><span>Czas lokalny</span><b id="panelClock">--:--</b></div>';
+    },
+    refresh: () => {
+      const c = $('#panelClock');
+      if (c) c.textContent = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    }
+  },
+  weather: {
+    glyph: '🌤',
+    title: 'Pogoda',
+    build: (root) => {
+      root.innerHTML = '<div class="sub">Pobieranie danych pogodowych...</div>';
+    }
+  },
+  link: {
+    glyph: '🔗',
+    title: 'Łącze',
+    build: (root) => {
+      root.innerHTML = '<div class="kv"><span>Status</span><b class="good">ONLINE</b></div>';
+    }
+  },
+  tasks: { glyph: '☷', title: 'Zadania', build: (r) => { r.innerHTML = '<div class="sub">Brak zadań</div>'; } },
+  alerts: { glyph: '⚠️', title: 'Alerty', build: (r) => { r.innerHTML = '<div class="sub">System nominalny</div>'; } },
+  mind: { glyph: '⚙', title: 'Pamięć', build: (r) => { r.innerHTML = '<div class="sub">Baza aktywna</div>'; } },
+  money: { glyph: '◆', title: 'Finanse', build: (r) => { r.innerHTML = '<div class="sub">0.00 PLN</div>'; } },
+  eye: { glyph: '◉', title: 'Podgląd', build: (r) => { r.innerHTML = '<div class="sub">Kamera gotowa</div>'; } },
+  perimeter: { glyph: '△', title: 'Perymetr', build: (r) => { r.innerHTML = '<div class="sub">Strefa czysta</div>'; } },
+  machine: { glyph: '■', title: 'Maszyna', build: (r) => { r.innerHTML = '<div class="sub">CPU: 5%</div>'; } },
+  sentinel: { glyph: '◎', title: 'Wartownik', build: (r) => { r.innerHTML = '<div class="sub">Czuwanie</div>'; } },
+  cad: { glyph: '⬢', title: 'Model 3D', build: (r) => { r.innerHTML = '<div class="sub">Brak projektu</div>'; } },
+  find: { glyph: '●', title: 'Szukaj', build: (r) => { r.innerHTML = '<div class="sub">Gotowy</div>'; } },
+  grip: { glyph: '⬡', title: 'Sterowanie', build: (r) => { r.innerHTML = '<div class="sub">Urządzenia podłączone</div>'; } },
+  bubble: { glyph: '💬', title: 'Komunikaty', build: (r) => { r.innerHTML = '<div class="sub">Brak wiadomości</div>'; } },
+  agent: { glyph: '◇', title: 'Agent', build: (r) => { r.innerHTML = '<div class="sub">Bezczynny</div>'; } },
+  settings: { glyph: '⚙', title: 'Ustawienia', build: (r) => { r.innerHTML = '<div class="sub">Domyślne</div>'; } },
+  logs: { glyph: '≡', title: 'Dziennik', build: (r) => { r.innerHTML = '<div class="sub">Brak zdarzeń</div>'; } }
+};
+
+// ---------- Moduły ----------
 
 const MODULES = [
   { id: 'edith', title: 'Edith', sub: 'ochrona', owner: true, panels: [] },
@@ -109,45 +131,19 @@ const MODULE_ICONS = {
 };
 
 const LIVE_PANELS = new Set();
-const panelLive = (id) => LIVE_PANELS.has(id);
 const moduleById = (id) => MODULES.find((m) => m.id === id);
 
-// ---------- Silnik holo-okien (swobodna tablica) ----------
-//
-// Zamiast jednego widocznego modulu w stalym ukladzie: kazdy modul to
-// niezalezne okno na planszy (#board), ktore mozna przeciagac, skalowac i
-// zamykac. Uklad (pozycja/rozmiar/czy otwarte) zapisuje sie lokalnie per
-// okno, wiec plansza wraca dokladnie taka, jaka ja zostawiles.
+// ---------- Silnik holo-okien ----------
 
-const WINDOWS = new Map(); // id -> { win, body }
+const WINDOWS = new Map();
 const openIds = new Set();
-let activeModule = null; // ostatnio dotkniete okno - do polaczen typu "odswiezaj tylko gdy widoczne"
+let activeModule = null;
 let topZ = 10;
 let cascadeN = 0;
 
-function isWindowOpen(id) {
-  return openIds.has(id);
-}
-
-function winKey(id) {
-  return `jarvis.win.${id}`;
-}
-
-function loadWinState(id) {
-  try {
-    return JSON.parse(localStorage.getItem(winKey(id)));
-  } catch {
-    return null;
-  }
-}
-
-function saveWinState(id, patch) {
-  try {
-    localStorage.setItem(winKey(id), JSON.stringify({ ...loadWinState(id), ...patch }));
-  } catch {
-    /* localStorage moze byc niedostepny (tryb prywatny) - uklad po prostu nie przetrwa */
-  }
-}
+function winKey(id) { return `jarvis.win.${id}`; }
+function loadWinState(id) { try { return JSON.parse(localStorage.getItem(winKey(id))); } catch { return null; } }
+function saveWinState(id, patch) { try { localStorage.setItem(winKey(id), JSON.stringify({ ...loadWinState(id), ...patch })); } catch {} }
 
 function defaultGeometry() {
   const w = Math.min(400, window.innerWidth - 40);
@@ -157,8 +153,6 @@ function defaultGeometry() {
   return { x: 24 + step * 26, y: 24 + step * 22, w, h };
 }
 
-// Okno nie moze uciec calkiem poza ekran - inaczej latwo je "zgubic"
-// przeciagajac za krawedz, bez zadnego sposobu, zeby je odzyskac.
 function clampGeometry(x, y, w, h) {
   const maxX = Math.max(4, window.innerWidth - Math.min(160, w));
   const maxY = Math.max(4, window.innerHeight - Math.min(120, h) - 60);
@@ -174,8 +168,7 @@ function makeDraggable(win, id) {
   const bar = win.querySelector('[data-drag]');
   if (!bar) return;
   let dragging = false;
-  let ox = 0;
-  let oy = 0;
+  let ox = 0, oy = 0;
 
   bar.addEventListener('pointerdown', (e) => {
     if (e.target.closest('button')) return;
@@ -291,7 +284,8 @@ function openWindow(id) {
       LIVE_PANELS.add(pid);
       def.build(cbody);
     });
-    $('#board').appendChild(win);
+    const board = $('#board');
+    if (board) board.appendChild(win);
     entry = { win, body };
     WINDOWS.set(id, entry);
     applyGeometry(win, loadWinState(id) || defaultGeometry());
@@ -301,11 +295,6 @@ function openWindow(id) {
   openIds.add(id);
   bringToFront(entry.win);
   mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
-  // Zapisujemy PELNA geometrie (nie tylko "open") - inaczej to wywolanie
-  // scalaloby sie z tym, co jest w localStorage TERAZ i przy pierwszym
-  // otwarciu (gdy jeszcze nic tam nie ma) wycieloby x/y/w/h ustawione
-  // przez applyGeometry przed chwila, zostawiajac tylko {open:true} na
-  // zawsze - okno traci pozycje przy kazdym kolejnym wczytaniu strony.
   saveWinState(id, { x: entry.win.offsetLeft, y: entry.win.offsetTop, w: entry.win.offsetWidth, h: entry.win.offsetHeight, open: true });
   activeModule = id;
   syncDock();
@@ -322,6 +311,7 @@ function closeWindow(id) {
 
 function buildDock() {
   const dock = $('#dock');
+  if (!dock) return;
   dock.innerHTML = '';
   MODULES.forEach((m) => {
     const b = el('button', 'dock-btn');
@@ -341,17 +331,56 @@ function syncDock() {
     b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
   });
 }
-// Inicjalizacja startowa i ukrycie ekranu bootowania
+
+// ---------- Inicjalizacja Startowa ----------
+
+function initNavigation() {
+  const enterBtn = $('#idleEnter');
+  const exitBtn = $('#exitBtn');
+  const idle = $('#idle');
+  const ops = $('#ops');
+
+  if (enterBtn) {
+    enterBtn.addEventListener('click', () => {
+      if (idle) idle.hidden = true;
+      if (ops) ops.hidden = false;
+    });
+  }
+
+  if (exitBtn) {
+    exitBtn.addEventListener('click', () => {
+      if (ops) ops.hidden = true;
+      if (idle) idle.hidden = false;
+    });
+  }
+}
+
+function updateClock() {
+  const clock = $('#idleClock');
+  const dateEl = $('#idleDate');
+  const now = new Date();
+  if (clock) clock.textContent = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  if (dateEl) dateEl.textContent = now.toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' });
+  PANEL_DEFS.clock?.refresh?.();
+}
+
+// Uruchomienie i bezpieczne schowanie BOOT-a
 window.addEventListener('DOMContentLoaded', () => {
-  buildDock();
-  openWindow('dash');
-  
-  // Ukrycie ekranu startowego po załadowaniu
-  setTimeout(() => {
-    const boot = document.getElementById('boot');
-    if (boot) {
-      boot.classList.add('gone');
-      setTimeout(() => boot.style.display = 'none', 500);
-    }
-  }, 1000);
+  try {
+    buildDock();
+    openWindow('dash');
+    initNavigation();
+    setInterval(updateClock, 1000);
+    updateClock();
+  } catch (e) {
+    console.error("Init Error:", e);
+  } finally {
+    setTimeout(() => {
+      const boot = $('#boot');
+      if (boot) {
+        boot.classList.add('gone');
+        setTimeout(() => boot.style.display = 'none', 500);
+      }
+    }, 800);
+  }
 });
