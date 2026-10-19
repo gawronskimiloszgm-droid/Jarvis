@@ -341,3 +341,17 @@ function syncDock() {
     b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
   });
 }
+// Inicjalizacja startowa i ukrycie ekranu bootowania
+window.addEventListener('DOMContentLoaded', () => {
+  buildDock();
+  openWindow('dash');
+  
+  // Ukrycie ekranu startowego po załadowaniu
+  setTimeout(() => {
+    const boot = document.getElementById('boot');
+    if (boot) {
+      boot.classList.add('gone');
+      setTimeout(() => boot.style.display = 'none', 500);
+    }
+  }, 1000);
+});
