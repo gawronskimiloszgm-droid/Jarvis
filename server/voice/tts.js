@@ -131,7 +131,7 @@ function announceCloneFailure(err) {
 // kims innym, nie jak Jarvis udajacy kogos innego. Dziala TYLKO przez
 // Gemini TTS (klon i Edge ignoruja ten parametr - to osobne uslugi/
 // konfiguracje, nie warto ich tu komplikowac dla jednego dodatkowego glosu).
-const EDITH_VOICE_NAME = process.env.EDITH_TTS_VOICE || 'Charon';
+const EDITH_VOICE_NAME = process.env.EDITH_TTS_VOICE || 'Kore';
 
 // Kolejnosc: sklonowany glos (gdy wlaczony i tekst krotki) -> Gemini TTS
 // -> Edge TTS. Kazdy stopien lapie awarie poprzedniego, wiec czat nigdy

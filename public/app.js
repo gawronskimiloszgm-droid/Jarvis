@@ -2759,8 +2759,26 @@ async function runDeviceAction(name, params, options) {
   // "wlacz-edith"/"wlacz-jarvis" sa czysto klienckie (przelaczaja widok),
   // nie maja odpowiednika w desktop/actions.js - obsluzone od razu, bez
   // wysylania do aplikacji desktopowej/mobilnej.
-  if (name === 'wlacz-edith') return void window.Edith?.open();
-  if (name === 'wlacz-jarvis') return void window.Edith?.close();
+  //
+  // KLUCZOWE: samo pokazanie panelu Edith NIE wystarczy - jesli trwa
+  // rozmowa glosowa z Jarvisem (albo cokolwiek pozniej ja wznowi, patrz
+  // wakeword w liveStart), uzytkownik dalej slyszy/rozmawia z Jarvisem
+  // mimo czerwonego ekranu. To byl powod, dla ktorego "Edith" brzmiala
+  // jak Jarvis mowiacy "sir" - panel sie przelaczal, ale glos nie.
+  // Trzeba WYLACZYC sesje Jarvisa (i jego checa wznawiania), zanim Edith
+  // przejmie rozmowe.
+  if (name === 'wlacz-edith') {
+    store.wantLive = false;
+    liveStop();
+    window.Edith?.open();
+    return;
+  }
+  if (name === 'wlacz-jarvis') {
+    window.Edith?.close();
+    store.wantLive = true;
+    liveStart();
+    return;
+  }
   try {
     if (window.jarvisDesktop) {
       const r = await window.jarvisDesktop.runAction(name, params, options);
@@ -3376,7 +3394,17 @@ function playEncodedChunk(base64, mimeType) {
   });
 }
 
+// Pojedyncza bramka chroniaca przed tym, zeby cokolwiek (slowo budzace,
+// auto-polaczenie po zerwaniu sieci, powrot z logowania) wskoczylo Jarvisem
+// w rozmowe, podczas gdy uzytkownik rozmawia z E.D.I.T.H. - bez tego panel
+// Edith byl tylko oprawa, a glos i tak nalezal do Jarvisa.
+function edithOpen() {
+  const el = $('#edith');
+  return Boolean(el && !el.hidden);
+}
+
 async function liveStart() {
+  if (edithOpen()) return;
   wakeStop();
   store.live = true;
   $('#micBtn')?.classList.add('on');
