@@ -48,8 +48,13 @@ export const LIVE_CLONED_VOICE_REQUESTED = process.env.JARVIS_LIVE_CLONED_VOICE 
 // Ile ciszy musi uslyszec model, zanim uzna ze skonczyles mowic. To jest
 // NAJWIEKSZY pojedynczy skladnik odczuwalnego opoznienia - dokumentacja
 // SDK wprost mowi: "im wieksza wartosc, tym wieksze opoznienie modelu".
-// 300 ms wystarcza na naturalna wypowiedz, a scina ~0.5-0.7 s czekania.
-const SILENCE_MS = Number(process.env.JARVIS_SILENCE_MS || 300);
+// Bylo 300 ms (maksymalnie krotko, zeby ucinac czekanie) - ale to tez
+// najbardziej prawdopodobna przyczyna "Jarvis zle uslyszal i zrobil cos
+// innego": przy naturalnych pauzach w zdaniu (szczegolnie przy dyktowaniu
+// nazwy procesu/aplikacji) model czesto uznawal wypowiedz za skonczona W
+// POLOWIE i dzialal na niepelnym zdaniu. 480 ms to wciaz wyraznie mniej
+// niz domyslne ~1s z dokumentacji, ale daje realny margines na oddech.
+const SILENCE_MS = Number(process.env.JARVIS_SILENCE_MS || 480);
 
 // Ile faktow/zadan wchodzi do promptu. Dluga instrukcja systemowa realnie
 // opoznia pierwszy token, wiec bierzemy tylko najswiezsze.
@@ -204,6 +209,9 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
+- Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
+- zamknij_proces ZAWSZE wymaga wyraznego potwierdzenia uzytkownika (E.D.I.T.H. o nie zapyta na ekranie/w czacie) - powiedz uzytkownikowi, ze to zrobiles i czeka na jego "tak", nie obiecuj ze juz jest zamkniete.
+- Gdy nie jestes pewien, CO dokladnie uzytkownik chce zrobic (zle usłyszane słowo, dwuznaczna nazwa procesu/aplikacji, cicha albo urwana wypowiedz) - zapytaj krotko zamiast zgadywac i wykonywac akcje "na wszelki wypadek". Lepiej dopytac raz, niz kliknac/zamknac/napisac cos, czego nikt nie chcial.
 - zapisz_tryb / uruchom_tryb: nazwany tryb to zapamietana kolejnosc krokow steruj_urzadzeniem, odtwarzana jedna komenda ("Jarvis, dobranoc" zamiast wymieniac kroki). Zapisz gdy uzytkownik poprosi o zapamietanie rutyny, uruchom po samej nazwie.
 - co_na_ekranie: opisuje to, co aktualnie widac na ekranie komputera (dziala tylko w aplikacji desktopowej). Uzyj, gdy uzytkownik pyta co jest na ekranie, prosi o pomoc z tym co widzi, albo o sprawdzenie czegos na monitorze.
 - odprawa: krotkie podsumowanie dnia (pogoda, zadania, przypomnienia, wydatki, stan maszyny) na zadanie - ta sama tresc co automatyczna wiadomosc push rano/wieczorem.
@@ -265,6 +273,54 @@ const ALL_TOOLS = [
     name: 'wylacz_kamere',
     description: 'Wylacz kamere.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'otworz_aplikacje',
+    description: 'Otworz/uruchom DOWOLNA aplikacje na komputerze po nazwie (np. "notepad", "calc", "steam", "obs") - nie tylko te z listy steruj_urzadzeniem.',
+    parameters: {
+      type: 'object',
+      properties: { nazwa: { type: 'string', description: 'Nazwa programu/polecenia do uruchomienia.' } },
+      required: ['nazwa'],
+    },
+  },
+  {
+    name: 'zamknij_proces',
+    description: 'Zamknij (wymusz) proces na komputerze po nazwie pliku .exe. E.D.I.T.H. ZAWSZE zapyta uzytkownika o potwierdzenie przed wykonaniem - powiedz mu to, jesli pyta.',
+    parameters: {
+      type: 'object',
+      properties: { nazwa: { type: 'string', description: 'Nazwa procesu z rozszerzeniem, np. "notepad.exe".' } },
+      required: ['nazwa'],
+    },
+  },
+  {
+    name: 'pisz_tekst',
+    description: 'Wpisz podany tekst w aktualnie aktywnym oknie na komputerze, tak jakby uzytkownik go wpisal z klawiatury.',
+    parameters: {
+      type: 'object',
+      properties: { tekst: { type: 'string' } },
+      required: ['tekst'],
+    },
+  },
+  {
+    name: 'przelacz_okno',
+    description: 'Przywroc na pierwszy plan okno po fragmencie jego tytulu (np. "Word", "Notepad") - uzyj PRZED pisaniu/klikaniu, zeby trafic we wlasciwa aplikacje.',
+    parameters: {
+      type: 'object',
+      properties: { tytul: { type: 'string' } },
+      required: ['tytul'],
+    },
+  },
+  {
+    name: 'kliknij_na_ekranie',
+    description: 'Kliknij na glownym ekranie komputera w punkcie podanym jako procent szerokosci (x) i wysokosci (y), 0-100. Uzyj "co_na_ekranie" najpierw, zeby wiedziec, gdzie kliknac.',
+    parameters: {
+      type: 'object',
+      properties: {
+        x: { type: 'number', description: 'Procent szerokosci ekranu, 0-100.' },
+        y: { type: 'number', description: 'Procent wysokosci ekranu, 0-100.' },
+      },
+      required: ['x', 'y'],
+    },
   },
   {
     name: 'steruj_urzadzeniem',
@@ -709,13 +765,20 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
         // wracamy do tej samej rozmowy zamiast zaczynac od zera.
         sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
-        // Domyslnie model czeka dlugo na cisze, zanim uzna ze skonczyles
-        // mowic - to bylo glowne zrodlo odczuwalnego opoznienia.
-        // HIGH + krotka cisza = zaczyna odpowiadac zauwazalnie szybciej.
         realtimeInputConfig: {
           automaticActivityDetection: {
+            // START na HIGH zostaje - szybkie wykrycie, ze ktos zaczal mowic,
+            // nie powoduje zlych decyzji, tylko krotszy czas reakcji.
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            // END byl na HIGH (razem z krotka cisza nizej) dla szybszej
+            // odpowiedzi - ale to najbardziej prawdopodobna przyczyna
+            // "Jarvis zle uslyszal i zrobil cos innego": END_SENSITIVITY_HIGH
+            // uznaje nawet krotka, naturalna pauze w zdaniu za koniec
+            // wypowiedzi, wiec model dzialal na URWANYM w polowie poleceniu
+            // (najgorsze przy dyktowaniu nazwy aplikacji/procesu). LOW to
+            // domyslna wartosc SDK - czeka na wyrazniejsza cisze, zanim uzna
+            // ze skonczyles, kosztem odrobiny opoznienia.
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
             prefixPaddingMs: 100,
             silenceDurationMs: SILENCE_MS,
           },
@@ -848,6 +911,49 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'otworz_aplikacje') {
+                const { nazwa } = call.args || {};
+                if (!nazwa) {
+                  result = { error: 'brak nazwy aplikacji' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'otworz-aplikacje', params: { nazwa } }));
+                  result = { ok: true };
+                }
+              } else if (call.name === 'zamknij_proces') {
+                const { nazwa } = call.args || {};
+                if (!nazwa) {
+                  result = { error: 'brak nazwy procesu' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'zamknij-proces', params: { nazwa } }));
+                  // E.D.I.T.H. i tak zapyta o potwierdzenie po stronie klienta (patrz
+                  // CONFIRM_ALWAYS w desktop/edithPolicy.js) - informujemy model od
+                  // razu, zeby nie obiecywal, ze juz jest zamkniete.
+                  result = { ok: true, note: 'wyslano do E.D.I.T.H. - uzytkownik musi potwierdzic na ekranie/w czacie' };
+                }
+              } else if (call.name === 'pisz_tekst') {
+                const { tekst } = call.args || {};
+                if (!tekst) {
+                  result = { error: 'brak tekstu' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'pisz-tekst', params: { tekst } }));
+                  result = { ok: true };
+                }
+              } else if (call.name === 'przelacz_okno') {
+                const { tytul } = call.args || {};
+                if (!tytul) {
+                  result = { error: 'brak tytulu okna' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'przelacz-okno', params: { tytul } }));
+                  result = { ok: true };
+                }
+              } else if (call.name === 'kliknij_na_ekranie') {
+                const { x, y } = call.args || {};
+                if (typeof x !== 'number' || typeof y !== 'number') {
+                  result = { error: 'brak wspolrzednych x/y (0-100)' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'kliknij-na-ekranie', params: { x, y } }));
+                  result = { ok: true };
                 }
               } else if (call.name === 'wydrukuj_projekt') {
                 if (!lastDesignId) {

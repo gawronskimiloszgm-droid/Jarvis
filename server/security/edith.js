@@ -55,6 +55,8 @@ export function ingestScan(scan) {
     summary: String(scan?.summary || '').slice(0, 500),
     defender: scan?.defender || null,
     firewall: scan?.firewall || null,
+    killedThreats: Array.isArray(scan?.killedThreats) ? scan.killedThreats.slice(0, 20) : [],
+    suspiciousProcesses: Array.isArray(scan?.suspiciousProcesses) ? scan.suspiciousProcesses.slice(0, 20) : [],
   };
   state.scans.unshift(entry);
   state.scans = state.scans.slice(0, 14);
@@ -70,6 +72,22 @@ export function ingestScan(scan) {
     state.alerts = state.alerts.slice(0, 80);
     remember();
     pushAlert('E.D.I.T.H. — slaba ochrona', weak.join('; '));
+  }
+
+  // Odciete zagrozenie to zawsze alert najwyzszego poziomu - to jedyny
+  // przypadek, w ktorym E.D.I.T.H. juz cos zrobila sama, bez pytania.
+  if (entry.killedThreats.length) {
+    const reason = `Odcieto rozpoznane zagrozenie: ${entry.killedThreats.join(', ')}.`;
+    state.alerts.unshift({ at: Date.now(), level: 'block', reason, command: '' });
+    state.alerts = state.alerts.slice(0, 80);
+    remember();
+    pushAlert('E.D.I.T.H. — zagrozenie odciete', reason);
+  }
+  if (entry.suspiciousProcesses.length) {
+    const reason = `Do przejrzenia (bardzo wysokie zuzycie procesora): ${entry.suspiciousProcesses.join(', ')}.`;
+    state.alerts.unshift({ at: Date.now(), level: 'warn', reason, command: '' });
+    state.alerts = state.alerts.slice(0, 80);
+    remember();
   }
   return entry;
 }
@@ -143,6 +161,15 @@ Nie wykonujesz polecen na komputerze. Jesli ktos prosi o cos groznego, odmawiasz
 Nie zapisujesz faktow do pamieci Jarvisa. Nie przejmujesz jego zadan ani kalendarza.
 Jesli pytanie nie dotyczy ochrony, odpowiadasz jednym zdaniem i wracasz do tematu bezpieczenstwa.`;
 
+// Wlasny klucz API dla E.D.I.T.H. - oddzielny od tego, ktorym rozmawia
+// Jarvis. Celowo osobny budzet/limit zapytan, zeby intensywna rozmowa z
+// jednym z nich nie zjadala limitu drugiemu. Jesli nie ustawiono
+// EDITH_GEMINI_API_KEY, Edith po prostu dzieli klucz z Jarvisem (dziala
+// od razu, bez dodatkowej konfiguracji).
+function edithApiKey() {
+  return process.env.EDITH_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+}
+
 export async function edithReply(message) {
   const state = bag();
   const talk = Array.isArray(state.talk) ? state.talk : [];
@@ -150,7 +177,7 @@ export async function edithReply(message) {
     role: t.role === 'edith' ? 'model' : 'user',
     parts: [{ text: String(t.text || '') }],
   }));
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: edithApiKey() });
   const report = buildReport();
   const res = await withModel((model) =>
     ai.models.generateContent({
@@ -172,7 +199,7 @@ export async function edithReply(message) {
 router.post('/api/edith/chat', requireOwner, async (req, res) => {
   const message = String(req.body?.message || '').trim();
   if (!message) return res.status(400).json({ error: 'Brak wiadomosci.' });
-  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'Brak klucza AI.' });
+  if (!edithApiKey()) return res.status(500).json({ error: 'Brak klucza AI.' });
   try {
     const text = await edithReply(message);
     res.json({ text });

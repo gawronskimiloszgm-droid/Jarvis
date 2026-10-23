@@ -89,13 +89,13 @@ function pcmToWav(pcmBuffer, sampleRate = SAMPLE_RATE) {
   return Buffer.concat([header, pcmBuffer]);
 }
 
-async function synthesizeGemini(text) {
+async function synthesizeGemini(text, voiceName = VOICE_NAME) {
   const response = await ai.models.generateContent({
     model: TTS_MODEL,
     contents: text,
     config: {
       responseModalities: ['AUDIO'],
-      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
     },
   });
   const base64 = response.data;
@@ -127,13 +127,20 @@ function announceCloneFailure(err) {
   });
 }
 
+// Glos E.D.I.T.H. - inny niz Jarvisa, zeby rozmowa z nia brzmiala jak z
+// kims innym, nie jak Jarvis udajacy kogos innego. Dziala TYLKO przez
+// Gemini TTS (klon i Edge ignoruja ten parametr - to osobne uslugi/
+// konfiguracje, nie warto ich tu komplikowac dla jednego dodatkowego glosu).
+const EDITH_VOICE_NAME = process.env.EDITH_TTS_VOICE || 'Charon';
+
 // Kolejnosc: sklonowany glos (gdy wlaczony i tekst krotki) -> Gemini TTS
 // -> Edge TTS. Kazdy stopien lapie awarie poprzedniego, wiec czat nigdy
 // nie zostaje calkiem bez glosu, nawet gdy usluga klonujaca spi.
-export async function synthesize(text) {
+export async function synthesize(text, { speaker } = {}) {
   const clean = normalizeForSpeech(text);
+  const voiceName = speaker === 'edith' ? EDITH_VOICE_NAME : VOICE_NAME;
 
-  if (CLONE_URL && clean.length <= CLONE_MAX_CHARS) {
+  if (speaker !== 'edith' && CLONE_URL && clean.length <= CLONE_MAX_CHARS) {
     try {
       return await synthesizeClone(clean);
     } catch (err) {
@@ -150,7 +157,7 @@ export async function synthesize(text) {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await synthesizeGemini(clean);
+      return await synthesizeGemini(clean, voiceName);
     } catch (err) {
       if (attempt === 1) console.error('Gemini TTS zawiodlo, uzywam Edge TTS:', err.message || err);
     }

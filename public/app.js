@@ -561,6 +561,7 @@ function paletteCommands() {
       run: () => (isOwner() ? doLogout() : showAuth()),
     }
   );
+  if (isOwner()) cmds.push({ label: 'E.D.I.T.H.', hint: 'ochrona', run: () => window.Edith?.open() });
   return cmds;
 }
 
@@ -1573,9 +1574,37 @@ function startGalaxy(cv) {
 // krawedzi kreci sie wlasnym rytmem - cos sie dzieje caly czas, nawet gdy
 // Jarvis milczy. W samym centrum celownik namierzania, nie jadro energii.
 
-const SCAN_BLUE = (a) => `rgba(51, 224, 255, ${a})`;
-const SCAN_ICE = (a) => `rgba(190, 240, 255, ${a})`;
-const SCAN_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
+// "let", nie "const" - celowo, zeby jedna i ta sama funkcja rysujaca
+// (startCoreVisual) mogla obslugiwac wiecej niz jeden "motyw" (Jarvis -
+// cyjan, E.D.I.T.H. - czerwien) bez duplikowania ~250 linii kodu canvasu.
+// Kazda instancja ustawia te zmienne na poczatku WLASNEJ klatki (patrz
+// theme w startCoreVisual) - bezpieczne, bo rysowanie jest synchroniczne
+// i klatki roznych rdzeni nigdy sie nie przeplataja.
+let SCAN_BLUE = (a) => `rgba(51, 224, 255, ${a})`;
+let SCAN_ICE = (a) => `rgba(190, 240, 255, ${a})`;
+let SCAN_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
+let WORDMARK_TEXT = 'JARVIS';
+
+// Motywy dla startCoreVisual - na razie dwa: Jarvis (domyslny, cyjan) i
+// E.D.I.T.H. (czerwien/czern, ta sama geometria - "wzorowane na Jarvisie,
+// ale czerwono-czarne").
+const CORE_THEMES = {
+  jarvis: {
+    blue: (a) => `rgba(51, 224, 255, ${a})`,
+    ice: (a) => `rgba(190, 240, 255, ${a})`,
+    white: (a) => `rgba(255, 255, 255, ${a})`,
+    word: 'JARVIS',
+  },
+  edith: {
+    blue: (a) => `rgba(255, 42, 42, ${a})`,
+    ice: (a) => `rgba(255, 150, 140, ${a})`,
+    white: (a) => `rgba(255, 225, 215, ${a})`,
+    word: 'E.D.I.T.H.',
+  },
+};
+// "const" nie wycieka do window, a public/edith.js (osobny <script>, bez
+// modulow) potrzebuje tego motywu do wlasnego wywolania startCoreVisual.
+window.CORE_THEMES = CORE_THEMES;
 
 // Punkty na powierzchni kuli rozlozone rownomiernie spirala Fibonacciego
 // (zadnego zageszczenia przy biegunach) - cele, ktore pas skanujacy po
@@ -1684,7 +1713,7 @@ function meridianRing(ctx, off, spin, tiltX, base, cx, cy, color, lw) {
 // Napis rysujemy litera po literze. ctx.letterSpacing jest nowe i nie
 // wszedzie dziala, a odstep miedzy literami to tu polowa charakteru.
 function drawWordmark(ctx, cx, cy, base, lvl) {
-  const word = 'JARVIS';
+  const word = WORDMARK_TEXT;
   const size = base * 0.14;
   ctx.font = `600 ${size}px 'JetBrains Mono', 'SF Mono', 'Consolas', monospace`;
   ctx.textBaseline = 'middle';
@@ -1716,7 +1745,7 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
   ctx.restore();
 }
 
-function startCoreVisual(cv, seed = 42) {
+function startCoreVisual(cv, seed = 42, theme = CORE_THEMES.jarvis) {
   const ctx = cv.getContext('2d');
   const scanner = buildScanner(seed);
   let t = 0;
@@ -1742,6 +1771,10 @@ function startCoreVisual(cv, seed = 42) {
   const bloomCtx = bloomCv.getContext('2d');
 
   const draw = () => {
+    SCAN_BLUE = theme.blue;
+    SCAN_ICE = theme.ice;
+    SCAN_WHITE = theme.white;
+    WORDMARK_TEXT = theme.word;
     const rect = cv.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(rect.width * dpr)) {
@@ -2671,19 +2704,79 @@ async function runRoutineSteps(steps) {
   }
 }
 
-async function runDeviceAction(name) {
+// E.D.I.T.H. moze odmowic wykonania od razu i zazadac wyraznego "tak" -
+// patrz desktop/edithPolicy.js (zasilanie, zabicie procesu, wylaczenie
+// sieci). Trzymamy TYLKO JEDNO oczekujace potwierdzenie naraz i wygasza
+// je po minucie - zle usłyszane/zapomniane "tak" po dluzszej chwili nie
+// ma uruchamiac czegos, o czym uzytkownik juz dawno przestal myslec.
+let pendingConfirm = null;
+
+function askConfirm(name, params, warning) {
+  pendingConfirm = { name, params, warning, at: Date.now() };
+  // W rozmowie na zywo samo powiedzenie "tak" NIE dotrze tutaj (ten kanal
+  // nie sluchamy - mowi o tym Gemini Live), dlatego prosba zawsze kieruje
+  // do czatu pisanego - to jedyny kanal, ktory realnie to potwierdzenie
+  // odbiera i wykonuje.
+  const msg = `E.D.I.T.H.: ${warning || 'Ta operacja wymaga potwierdzenia.'} Napisz „tak" w czacie, zeby to wykonac.`;
+  pushSaid('jv', msg);
+  // speak() dziala niezaleznie od trybu (czat pisany czy rozmowa na zywo) -
+  // bez tego w rozmowie glosowej prosba o potwierdzenie byla widoczna
+  // tylko na ekranie, a uzytkownik jej nie slyszal.
+  speak(msg);
+  setCoreState('POTWIERDZ');
+}
+
+// Wolana z obslugi wiadomosci (czat pisany i glos) ZANIM tekst trafi do
+// zwyklej rozmowy z Jarvisem - odpowiedz na oczekujace potwierdzenie nie
+// powinna isc do modelu jako nowe pytanie. Zwraca true, gdy przejela tekst.
+function tryConsumeConfirmation(text) {
+  if (!pendingConfirm) return false;
+  if (Date.now() - pendingConfirm.at > 60000) {
+    pendingConfirm = null;
+    return false;
+  }
+  const norm = deaccent(String(text || '').trim());
+  const { name, params } = pendingConfirm;
+  if (/^(tak|potwierdzam|rob to|zrob to|wykonaj|ok|zgoda)\b/.test(norm)) {
+    pendingConfirm = null;
+    runDeviceAction(name, params, { confirmedByEdith: true });
+    return true;
+  }
+  if (/^(nie|anuluj|stop|przerwij)\b/.test(norm)) {
+    pendingConfirm = null;
+    pushSaid('jv', 'Dobrze, nie robię tego.');
+    setCoreState('GOTOWY');
+    return true;
+  }
+  return false;
+}
+
+async function runDeviceAction(name, params, options) {
   if (!isOwner()) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
     return;
   }
+  // "wlacz-edith"/"wlacz-jarvis" sa czysto klienckie (przelaczaja widok),
+  // nie maja odpowiednika w desktop/actions.js - obsluzone od razu, bez
+  // wysylania do aplikacji desktopowej/mobilnej.
+  if (name === 'wlacz-edith') return void window.Edith?.open();
+  if (name === 'wlacz-jarvis') return void window.Edith?.close();
   try {
     if (window.jarvisDesktop) {
-      const r = await window.jarvisDesktop.runAction(name);
+      const r = await window.jarvisDesktop.runAction(name, params, options);
+      if (r?.requiresEdithConfirmation) {
+        askConfirm(name, params, r.warning || r.reason);
+        return;
+      }
+      if (r?.blocked) {
+        toast(`Zablokowane przez E.D.I.T.H.: ${r.edithReason || ''}`);
+        return;
+      }
       if (!r?.ok) toast(`Nie udalo sie: ${name}`);
       return;
     }
     if (isNativeShell() && window.Capacitor.Plugins.DeviceControl) {
-      const r = await window.Capacitor.Plugins.DeviceControl.runAction({ name });
+      const r = await window.Capacitor.Plugins.DeviceControl.runAction({ name, ...params });
       if (!r?.ok) toast(`Nie udalo sie: ${name}`);
       return;
     }
@@ -2783,10 +2876,22 @@ function pushSaid(who, text) {
 const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
 const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/g;
+// [POLECENIE: komenda] - jedyny "wentyl bezpieczenstwa" dla wszystkiego,
+// czego nie ma na liscie nazwanych akcji (patrz prompt w server/core/
+// jarvis.js). Serwer celowo zostawia go zywcem w strumieniu - do teraz
+// jednak nic po stronie klienta go nie czytalo, wiec caly ten mechanizm
+// (a z nim "Jarvis moze zrobic wszystko, Edith to sprawdza") byl martwy:
+// tag po prostu wyswietlal sie i byl czytany na glos jako tekst.
+const CMD_RE = /\[POLECENIE:\s*([^\]]+)\]/g;
+
+function stripActionTags(text) {
+  return text.replace(ACT_RE, '').replace(TRYB_RE, '').replace(CMD_RE, '').replace(IMG_RE, '').replace(CAD_RE, '');
+}
 
 async function sendTyped(text) {
   window.SFX?.play('send');
   pushSaid('me', text);
+  if (tryConsumeConfirmation(text)) return;
   setCoreState('MYSLE');
   const node = pushSaid('jv', '');
   try {
@@ -2820,11 +2925,16 @@ async function sendTyped(text) {
             .catch(() => toast(`Nie znam trybu: ${m[1].trim()}`));
         }
       }
+      for (const m of full.matchAll(CMD_RE)) {
+        const key = `cmd:${m[1]}`;
+        if (!done.has(key)) {
+          done.add(key);
+          runDeviceAction('polecenie', { tresc: m[1].trim() });
+        }
+      }
       node.textContent = '';
       node.appendChild(el('span', 'who', 'JARVIS'));
-      node.appendChild(
-        document.createTextNode(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, ''))
-      );
+      node.appendChild(document.createTextNode(stripActionTags(full)));
       $('#talkFeed').scrollTop = $('#talkFeed').scrollHeight;
     }
     const cadHit = full.match(CAD_RE);
@@ -2849,7 +2959,7 @@ async function sendTyped(text) {
       im.alt = 'Wygenerowany obraz';
       node.appendChild(im);
     }
-    speak(full.replace(ACT_RE, '').replace(TRYB_RE, '').replace(IMG_RE, '').replace(CAD_RE, '').trim());
+    speak(stripActionTags(full).trim());
     if (isOwner()) refreshOwnerPanes();
   } catch (err) {
     node.remove();
@@ -3352,7 +3462,7 @@ async function liveStart() {
     } else if (m.type === 'startCamera') camOn();
     else if (m.type === 'stopCamera') camOff();
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
-    else if (m.type === 'deviceAction') runDeviceAction(m.action);
+    else if (m.type === 'deviceAction') runDeviceAction(m.action, m.params);
     else if (m.type === 'appAction') runAppAction(m.action, m.text);
     else if (m.type === 'runRoutine') runRoutineSteps(m.steps);
     else if (m.type === 'fileAction') handleFileAction(m);

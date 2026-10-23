@@ -9,6 +9,7 @@
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/edith.css" />
 </head>
 <body>
   <div class="grid-field" aria-hidden="true"></div>
@@ -138,9 +139,65 @@
     </div>
   </div>
 
+  <!-- E.D.I.T.H. - osobny ekran ochrony. Ta sama "scena" co u Jarvisa
+       (rdzen skanujacy + stala rozmowa), ale czerwono-czarny i bez
+       reszty mostka (dock, moduly) - to nie jest kolejny modul Jarvisa,
+       to osobna osobowosc. -->
+  <div class="edith" id="edith" hidden>
+    <header class="edith-top">
+      <span class="edith-mark"></span>
+      <div class="edith-head-txt">
+        <h1>E.D.I.T.H.</h1>
+        <p>Ochrona i nadzor - osobno od Jarvisa</p>
+      </div>
+      <div class="edith-tabs">
+        <button type="button" data-tab="rozmowa" class="on">Rozmowa</button>
+        <button type="button" data-tab="zagrozenia">Zagrozenia</button>
+      </div>
+      <button type="button" class="edith-close" id="edithClose" title="Wroc do Jarvisa">&times;</button>
+    </header>
+
+    <div class="edith-body">
+      <section class="edith-panel on" data-panel="rozmowa">
+        <div class="edith-core">
+          <canvas id="edithCore"></canvas>
+          <div class="edith-core-state" id="edithCoreState">Gotowa</div>
+        </div>
+        <div class="edith-feed" id="edithFeed"></div>
+        <form class="edith-form" id="edithForm">
+          <button type="button" class="edith-mic" id="edithMicBtn" title="Mow do Edith">&#9673;</button>
+          <input id="edithInput" placeholder="Napisz do E.D.I.T.H...." autocomplete="off" />
+          <button type="submit">&rarr;</button>
+        </form>
+      </section>
+
+      <section class="edith-panel" data-panel="zagrozenia">
+        <div class="edith-card">
+          <h2>Raport</h2>
+          <p id="edithReport">Jeszcze nie ma raportu.</p>
+          <div class="edith-actions">
+            <button type="button" class="solid" id="edithReportBtn">Nowy raport</button>
+          </div>
+        </div>
+        <div class="edith-card">
+          <h2>Ostatni skan</h2>
+          <p id="edithScan">Brak skanu.</p>
+          <div class="edith-actions">
+            <button type="button" class="ghost" id="edithScanBtn">Skanuj teraz</button>
+          </div>
+        </div>
+        <div class="edith-card">
+          <h2>Dziennik zdarzen</h2>
+          <ul class="edith-list" id="edithAlerts"></ul>
+        </div>
+      </section>
+    </div>
+  </div>
+
   <div class="toasts" id="toasts"></div>
 </body>
 <script src="/sfx.js"></script>
 <script src="/cad-view.js"></script>
 <script src="/app.js"></script>
+<script src="/edith.js"></script>
 </html>

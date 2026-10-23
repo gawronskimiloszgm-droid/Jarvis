@@ -38,8 +38,26 @@ const SAFE_ACTIONS = new Set([
   'skan-bezpieczenstwa',
   'sterowanie-siecia',
   'pisz-tekst',
-  'skrot-klawiszowy'
+  'skrot-klawiszowy',
+  'kliknij-na-ekranie',
+  'lista-okien',
+  'przelacz-okno'
 ]);
+
+// Akcje, ktore zawsze wymagaja wyraznego potwierdzenia ("tak"/"potwierdzam"
+// od uzytkownika), nawet gdy sa na liscie dozwolonych - bo sa nieodwracalne
+// albo latwo je wywolac przez pomylke/przeslyszenie (np. zle zrozumiana
+// nazwa procesu). Zasilanie bylo tu juz wczesniej; dolaczamy zabicie
+// procesu (moze ubic cos innego niz uzytkownik mial na mysli) i wylaczenie
+// sieci (odcina tez Jarvisa/Edith od swiata, dopoki ktos tego nie wlaczy
+// z powrotem recznie).
+const CONFIRM_ALWAYS = new Set(['wylacz-komputer', 'restart-komputera', 'zamknij-proces']);
+
+function describeAction(name, params = {}) {
+  if (name === 'zamknij-proces') return `Zamkniecie procesu "${params.nazwa || params.process || '?'}"`;
+  if (name === 'sterowanie-siecia') return 'Wylaczenie karty sieciowej';
+  return `Wykonanie: ${name}`;
+}
 
 // Krytyczne reguły blokowania destrukcyjnych akcji systemowych
 const CRITICAL_BLOCK_RULES = [
@@ -66,7 +84,7 @@ const SENSITIVE_COMMAND_PATTERNS = [
   { re: /Set-ExecutionPolicy\b/i, warning: 'Zmiana polityki wykonywania skryptów' }
 ];
 
-function judge(action, command = '', options = {}) {
+function judge(action, command = '', options = {}, params = {}) {
   const name = String(action || '').trim();
   const text = String(command || '').trim();
   const confirmedByEdith = Boolean(options.confirmedByEdith);
@@ -77,14 +95,21 @@ function judge(action, command = '', options = {}) {
       return { allow: false, action: name, reason: 'E.D.I.T.H.: Nieznana lub niezarejestrowana akcja systemowa.' };
     }
 
-    // Akcje zasilania wymagają potwerdzenia
-    if (['wylacz-komputer', 'restart-komputera'].includes(name) && !confirmedByEdith) {
+    // Nieodwracalne albo latwe do pomylenia przez przeslyszenie - zawsze
+    // pytamy, nawet jesli sama nazwa akcji jest na liscie dozwolonych.
+    // "sterowanie-siecia" tylko przy WYLACZANIU - wlaczenie z powrotem nie
+    // szkodzi, a bez tego wyjatku Jarvis nie moglby sam odblokowac sieci,
+    // ktora wczesniej na prosbe wylaczyl.
+    const needsConfirm =
+      CONFIRM_ALWAYS.has(name) || (name === 'sterowanie-siecia' && params.wlacz === false);
+
+    if (needsConfirm && !confirmedByEdith) {
       return {
         allow: false,
         requiresConfirmation: true,
         action: name,
-        warning: `Czy na pewno chcesz wykonać: ${name}?`,
-        reason: 'E.D.I.T.H. wymaga potwierdzenia operacji na zasilaniu komputera.'
+        warning: describeAction(name, params),
+        reason: 'E.D.I.T.H. wymaga wyraznego potwierdzenia tej operacji.'
       };
     }
 

@@ -656,9 +656,9 @@ app.get('/api/events', requireOwner, (req, res) => {
 // --- TTS ---
 app.post('/api/tts', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, speaker } = req.body;
     if (!text) return res.status(400).json({ error: 'Brak tekstu.' });
-    const { buffer, contentType } = await tts.synthesize(text);
+    const { buffer, contentType } = await tts.synthesize(text, { speaker });
     res.set('Content-Type', contentType);
     res.send(buffer);
   } catch (err) {

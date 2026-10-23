@@ -161,6 +161,60 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     const state = params.wlacz ? 'Enable' : 'Disable';
     const script = `Get-NetAdapter | ${state}-NetAdapter -Confirm:$false`;
     return runPowerShell(script);
+  },
+
+  // Klikniecie w dowolnym miejscu ekranu - x/y jako procent szerokosci/
+  // wysokosci glownego ekranu (0-100), nie piksele, zeby Jarvis (a w
+  // praktyce model z obrazem ekranu z "zrzut-i-opisz") nie musial znac
+  // rozdzielczosci. To jest kawalek, ktorego brakowalo, zeby dalo sie
+  // naprawde "kliknac w aplikacji", nie tylko ja otworzyc albo wpisac tekst.
+  'kliknij-na-ekranie': async (params) => {
+    const xPct = Number(params.x);
+    const yPct = Number(params.y);
+    if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) {
+      return { ok: false, error: 'Podaj x i y jako procent ekranu (0-100).' };
+    }
+    const { size } = screen.getPrimaryDisplay();
+    const x = Math.round((Math.min(100, Math.max(0, xPct)) / 100) * size.width);
+    const y = Math.round((Math.min(100, Math.max(0, yPct)) / 100) * size.height);
+    const script = `
+Add-Type -Namespace J -Name M -MemberDefinition '
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, System.IntPtr extraInfo);
+'
+[J.M]::SetCursorPos(${x}, ${y})
+Start-Sleep -Milliseconds 40
+[J.M]::mouse_event(0x0002, 0, 0, 0, [System.IntPtr]::Zero)
+[J.M]::mouse_event(0x0004, 0, 0, 0, [System.IntPtr]::Zero)
+`;
+    const res = await runPowerShell(script);
+    return { ...res, x, y };
+  },
+
+  // Lista widocznych okien (tytul + proces) - zeby Jarvis wiedzial, co jest
+  // otwarte, zanim sprobuje "przelaczyc-okno" na cos po tytule.
+  'lista-okien': async () => {
+    const script = `Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object Name, Id, MainWindowTitle | ConvertTo-Json -Compress`;
+    const res = await runPowerShell(script);
+    try {
+      const raw = JSON.parse(res.output || '[]');
+      const windows = Array.isArray(raw) ? raw : [raw];
+      return { ok: true, windows };
+    } catch {
+      return { ok: false, error: 'Nie udało się odczytać listy okien.' };
+    }
+  },
+
+  // Przywraca na pierwszy plan okno, ktorego tytul zawiera podany fragment
+  // (np. "Notepad" albo "Word") - potrzebne, zeby "pisz-tekst"/klikniecia
+  // trafialy we WLASCIWA aplikacje, nie w cokolwiek akurat mialo fokus.
+  'przelacz-okno': async (params) => {
+    const title = String(params.tytul || params.title || params.nazwa || '').trim();
+    if (!title) return { ok: false, error: 'Nie podano tytulu/nazwy okna.' };
+    const escaped = title.replace(/'/g, "''");
+    const script = `(New-Object -ComObject WScript.Shell).AppActivate('${escaped}')`;
+    const res = await runPowerShell(script);
+    return { ...res, ok: res.output?.trim() === 'True' };
   }
 };
 
@@ -194,6 +248,52 @@ function runUserCommand(command) {
   });
 }
 
+// Rozpoznawanie po nazwie pliku .exe - to NIE jest prawdziwa baza sygnatur
+// antywirusowych (tego nie da się sensownie zbudować samym PowerShellem).
+// To krótka, jawna lista nazw kojarzonych ze znanymi rodzinami malware/
+// cryptominerów - jeśli coś z tej listy się uruchomi, E.D.I.T.H. ubija to
+// od razu, bez pytania (to pewniak, nie domysł). Realna, pełna ochrona
+// antywirusowa to wciąż Windows Defender - dlatego skan zawsze sprawdza
+// też, czy on jest włączony. To jest dodatkowa siatka, nie zamiennik.
+const KNOWN_THREAT_EXE = /^(xmrig|minerd|nheqminer|t-rex|ethminer|wannacry|cryptolocker|mimikatz|lazagne)\.exe$/i;
+
+// Procesy o bardzo wysokim, DLUGOTRWALE zuzytym czasie procesora w
+// stosunku do czasu dzialania sa warte przejrzenia - to tylko sygnal, nie
+// wyrok (ciezka gra albo kompilacja wyglada tak samo), wiec je zglaszamy,
+// a nie zabijamy automatycznie.
+async function scanProcessThreats() {
+  const script = `Get-Process | Select-Object Name, Id, @{N='CpuS';E={$_.CPU}}, @{N='StartedAt';E={try { $_.StartTime.ToString('o') } catch { $null }}} -ErrorAction SilentlyContinue | ConvertTo-Json -Compress -Depth 3`;
+  const res = await runPowerShell(script);
+  let list = [];
+  try {
+    const raw = JSON.parse(res.output || '[]');
+    list = Array.isArray(raw) ? raw : [raw];
+  } catch {
+    return { killed: [], suspicious: [] };
+  }
+
+  const killedNames = new Set();
+  for (const p of list) {
+    const exe = `${p.Name}.exe`;
+    if (KNOWN_THREAT_EXE.test(exe) && !killedNames.has(exe)) {
+      killedNames.add(exe);
+      await runWindowsCommand(`taskkill /IM "${exe}" /F`);
+    }
+  }
+
+  const suspicious = list
+    .filter((p) => {
+      if (!p.StartedAt || !p.CpuS) return false;
+      const ageS = (Date.now() - new Date(p.StartedAt).getTime()) / 1000;
+      // Srednio ponad ~85% jednego rdzenia przez caly czas dzialania, i
+      // dziala juz dluzej niz minute (zeby nie lapac chwilowych skokow).
+      return ageS > 60 && p.CpuS / ageS > 0.85;
+    })
+    .map((p) => p.Name);
+
+  return { killed: [...killedNames], suspicious: [...new Set(suspicious)].slice(0, 5) };
+}
+
 async function securityScan() {
   if (process.platform !== 'win32') {
     return { ok: true, summary: 'Skanowanie bezpieczeństwa aktywne tylko dla systemu Windows.', defender: null, firewall: null };
@@ -215,12 +315,22 @@ try { $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Na
     const rt = parsed.defender && parsed.defender.RealTimeProtectionEnabled;
     const av = parsed.defender && parsed.defender.AntivirusEnabled;
     const fwOn = Array.isArray(parsed.firewall) && parsed.firewall.every((p) => p.Enabled !== false);
+    const threats = await scanProcessThreats().catch(() => ({ killed: [], suspicious: [] }));
     const summary = [
       av === false ? 'E.D.I.T.H.: Antywirus wyłączony!' : 'Antywirus aktywny.',
       rt === false ? 'E.D.I.T.H.: Ochrona w czasie rzeczywistym wyłączona!' : 'Ochrona na żywo aktywna.',
-      fwOn ? 'Zapora sieciowa aktywna.' : 'E.D.I.T.H.: Zapora ma wyłączony profil!'
-    ].join(' ');
-    return { ok: true, summary, defender: parsed.defender, firewall: parsed.firewall };
+      fwOn ? 'Zapora sieciowa aktywna.' : 'E.D.I.T.H.: Zapora ma wyłączony profil!',
+      threats.killed.length ? `E.D.I.T.H.: odcięto rozpoznane zagrożenie: ${threats.killed.join(', ')}.` : '',
+      threats.suspicious.length ? `Do przejrzenia (bardzo wysokie zużycie procesora): ${threats.suspicious.join(', ')}.` : '',
+    ].filter(Boolean).join(' ');
+    return {
+      ok: true,
+      summary,
+      defender: parsed.defender,
+      firewall: parsed.firewall,
+      killedThreats: threats.killed,
+      suspiciousProcesses: threats.suspicious,
+    };
   } catch {
     return { ok: false, error: 'Błąd przetwarzania raportu bezpieczeństwa.', output: result.output.slice(0, 300) };
   }
@@ -229,7 +339,7 @@ try { $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Na
 async function runAction(name, params = {}, options = {}) {
   // 1. Analiza bezpieczeństwa i ocena E.D.I.T.H.
   const commandText = params.tresc || params.command || '';
-  const verdict = judge(name, commandText, options);
+  const verdict = judge(name, commandText, options, params);
 
   if (!verdict.allow) {
     if (verdict.requiresConfirmation) {
