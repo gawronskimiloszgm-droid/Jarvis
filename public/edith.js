@@ -215,6 +215,11 @@
   root.querySelector('#edithClose')?.addEventListener('click', () => window.Edith.close());
 
   let coreStarted = false;
+  const GREETINGS = [
+    'Czuwam. Mow albo pisz.',
+    'E.D.I.T.H. online. Slucham.',
+    'Tu E.D.I.T.H. Co sie dzieje?',
+  ];
 
   window.Edith = {
     open() {
@@ -229,6 +234,13 @@
         }
         startPatrol();
       }
+      // Bez tego ekran po przelaczeniu z Jarvisa po prostu milczal - nic
+      // sie nie dzialo, dopoki ktos sam cos nie napisal/nie kliknal
+      // mikrofonu, wiec wygladalo to jak "Edith sie nie odzywa". Krotkie
+      // powitanie od razu, glosem I tekstem, potwierdza ze dziala.
+      const hello = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
+      addLine('her', hello);
+      speakEdith(hello);
       if (window.jarvisDesktop) scanNow(false);
     },
     close() {

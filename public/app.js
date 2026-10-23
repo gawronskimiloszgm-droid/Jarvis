@@ -2751,7 +2751,23 @@ function tryConsumeConfirmation(text) {
   return false;
 }
 
-async function runDeviceAction(name, params, options) {
+// Jedna wypowiedz Jarvisa potrafi zlecic kilka krokow pod rzad (np. "otworz
+// przegladarke i wpisz X") - kazdy tag/wywolanie narzedzia odpala
+// runDeviceAction, gdy tylko zostanie sparsowany/odebrany, WIEC BEZ KOLEJKI
+// dwa takie kroki leca niemal jednoczesnie. "Wpisz tekst" docierajace, zanim
+// przegladarka zdazyla choc sie otworzyc i zlapac fokus, po prostu znika w
+// nic - to byl powod "w przegladarce nie moge nic wpisac". runRoutineSteps
+// (tryby) mialo wlasna przerwe 500ms miedzy krokami od dawna - teraz KAZDE
+// wywolanie runDeviceAction czeka w tej samej, jednej kolejce.
+let actionChain = Promise.resolve();
+
+function runDeviceAction(name, params, options) {
+  const run = () => runDeviceActionNow(name, params, options);
+  actionChain = actionChain.then(run, run);
+  return actionChain;
+}
+
+async function runDeviceActionNow(name, params, options) {
   if (!isOwner()) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
     return;
@@ -2791,11 +2807,17 @@ async function runDeviceAction(name, params, options) {
         return;
       }
       if (!r?.ok) toast(`Nie udalo sie: ${name}`);
+      // Krotkie odczekanie PO kazdej akcji (nie tylko udanej - nawet
+      // nieudana proba otwarcia zajela chwile) - zanim kolejka przepusci
+      // nastepny krok. To ta sama logika co runRoutineSteps, tylko dla
+      // WSZYSTKICH wywolan runDeviceAction, nie tylko zapisanych trybow.
+      await new Promise((res) => setTimeout(res, 600));
       return;
     }
     if (isNativeShell() && window.Capacitor.Plugins.DeviceControl) {
       const r = await window.Capacitor.Plugins.DeviceControl.runAction({ name, ...params });
       if (!r?.ok) toast(`Nie udalo sie: ${name}`);
+      await new Promise((res) => setTimeout(res, 600));
       return;
     }
     toast('Sterowanie dziala w aplikacji desktopowej lub mobilnej.', 'ok');
