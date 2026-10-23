@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: jarvis
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash
+      - key: TTS_VOICE
+        value: pl-PL-MarekNeural
+      - key: GEMINI_LIVE_VOICE
+        value: Orion
+      - key: OWNER_TITLE
+        value: sir
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:example@example.com
+      - key: CRON_SECRET
+        sync: false

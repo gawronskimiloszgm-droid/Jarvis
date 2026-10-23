@@ -1,0 +1,15 @@
+{
+  "appId": "com.jarvis.assistant",
+  "appName": "J.A.R.V.I.S.",
+  "webDir": "public",
+  "server": {
+    "url": "https://jarvis-u4vw.onrender.com",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#030914"
+  },
+  "backgroundColor": "#030914"
+}

@@ -1,0 +1,9 @@
+# XTTS-v2 przez utrzymywany fork Coqui (oryginalne 'TTS' nie jest juz
+# rozwijane i nie instaluje sie na Pythonie 3.11+).
+coqui-tts==0.25.1
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# torch instalujemy osobno w Dockerfile - wersja CPU wazy ~200 MB zamiast
+# ~2.5 GB z CUDA, co ma znaczenie na darmowym hostingu.

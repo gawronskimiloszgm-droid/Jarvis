@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#08080d" />
+<title>J.A.R.V.I.S.</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="grid-field" aria-hidden="true"></div>
+  <canvas class="galaxy" id="galaxyCanvas" aria-hidden="true"></canvas>
+
+  <!-- Ekran startowy -->
+  <div class="boot" id="boot">
+    <canvas class="boot-canvas" id="bootCanvas"></canvas>
+    <div class="boot-name" id="bootName">J A R V I S</div>
+    <pre class="boot-log" id="bootLog"></pre>
+  </div>
+
+  <!-- Logowanie -->
+  <div class="auth-veil" id="authVeil" hidden>
+    <form class="auth-box" id="authForm">
+      <div class="auth-mark"><span></span><span></span><span></span></div>
+      <div class="auth-title">Witaj z powrotem</div>
+      <div class="auth-sub">Jarvis · Twój osobisty asystent</div>
+      <label class="auth-field">
+        <span>Uzytkownik</span>
+        <input class="auth-input" id="authUser" type="text" autocomplete="username" spellcheck="false" />
+      </label>
+      <label class="auth-field">
+        <span>Haslo</span>
+        <input class="auth-input" id="authPassword" type="password" autocomplete="current-password" />
+      </label>
+      <div class="auth-actions">
+        <button type="submit" class="btn primary">Zaloguj</button>
+        <button type="button" class="btn ghost" id="authGuestBtn">Tryb goscia</button>
+      </div>
+      <div class="auth-error" id="authError" hidden></div>
+      <div class="auth-note">Bez logowania dziala rozmowa, pogoda i wyszukiwanie. Pamiec, zadania, kamera i sterowanie komputerem sa zastrzezone dla wlasciciela.</div>
+    </form>
+  </div>
+
+  <!-- EKRAN SPOCZYNKU: sam rdzen -->
+  <div class="idle" id="idle">
+    <div class="idle-top">
+      <div class="idle-id">
+        <span class="dot"></span>
+        <span>
+          <b id="idleStatus">System gotowy</b>
+          <i id="idleSession">Sesja ---- · v5.0</i>
+        </span>
+      </div>
+      <div class="idle-time">
+        <b id="idleClock">--:--</b>
+        <i id="idleDate"></i>
+      </div>
+    </div>
+
+    <div class="idle-core">
+      <canvas id="coreCanvas"></canvas>
+      <button class="core-hit" id="coreHit" title="Kliknij, zeby wyciszyc / wznowic rozmowe"></button>
+      <div class="core-state" id="coreState">Gotowy</div>
+    </div>
+
+    <div class="idle-cards" id="idleCards"></div>
+
+    <button class="idle-enter" id="idleEnter">Otworz centrum <span>&rarr;</span></button>
+  </div>
+
+  <!-- CENTRUM OPERACYJNE -->
+  <div class="ops" id="ops" hidden>
+    <header class="ops-head">
+      <button class="brand" id="brandBtn" title="Powrot do rdzenia">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span class="brand-txt"><b>Jarvis</b><i>Centrum operacyjne</i></span>
+      </button>
+
+      <div class="head-status">
+        <span class="dot"></span>
+        <span id="headStatus">system gotowy</span>
+      </div>
+
+      <div class="head-spacer"></div>
+
+      <div class="head-stats" id="headStats"></div>
+
+      <button class="btn ghost" id="paletteBtn">Szukaj <span class="kbd">Ctrl K</span></button>
+
+      <button class="btn mic" id="micBtn">
+        <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
+        <span id="micLabel">Nasluch</span>
+      </button>
+
+      <button class="btn danger" id="exitBtn">Wyjdz</button>
+    </header>
+
+    <div class="ops-body">
+      <div class="board" id="board">
+        <!-- Rozmowa - zawsze na tablicy, bez przycisku zamkniecia, ale
+             rownie przeciagalna/skalowalna jak kazde inne holo-okno. -->
+        <section class="holo-window" data-win="talk" id="winTalk">
+          <div class="holo-titlebar" data-drag>
+            <span class="holo-dot"></span>
+            <span class="holo-title"><span class="holo-ico">&#9673;</span>Rozmowa</span>
+            <span class="holo-badge" id="sideCount">0</span>
+          </div>
+          <div class="holo-body">
+            <div class="side-core">
+              <canvas id="sideCore"></canvas>
+              <div class="side-state" id="sideState">Gotowy</div>
+            </div>
+            <div class="feed" id="talkFeed"></div>
+            <form class="side-form" id="talkForm">
+              <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
+              <button class="btn primary" type="submit">&rarr;</button>
+            </form>
+          </div>
+          <div class="holo-resize" data-resize></div>
+        </section>
+      </div>
+    </div>
+
+    <nav class="dock" id="dock"></nav>
+  </div>
+
+  <!-- Paleta polecen -->
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box">
+      <input class="palette-input" id="paletteInput" placeholder="Wpisz polecenie albo pytanie..." autocomplete="off" />
+      <div class="palette-list" id="paletteList"></div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+</body>
+<script src="/sfx.js"></script>
+<script src="/cad-view.js"></script>
+<script src="/app.js"></script>
+</html>

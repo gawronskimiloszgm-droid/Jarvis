@@ -1,0 +1,29 @@
+{
+  "name": "jarvis-desktop",
+  "version": "0.1.0",
+  "description": "J.A.R.V.I.S. jako aplikacja desktopowa (Windows/Mac/Linux)",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.jarvis.desktop",
+    "productName": "J.A.R.V.I.S.",
+    "files": ["main.js", "preload.js", "actions.js", "config.json"],
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}

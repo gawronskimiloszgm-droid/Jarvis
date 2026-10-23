@@ -1,0 +1,18 @@
+node_modules/
+.env
+data/memory.json
+.claude/
+desktop/node_modules/
+desktop/dist/
+android/.idea/
+android/local.properties
+*.apk
+
+home-server/.env
+
+# Probka i wektory glosu - prywatne nagranie, nie do repozytorium
+tts_cloud/jarvis_sample.wav
+tts_cloud/jarvis_voice.pth
+tts_cloud/.cache/
+tts_cloud/venv/
+tts_cloud/_selftest_output.wav

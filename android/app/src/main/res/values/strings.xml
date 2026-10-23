@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">J.A.R.V.I.S.</string>
+    <string name="title_activity_main">J.A.R.V.I.S.</string>
+    <string name="package_name">com.jarvis.assistant</string>
+    <string name="custom_url_scheme">com.jarvis.assistant</string>
+    <string name="accessibility_description">Pozwala Jarvisowi wykonywac polecenia w innych aplikacjach: cofnij, ekran glowny, przewijanie i klikniecie przycisku po jego napisie. Dziala tylko na Twoje polecenie - nie nasluchuje i nie zbiera zawartosci ekranu.</string>
+</resources>
