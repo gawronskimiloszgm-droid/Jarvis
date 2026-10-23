@@ -1,12 +1,12 @@
-/* J.A.R.V.I.S. - warstwa wizualna, przebudowa #2: swobodna tablica
-   holo-okien w stylu warsztatu Starka. Zero stalego dashboardu z bocznym
-   panelem - kazdy modul to niezalezne, przeciagalne i skalowalne okno na
-   otwartej planszy, dokowane z dolnego paska. Uklad zapisuje sie lokalnie
-   (patrz #board / .holo-window w app.js), wiec wraca dokladnie tak jak
-   go zostawiles.
+/* J.A.R.V.I.S. - warstwa wizualna, przebudowa #3: mostek dowodzenia.
+   Zero przeciaganych/skalowanych okienek - pionowa szyna nawigacji po
+   lewej (#dock w #rail), JEDNA aktywna scena na srodku (#board), stala
+   kolumna lacznosci po prawej (#comms). Przejscie miedzy modulami to
+   plynne przejscie sceny (.stage-panel.show), nie przeskok miedzy oknami.
 
    Kontrakt z app.js: te same id/klasy tresci paneli (PANEL_DEFS buduje
-   dynamicznie pod te same nazwy) - zmienia sie oprawa i uklad wokol nich.
+   dynamicznie pod te same nazwy) - zmienia sie tylko oprawa i uklad wokol
+   nich, nie tresc samych modulow.
 
    Czcionki bez pobierania z sieci - PWA ma ruszac tez offline. */
 
@@ -63,6 +63,7 @@ html, body {
 @keyframes hg-wave { 0%, 100% { transform: scaleY(.2) } 50% { transform: scaleY(1) } }
 @keyframes hg-scan { 0% { transform: translateY(-100%) } 100% { transform: translateY(100%) } }
 @keyframes hg-alarm { 0%, 100% { opacity: .3 } 50% { opacity: 1 } }
+@keyframes hg-ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
 
 /* --- Tlo --- */
 
@@ -153,9 +154,9 @@ html, body {
 }
 
 .auth-box::before, .auth-box::after,
-.holo-window::before, .holo-window::after { content: ''; position: absolute; width: 14px; height: 14px; pointer-events: none; opacity: .8; }
-.auth-box::before, .holo-window::before { top: -1px; left: -1px; border-top: 2px solid var(--blue); border-left: 2px solid var(--blue); }
-.auth-box::after, .holo-window::after { top: -1px; right: -1px; border-top: 2px solid var(--blue); border-right: 2px solid var(--blue); }
+.stage-panel::before, .stage-panel::after { content: ''; position: absolute; width: 14px; height: 14px; pointer-events: none; opacity: .8; z-index: 2; }
+.auth-box::before, .stage-panel::before { top: -1px; left: -1px; border-top: 2px solid var(--blue); border-left: 2px solid var(--blue); }
+.auth-box::after, .stage-panel::after { top: -1px; right: -1px; border-top: 2px solid var(--blue); border-right: 2px solid var(--blue); }
 
 .auth-mark { position: relative; width: 36px; height: 36px; display: grid; place-items: center; margin-bottom: 2px; }
 .auth-mark span:nth-child(1) { position: absolute; inset: 0; border: 1px solid var(--blue); border-radius: 50%; box-shadow: 0 0 14px rgba(51,224,255,.5); }
@@ -212,16 +213,6 @@ html, body {
 .btn.ghost { background: none; }
 .btn.danger:hover { border-color: var(--red); color: #ff9daa; box-shadow: 0 0 16px rgba(255, 77, 106, .18); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
-.kbd { padding: 2px 5px; background: rgba(51, 224, 255, .1); border: 1px solid var(--line-3); border-radius: 3px; font-size: 9px; font-family: var(--mono); }
-
-.btn.mic .mic-bars { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
-.btn.mic .mic-bars i { width: 2px; height: 12px; background: currentColor; transform-origin: bottom; transform: scaleY(.18); }
-.btn.mic.on { border-color: var(--good); color: var(--good); background: rgba(61, 255, 176, .1); box-shadow: 0 0 16px rgba(61, 255, 176, .25); }
-.btn.mic.on .mic-bars i { animation: hg-wave 1s ease-in-out infinite; }
-.btn.mic.on .mic-bars i:nth-child(2) { animation-delay: .15s }
-.btn.mic.on .mic-bars i:nth-child(3) { animation-delay: .3s }
-.btn.mic.on .mic-bars i:nth-child(4) { animation-delay: .45s }
-.btn.mic.on .mic-bars i:nth-child(5) { animation-delay: .6s }
 
 /* --- Ekran spoczynku --- */
 
@@ -232,6 +223,24 @@ html, body {
   display: flex;
   flex-direction: column;
   padding: 22px 26px 20px;
+}
+
+/* Pas skanujacy otoczenie, przewijajacy sie w kolko przez cala plansze -
+   jeden z elementow "ciagle cos sie dzieje" nawet w bezruchu, niezalezny
+   od animacji samego rdzenia. Pod reszta tresci (pointer-events: none). */
+.idle::before, .board::before {
+  content: '';
+  position: absolute;
+  inset: -20% 0 auto 0;
+  height: 40%;
+  background: linear-gradient(180deg,
+    transparent,
+    rgba(70, 220, 255, 0.05) 45%,
+    rgba(70, 220, 255, 0.1) 50%,
+    rgba(70, 220, 255, 0.05) 55%,
+    transparent);
+  pointer-events: none;
+  animation: hg-scan 7s linear infinite;
 }
 
 .idle-top { display: flex; align-items: flex-start; justify-content: space-between; }
@@ -304,16 +313,92 @@ html, body {
 
 .idle-enter:hover { background: rgba(51, 224, 255, .18); box-shadow: 0 0 26px rgba(51, 224, 255, .3); }
 
-/* --- Centrum: pasek gorny + tablica + dok --- */
+.idle > .ticker { margin: 0 0 14px; }
 
-.ops { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg); }
+/* --- Mostek dowodzenia: szyna nawigacji + scena + lacznosc. Zero
+   przeciaganych okienek - jeden modul na raz, stale miejsce dla rozmowy. --- */
 
-.ops-head {
+.ops { position: fixed; inset: 0; z-index: 20; display: flex; background: var(--bg); }
+
+/* Pionowa szyna nawigacji, stala, zastepuje dawny dolny dok. */
+.rail {
+  flex: 0 0 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-right: 1px solid var(--line);
+  background: rgba(3, 10, 14, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 5;
+}
+
+.rail-brand { background: none; border: none; padding: 0; cursor: pointer; }
+.rail-mark { position: relative; width: 26px; height: 26px; display: grid; place-items: center; }
+.rail-mark i:nth-child(1) { position: absolute; inset: 0; border: 1px solid var(--blue); border-radius: 50%; box-shadow: 0 0 10px rgba(51,224,255,.5); animation: hg-blink 3s infinite; }
+.rail-mark i:nth-child(2) { position: absolute; inset: 5px; border: 1px solid rgba(51,224,255,.4); border-radius: 50%; }
+.rail-mark i:nth-child(3) { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+
+.rail-nav { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0; }
+
+.dock-btn {
+  width: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 7px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--dim);
+  cursor: pointer;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease), box-shadow .15s var(--ease);
+}
+
+.dock-btn:hover { border-color: var(--line-2); color: var(--bright); }
+.dock-btn.on { border-color: var(--blue); color: var(--bright); background: rgba(51, 224, 255, .12); box-shadow: 0 0 14px rgba(51, 224, 255, .2); }
+.dock-btn.off { opacity: .35; }
+.dock-ico { font-size: 15px; line-height: 1; color: var(--blue); }
+.dock-lbl { font-family: var(--mono); font-size: 7.3px; letter-spacing: .03em; line-height: 1.2; text-align: center; text-transform: uppercase; }
+
+.rail-foot { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; padding-top: 10px; border-top: 1px solid var(--line-2); }
+
+.rail-btn {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--dim);
+  font-size: 16px;
+  cursor: pointer;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease), box-shadow .15s var(--ease);
+}
+
+.rail-btn:hover { border-color: var(--line-3); color: var(--bright); box-shadow: 0 0 14px rgba(51, 224, 255, .15); }
+.rail-btn.mic .mic-bars { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 12px; }
+.rail-btn.mic .mic-bars i { width: 2px; height: 12px; background: currentColor; transform-origin: bottom; transform: scaleY(.18); }
+.rail-btn.mic.on { border-color: var(--good); color: var(--good); background: rgba(61, 255, 176, .12); box-shadow: 0 0 16px rgba(61, 255, 176, .3); }
+.rail-btn.mic.on .mic-bars i { animation: hg-wave 1s ease-in-out infinite; }
+.rail-btn.mic.on .mic-bars i:nth-child(2) { animation-delay: .15s }
+.rail-btn.mic.on .mic-bars i:nth-child(3) { animation-delay: .3s }
+.rail-btn.mic.on .mic-bars i:nth-child(4) { animation-delay: .45s }
+.rail-btn.mic.on .mic-bars i:nth-child(5) { animation-delay: .6s }
+
+/* Prawa strona: pasek statusu na gorze + scena pod nim. */
+.deck { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.deck-bar {
   flex: 0 0 52px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 16px;
+  gap: 16px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--line);
   background: rgba(3, 10, 14, 0.7);
   backdrop-filter: blur(14px);
@@ -321,86 +406,63 @@ html, body {
   z-index: 5;
 }
 
-.brand { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; cursor: pointer; color: inherit; }
-.brand-mark { position: relative; width: 24px; height: 24px; display: grid; place-items: center; }
-.brand-mark i:nth-child(1) { position: absolute; inset: 0; border: 1px solid var(--blue); border-radius: 50%; box-shadow: 0 0 10px rgba(51,224,255,.5); }
-.brand-mark i:nth-child(2) { position: absolute; inset: 5px; border: 1px solid rgba(51,224,255,.4); border-radius: 50%; }
-.brand-mark i:nth-child(3) { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
-.brand-txt { display: flex; flex-direction: column; line-height: 1.05; text-align: left; }
-.brand-txt b { font-size: 13.5px; font-weight: 600; letter-spacing: .1em; color: var(--bright); text-transform: uppercase; }
-.brand-txt i { font-family: var(--mono); font-size: 8.5px; font-style: normal; color: var(--faint); letter-spacing: .14em; }
+.deck-brand { display: flex; flex-direction: column; line-height: 1.05; flex: 0 0 auto; }
+.deck-brand b { font-size: 13px; font-weight: 600; letter-spacing: .1em; color: var(--bright); text-transform: uppercase; }
+.deck-brand i { font-family: var(--mono); font-size: 8px; font-style: normal; color: var(--faint); letter-spacing: .14em; }
 
-.head-status { display: flex; align-items: center; gap: 9px; padding-left: 14px; border-left: 1px solid var(--line-2); height: 24px; min-width: 0; }
-.head-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); animation: hg-blink 2.4s infinite; flex: 0 0 auto; }
-.head-status span:last-child { font-family: var(--mono); font-size: 9.5px; color: var(--dim); letter-spacing: .1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+.deck-status { display: flex; align-items: center; gap: 8px; padding-left: 14px; border-left: 1px solid var(--line-2); flex: 0 0 auto; }
+.deck-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); animation: hg-blink 2.4s infinite; }
+.deck-status span:last-child { font-family: var(--mono); font-size: 9.5px; color: var(--dim); letter-spacing: .1em; white-space: nowrap; text-transform: uppercase; }
 
-.head-spacer { flex: 1; }
-.head-stats { display: flex; align-items: center; gap: 0; }
+.deck-ticker { flex: 1; min-width: 30px; }
+
+.head-stats { display: flex; align-items: center; gap: 0; flex: 0 0 auto; }
 .head-stat { display: flex; flex-direction: column; align-items: flex-end; padding: 0 12px; border-left: 1px solid var(--line-2); }
 .head-stat b { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--txt); }
 .head-stat span { font-family: var(--mono); font-size: 8px; color: var(--faint); letter-spacing: .14em; text-transform: uppercase; }
 
-.ops-body { flex: 1; min-height: 0; display: flex; position: relative; }
-
-/* --- Swobodna tablica --- */
-
-.board {
+/* Scena: jeden modul widoczny na raz, pelno-ekranowo, z przejsciem przy
+   zmianie zamiast przeskoku (patrz .stage-panel.show). */
+.stage {
   position: relative;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   background:
-    radial-gradient(700px 500px at 15% 15%, rgba(51, 224, 255, 0.05), transparent 60%),
-    radial-gradient(600px 500px at 85% 80%, rgba(51, 224, 255, 0.04), transparent 60%);
+    radial-gradient(900px 600px at 20% 10%, rgba(51, 224, 255, 0.05), transparent 60%),
+    radial-gradient(800px 600px at 90% 90%, rgba(51, 224, 255, 0.04), transparent 60%);
 }
 
-.holo-window {
+.stage-panel {
   position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  min-width: 260px;
-  min-height: 180px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--glow), 0 20px 50px rgba(0, 0, 0, .45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  animation: hg-in .28s var(--ease);
+  opacity: 0;
+  transform: scale(.985);
+  filter: blur(6px);
+  transition: opacity .32s var(--ease), transform .32s var(--ease), filter .32s var(--ease);
+  pointer-events: none;
   overflow: hidden;
 }
 
-.holo-window::before, .holo-window::after { z-index: 2; }
+.stage-panel.show { opacity: 1; transform: scale(1); filter: blur(0); pointer-events: auto; }
 
-.holo-titlebar {
+.stage-titlebar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 10px 9px 13px;
-  background: linear-gradient(180deg, rgba(51, 224, 255, .07), transparent);
+  padding: 13px 22px;
   border-bottom: 1px solid var(--line-2);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
+  background: linear-gradient(180deg, rgba(51, 224, 255, .06), transparent);
 }
 
-.holo-titlebar:active { cursor: grabbing; }
-.holo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); flex: 0 0 auto; }
-.holo-title { flex: 1; display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .1em; color: var(--bright); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.holo-ico { font-size: 11px; color: var(--blue); }
+.stage-title { display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--bright); text-transform: uppercase; }
+.stage-ico { font-size: 13px; color: var(--blue); }
+.stage-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 22px; }
+
 .holo-badge { font-family: var(--mono); font-size: 9px; color: var(--blue); background: rgba(51,224,255,.12); border-radius: 3px; padding: 2px 6px; }
-.holo-controls { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.holo-x { width: 20px; height: 20px; display: grid; place-items: center; background: none; border: 1px solid var(--line-2); border-radius: 3px; color: var(--dim); font-size: 13px; line-height: 1; cursor: pointer; }
-.holo-x:hover { border-color: var(--red); color: var(--red); background: rgba(255, 77, 106, .1); }
-
-.holo-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
-.holo-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
-.holo-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid var(--line-3); border-bottom: 2px solid var(--line-3); }
-
-/* Modul "Rozmowa" zyje w tej samej tablicy, jako pierwsze wsrod rownych -
-   bez przycisku zamkniecia (zawsze ma byc jak wrocic do rozmowy), ale
-   rownie przeciagalne/skalowalne jak reszta. */
-.holo-window[data-win='talk'] .holo-body { padding: 0; display: flex; flex-direction: column; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; align-items: start; }
 
@@ -410,53 +472,30 @@ html, body {
 .card-body { padding: 11px; }
 .card.wide { grid-column: 1 / -1; }
 
-/* --- Rozmowa (wewnatrz holo-window[data-win=talk]) --- */
+/* --- Lacznosc: rozmowa ma zyc TYLKO na ekranie spoczynku (rdzen + glos) -
+   na mostku jej nie widac. Element zostaje w DOM (feed/side-core/formularz
+   nadal istnieja, zeby reszta skryptu majaca do nich odwolania nie wywalala
+   bledow), ale wizualnie znika z ukladu, a #board/.deck zajmuje cala
+   szerokosc zamiast dzielic ja z kolumna boczna. --- */
+
+.comms { display: none; }
+
+.comms-head { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
+.comms-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+.comms-title { flex: 1; font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .14em; color: var(--bright); text-transform: uppercase; }
 
 .side-core { position: relative; height: 190px; flex: 0 0 auto; display: grid; place-items: center; border-bottom: 1px solid var(--line-2); }
 .side-core canvas { width: 160px; height: 160px; }
 .side-state { position: absolute; bottom: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--faint); text-transform: uppercase; }
-.side-head { display: none; }
 .side-form { display: flex; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--line-2); }
 
-/* --- Dok (launcher modulow) --- */
+/* --- Pas telemetrii: tekst przewijajacy sie w kolko, ozdobny, ale ciagly -
+   jeden z elementow "zawsze cos sie dzieje" nawet gdy nikt nie mowi. --- */
 
-.dock {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 6px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--line);
-  background: rgba(3, 10, 14, 0.75);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  overflow-x: auto;
-  z-index: 5;
-}
-
-.dock-btn {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 13px;
-  background: var(--panel-2);
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color .15s, color .15s, box-shadow .15s;
-}
-
-.dock-btn:hover { border-color: var(--line-3); color: var(--bright); }
-.dock-btn.on { border-color: var(--blue); color: var(--bright); background: rgba(51, 224, 255, .12); box-shadow: 0 0 14px rgba(51, 224, 255, .2); }
-.dock-ico { font-size: 11px; color: var(--blue); }
-.dock-btn.off { opacity: .35; }
+.ticker { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.ticker-track { display: flex; gap: 28px; width: max-content; animation: hg-ticker 26s linear infinite; }
+.ticker-track span { font-family: var(--mono); font-size: 9px; letter-spacing: .18em; color: var(--faint); text-transform: uppercase; white-space: nowrap; }
+.ticker-track span::before { content: '◆'; color: var(--blue); margin-right: 10px; font-size: 7px; }
 
 /* --- Tresc wspoldzielona --- */
 
@@ -548,22 +587,32 @@ html, body {
 
 .toast.ok { border-left-color: var(--blue); color: var(--txt); }
 
-/* --- Waskie ekrany: kazde otwarte okno idzie na cala plansze, jedno na
-   raz (przeciaganie/skalowanie nie ma sensu na telefonie) --- */
+/* --- Waskie ekrany: szyna nawigacji i lacznosc ida na pelna szerokosc,
+   ulozone w kolumnie zamiast obok siebie (na telefonie nie ma miejsca na
+   trzy kolumny naraz) --- */
 
 @media (max-width: 760px) {
   .head-stats { display: none; }
-  .brand-txt i { display: none; }
-  .btn.ghost .kbd { display: none; }
+  .deck-brand i, .deck-ticker { display: none; }
 
-  .holo-window {
-    position: absolute !important;
-    inset: 8px 8px 8px 8px !important;
-    left: 8px !important;
-    top: 8px !important;
-    width: auto !important;
-    height: auto !important;
+  .ops { flex-direction: column; overflow-y: auto; }
+
+  .rail {
+    flex-direction: row;
+    flex: 0 0 auto;
+    width: 100%;
+    gap: 10px;
+    padding: 8px 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
   }
+  .rail-nav { flex: 1; flex-direction: row; width: auto; overflow-x: auto; overflow-y: hidden; padding: 0; }
+  .dock-btn { flex: 0 0 auto; width: 46px; }
+  .rail-foot { flex-direction: row; width: auto; padding: 0 0 0 10px; border-top: none; border-left: 1px solid var(--line-2); }
+
+  .stage { min-height: 56vh; }
+
+  .comms { flex: 0 0 auto; max-height: 44vh; border-left: none; border-top: 1px solid var(--line); }
 }
 
 /* --- Stan systemu (postawa) --- */

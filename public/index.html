@@ -68,63 +68,66 @@
 
     <div class="idle-cards" id="idleCards"></div>
 
-    <button class="idle-enter" id="idleEnter">Otworz centrum <span>&rarr;</span></button>
-  </div>
-
-  <!-- CENTRUM OPERACYJNE -->
-  <div class="ops" id="ops" hidden>
-    <header class="ops-head">
-      <button class="brand" id="brandBtn" title="Powrot do rdzenia">
-        <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span class="brand-txt"><b>Jarvis</b><i>Centrum operacyjne</i></span>
-      </button>
-
-      <div class="head-status">
-        <span class="dot"></span>
-        <span id="headStatus">system gotowy</span>
-      </div>
-
-      <div class="head-spacer"></div>
-
-      <div class="head-stats" id="headStats"></div>
-
-      <button class="btn ghost" id="paletteBtn">Szukaj <span class="kbd">Ctrl K</span></button>
-
-      <button class="btn mic" id="micBtn">
-        <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
-        <span id="micLabel">Nasluch</span>
-      </button>
-
-      <button class="btn danger" id="exitBtn">Wyjdz</button>
-    </header>
-
-    <div class="ops-body">
-      <div class="board" id="board">
-        <!-- Rozmowa - zawsze na tablicy, bez przycisku zamkniecia, ale
-             rownie przeciagalna/skalowalna jak kazde inne holo-okno. -->
-        <section class="holo-window" data-win="talk" id="winTalk">
-          <div class="holo-titlebar" data-drag>
-            <span class="holo-dot"></span>
-            <span class="holo-title"><span class="holo-ico">&#9673;</span>Rozmowa</span>
-            <span class="holo-badge" id="sideCount">0</span>
-          </div>
-          <div class="holo-body">
-            <div class="side-core">
-              <canvas id="sideCore"></canvas>
-              <div class="side-state" id="sideState">Gotowy</div>
-            </div>
-            <div class="feed" id="talkFeed"></div>
-            <form class="side-form" id="talkForm">
-              <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
-              <button class="btn primary" type="submit">&rarr;</button>
-            </form>
-          </div>
-          <div class="holo-resize" data-resize></div>
-        </section>
+    <div class="ticker" aria-hidden="true">
+      <div class="ticker-track">
+        <span>SYGNAL STABILNY</span><span>PAMIEC ZSYNCHRONIZOWANA</span><span>SKANOWANIE OTOCZENIA</span><span>LACZE SZYFROWANE</span><span>RDZEN W GOTOWOSCI</span>
+        <span>SYGNAL STABILNY</span><span>PAMIEC ZSYNCHRONIZOWANA</span><span>SKANOWANIE OTOCZENIA</span><span>LACZE SZYFROWANE</span><span>RDZEN W GOTOWOSCI</span>
       </div>
     </div>
 
-    <nav class="dock" id="dock"></nav>
+    <button class="idle-enter" id="idleEnter">Otworz mostek <span>&rarr;</span></button>
+  </div>
+
+  <!-- MOSTEK DOWODZENIA: szyna nawigacji + jedna aktywna scena + stala
+       kolumna lacznosci. Zadnych przeciaganych okienek. -->
+  <div class="ops" id="ops" hidden>
+    <aside class="rail">
+      <button class="rail-brand" id="brandBtn" title="Powrot do rdzenia">
+        <span class="rail-mark"><i></i><i></i><i></i></span>
+      </button>
+      <nav class="rail-nav" id="dock"></nav>
+      <div class="rail-foot">
+        <button class="rail-btn" id="paletteBtn" title="Szukaj (Ctrl K)">⌕</button>
+        <button class="rail-btn mic" id="micBtn" title="Nasluch">
+          <span class="mic-bars"><i></i><i></i><i></i><i></i><i></i></span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="deck">
+      <header class="deck-bar">
+        <span class="deck-brand"><b>Jarvis</b><i>mostek dowodzenia</i></span>
+        <span class="deck-status"><span class="dot"></span><span id="headStatus">system gotowy</span></span>
+        <div class="ticker deck-ticker" aria-hidden="true">
+          <div class="ticker-track">
+            <span>SYGNAL STABILNY</span><span>PAMIEC ZSYNCHRONIZOWANA</span><span>SKANOWANIE OTOCZENIA</span><span>LACZE SZYFROWANE</span><span>RDZEN W GOTOWOSCI</span>
+            <span>SYGNAL STABILNY</span><span>PAMIEC ZSYNCHRONIZOWANA</span><span>SKANOWANIE OTOCZENIA</span><span>LACZE SZYFROWANE</span><span>RDZEN W GOTOWOSCI</span>
+          </div>
+        </div>
+        <div class="head-stats" id="headStats"></div>
+        <span id="micLabel" hidden></span>
+        <button class="btn danger" id="exitBtn">Wyjdz</button>
+      </header>
+
+      <div class="stage" id="board"></div>
+    </div>
+
+    <aside class="comms" id="winTalk">
+      <div class="comms-head">
+        <span class="comms-dot"></span>
+        <span class="comms-title">Rozmowa</span>
+        <span class="holo-badge" id="sideCount">0</span>
+      </div>
+      <div class="side-core">
+        <canvas id="sideCore"></canvas>
+        <div class="side-state" id="sideState">Gotowy</div>
+      </div>
+      <div class="feed" id="talkFeed"></div>
+      <form class="side-form" id="talkForm">
+        <input class="inp" id="talkInput" placeholder="Napisz do Jarvisa..." autocomplete="off" />
+        <button class="btn primary" type="submit">&rarr;</button>
+      </form>
+    </aside>
   </div>
 
   <!-- Paleta polecen -->

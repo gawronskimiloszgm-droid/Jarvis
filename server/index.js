@@ -114,6 +114,7 @@ import {
 import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voice/voiceLive.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './core/auth.js';
 import { startUpkeep } from './core/upkeep.js';
+import { startTravelSchedulers } from './travel/scheduler.js';
 import edithRouter from './security/edith.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -724,6 +725,7 @@ await memory.hydrate();
 server.listen(PORT, () => {
   console.log(`J.A.R.V.I.S. online at http://localhost:${PORT}`);
   startUpkeep();
+  startTravelSchedulers();
   bus.publish('core', 'system.online', `rdzen online na porcie ${PORT}`, { level: 'ok' });
 });
 

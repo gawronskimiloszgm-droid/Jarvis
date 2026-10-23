@@ -111,155 +111,53 @@ const LIVE_PANELS = new Set();
 const panelLive = (id) => LIVE_PANELS.has(id);
 const moduleById = (id) => MODULES.find((m) => m.id === id);
 
-// ---------- Silnik holo-okien (swobodna tablica) ----------
+// ---------- Silnik sceny (mostek dowodzenia) ----------
 //
-// Zamiast jednego widocznego modulu w stalym ukladzie: kazdy modul to
-// niezalezne okno na planszy (#board), ktore mozna przeciagac, skalowac i
-// zamykac. Uklad (pozycja/rozmiar/czy otwarte) zapisuje sie lokalnie per
-// okno, wiec plansza wraca dokladnie taka, jaka ja zostawiles.
+// Zadna swobodna tablica z przeciaganymi oknami - szyna nawigacji po lewej
+// (#dock) i JEDNA aktywna scena na srodku (#board). Kazdy modul nadal
+// buduje sie raz i zostaje w DOM (chowany, nie kasowany - kamera nie gasnie
+// przy przejsciu gdzie indziej), ale widac na raz tylko jeden, z przejsciem
+// (patrz .stage-panel.show w CSS). Zapamietuje sie tylko to, KTORY modul
+// byl ostatnio na scenie - nie ma juz pozycji/rozmiaru do pilnowania.
 
 const WINDOWS = new Map(); // id -> { win, body }
-const openIds = new Set();
-let activeModule = null; // ostatnio dotkniete okno - do polaczen typu "odswiezaj tylko gdy widoczne"
-let topZ = 10;
-let cascadeN = 0;
+let activeModule = null;
+
+const ACTIVE_KEY = 'jarvis.activeModule';
+const PRELOGOUT_KEY = 'jarvis.preLogoutModule';
 
 function isWindowOpen(id) {
-  return openIds.has(id);
+  return activeModule === id;
 }
 
-function winKey(id) {
-  return `jarvis.win.${id}`;
-}
-
-function loadWinState(id) {
+function getSavedModule() {
   try {
-    return JSON.parse(localStorage.getItem(winKey(id)));
+    return localStorage.getItem(ACTIVE_KEY);
   } catch {
     return null;
   }
 }
 
-function saveWinState(id, patch) {
+function setSavedModule(id) {
   try {
-    localStorage.setItem(winKey(id), JSON.stringify({ ...loadWinState(id), ...patch }));
+    localStorage.setItem(ACTIVE_KEY, id);
   } catch {
-    /* localStorage moze byc niedostepny (tryb prywatny) - uklad po prostu nie przetrwa */
+    /* localStorage moze byc niedostepny (tryb prywatny) - po prostu nie zapamieta */
   }
 }
 
-function defaultGeometry() {
-  const w = Math.min(400, window.innerWidth - 40);
-  const h = Math.min(360, window.innerHeight - 190);
-  const step = cascadeN % 6;
-  cascadeN++;
-  return { x: 24 + step * 26, y: 24 + step * 22, w, h };
-}
-
-// Okno nie moze uciec calkiem poza ekran - inaczej latwo je "zgubic"
-// przeciagajac za krawedz, bez zadnego sposobu, zeby je odzyskac.
-function clampGeometry(x, y, w, h) {
-  const maxX = Math.max(4, window.innerWidth - Math.min(160, w));
-  const maxY = Math.max(4, window.innerHeight - Math.min(120, h) - 60);
-  return { x: Math.min(Math.max(4, x), maxX), y: Math.min(Math.max(4, y), maxY) };
-}
-
-function bringToFront(win) {
-  topZ += 1;
-  win.style.zIndex = String(topZ);
-}
-
-function makeDraggable(win, id) {
-  const bar = win.querySelector('[data-drag]');
-  if (!bar) return;
-  let dragging = false;
-  let ox = 0;
-  let oy = 0;
-
-  bar.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return;
-    dragging = true;
-    bar.setPointerCapture(e.pointerId);
-    ox = e.clientX - win.offsetLeft;
-    oy = e.clientY - win.offsetTop;
-    bringToFront(win);
-  });
-  bar.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    const { x, y } = clampGeometry(e.clientX - ox, e.clientY - oy, win.offsetWidth, win.offsetHeight);
-    win.style.left = `${x}px`;
-    win.style.top = `${y}px`;
-  });
-  const stop = () => {
-    if (!dragging) return;
-    dragging = false;
-    saveWinState(id, { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight, open: true });
-  };
-  bar.addEventListener('pointerup', stop);
-  bar.addEventListener('pointercancel', stop);
-}
-
-function makeResizable(win, id, minW = 260, minH = 180) {
-  const handle = win.querySelector('[data-resize]');
-  if (!handle) return;
-  let resizing = false;
-
-  handle.addEventListener('pointerdown', (e) => {
-    resizing = true;
-    handle.setPointerCapture(e.pointerId);
-    bringToFront(win);
-    e.stopPropagation();
-  });
-  handle.addEventListener('pointermove', (e) => {
-    if (!resizing) return;
-    const rect = win.getBoundingClientRect();
-    const w = Math.max(minW, Math.min(window.innerWidth - rect.left - 8, e.clientX - rect.left));
-    const h = Math.max(minH, Math.min(window.innerHeight - rect.top - 8, e.clientY - rect.top));
-    win.style.width = `${w}px`;
-    win.style.height = `${h}px`;
-  });
-  const stop = () => {
-    if (!resizing) return;
-    resizing = false;
-    saveWinState(id, { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight, open: true });
-  };
-  handle.addEventListener('pointerup', stop);
-  handle.addEventListener('pointercancel', stop);
-}
-
-function applyGeometry(win, geo) {
-  win.style.left = `${geo.x}px`;
-  win.style.top = `${geo.y}px`;
-  win.style.width = `${geo.w}px`;
-  win.style.height = `${geo.h}px`;
-}
-
 function buildWindowChrome(id, title, icon) {
-  const win = el('section', 'holo-window');
+  const win = el('section', 'stage-panel');
   win.dataset.win = id;
+  win.hidden = true;
 
-  const bar = el('div', 'holo-titlebar');
-  bar.setAttribute('data-drag', '');
-  const titleEl = el('span', 'holo-title');
-  titleEl.append(el('span', 'holo-ico', icon || '◇'), document.createTextNode(title));
-  const controls = el('div', 'holo-controls');
-  const closeBtn = el('button', 'holo-x', '×');
-  closeBtn.type = 'button';
-  closeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeWindow(id);
-  });
-  controls.appendChild(closeBtn);
-  bar.append(el('span', 'holo-dot'), titleEl, controls);
+  const bar = el('div', 'stage-titlebar');
+  const titleEl = el('span', 'stage-title');
+  titleEl.append(el('span', 'stage-ico', icon || '◇'), document.createTextNode(title));
+  bar.appendChild(titleEl);
 
-  const body = el('div', 'holo-body');
-  const resize = el('div', 'holo-resize');
-  resize.setAttribute('data-resize', '');
-
-  win.append(bar, body, resize);
-  win.addEventListener('pointerdown', () => bringToFront(win));
-  makeDraggable(win, id);
-  makeResizable(win, id);
+  const body = el('div', 'stage-body');
+  win.append(bar, body);
   return { win, body };
 }
 
@@ -289,30 +187,28 @@ function openWindow(id) {
     $('#board').appendChild(win);
     entry = { win, body };
     WINDOWS.set(id, entry);
-    applyGeometry(win, loadWinState(id) || defaultGeometry());
+  }
+
+  if (activeModule && activeModule !== id) {
+    const prev = WINDOWS.get(activeModule);
+    if (prev) {
+      prev.win.classList.remove('show');
+      prev.win.hidden = true;
+    }
   }
 
   entry.win.hidden = false;
-  openIds.add(id);
-  bringToFront(entry.win);
-  mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
-  // Zapisujemy PELNA geometrie (nie tylko "open") - inaczej to wywolanie
-  // scalaloby sie z tym, co jest w localStorage TERAZ i przy pierwszym
-  // otwarciu (gdy jeszcze nic tam nie ma) wycieloby x/y/w/h ustawione
-  // przez applyGeometry przed chwila, zostawiajac tylko {open:true} na
-  // zawsze - okno traci pozycje przy kazdym kolejnym wczytaniu strony.
-  saveWinState(id, { x: entry.win.offsetLeft, y: entry.win.offsetTop, w: entry.win.offsetWidth, h: entry.win.offsetHeight, open: true });
+  requestAnimationFrame(() => entry.win.classList.add('show'));
   activeModule = id;
+  setSavedModule(id);
+  mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
   syncDock();
 }
 
+// W modelu jednej sceny "zamkniecie" oznacza powrot do pulpitu - nie ma
+// sensu chowac aktywnego modulu bez pokazania czegokolwiek w zamian.
 function closeWindow(id) {
-  const entry = WINDOWS.get(id);
-  if (!entry) return;
-  entry.win.hidden = true;
-  openIds.delete(id);
-  saveWinState(id, { open: false });
-  syncDock();
+  if (activeModule === id) openWindow('dash');
 }
 
 function buildDock() {
@@ -322,6 +218,7 @@ function buildDock() {
     const b = el('button', 'dock-btn');
     b.type = 'button';
     b.dataset.mod = m.id;
+    b.title = m.title;
     b.append(el('span', 'dock-ico', MODULE_ICONS[m.id] || '◇'), el('span', 'dock-lbl', m.title));
     b.addEventListener('click', () => openWindow(m.id));
     dock.appendChild(b);
@@ -332,54 +229,50 @@ function buildDock() {
 function syncDock() {
   document.querySelectorAll('.dock-btn').forEach((b) => {
     const m = moduleById(b.dataset.mod);
-    b.classList.toggle('on', openIds.has(b.dataset.mod));
+    b.classList.toggle('on', activeModule === b.dataset.mod);
     b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
   });
 }
 
-// Pierwsze uruchomienie: otwieramy tylko Pulpit. Kolejne wizyty: przywracamy
-// dokladnie to, co bylo otwarte (uklad, ktory user zostawil) - zgodnie z
-// zalozeniem "przestrzen robocza zapamietuje sie miedzy uruchomieniami".
+// Pierwsze uruchomienie: Pulpit. Kolejne wizyty: ten modul, ktory byl na
+// scenie, gdy ostatnio zamykales appke.
 function restoreBoard() {
-  const anySaved = MODULES.some((m) => localStorage.getItem(winKey(m.id)) != null);
-  if (!anySaved) {
-    openWindow('dash');
-    return;
-  }
-  MODULES.forEach((m) => {
-    if (loadWinState(m.id)?.open && (!m.owner || isOwner())) openWindow(m.id);
-  });
+  const saved = getSavedModule();
+  const mod = saved && moduleById(saved);
+  openWindow(mod && (!mod.owner || isOwner()) ? saved : 'dash');
 }
 
-// Po wylogowaniu okna wlasciciela znikaja RAZEM z wczytana trescia -
-// inaczej gosc zobaczylby cudze zadania czy pamiec.
+// Po wylogowaniu modul wlasciciela znika RAZEM z wczytana trescia - inaczej
+// gosc zobaczylby cudze zadania czy pamiec. Zapamietujemy, co to bylo, zeby
+// po ponownym zalogowaniu wrocic dokladnie tam, a nie zawsze na pulpit.
 function dropOwnerModules() {
+  if (activeModule && moduleById(activeModule)?.owner) {
+    try {
+      localStorage.setItem(PRELOGOUT_KEY, activeModule);
+    } catch {
+      /* localStorage moze byc niedostepny */
+    }
+  }
+  const wasOwnerActive = Boolean(moduleById(activeModule)?.owner);
   MODULES.filter((m) => m.owner).forEach((m) => {
     const entry = WINDOWS.get(m.id);
     if (!entry) return;
     if (m.id === 'eye') camOff();
     entry.win.remove();
     WINDOWS.delete(m.id);
-    openIds.delete(m.id);
     m.panels.forEach((p) => LIVE_PANELS.delete(p));
   });
-  if (!openIds.size) openWindow('dash');
+  if (wasOwnerActive) {
+    activeModule = null;
+    openWindow('dash');
+  }
   syncDock();
 }
 
-// Rozmowa jest jedynym holo-oknem, ktore juz istnieje w znaczniku strony
-// (nie buduje go PANEL_DEFS) - tylko podpinamy przeciaganie/skalowanie i
-// przywracamy zapisany uklad, tak samo jak przy oknach modulow.
-function initTalkWindow() {
-  const win = $('#winTalk');
-  if (!win) return;
-  makeDraggable(win, 'talk');
-  makeResizable(win, 'talk', 300, 320);
-  win.addEventListener('pointerdown', () => bringToFront(win));
-  const saved = loadWinState('talk') || { x: window.innerWidth - 380, y: 24, w: 356, h: Math.min(560, window.innerHeight - 140) };
-  applyGeometry(win, { ...saved, ...clampGeometry(saved.x, saved.y, saved.w, saved.h) });
-  bringToFront(win);
-}
+// Rozmowa to staly pasek boczny (#comms), nie okno do przeciagania - nic
+// tu juz nie trzeba spinac, funkcja zostaje jako no-op dla zgodnosci z
+// miejscem wywolania przy starcie appki.
+function initTalkWindow() {}
 
 // ---------- Dziennik zdarzen ----------
 // Prawdziwe zdarzenia aplikacji, nie generowany szum: logowanie, mikrofon,
@@ -1657,36 +1550,30 @@ function startGalaxy(cv) {
   draw();
 }
 
-// ---------- Wizualizacja rdzenia ----------
+// ---------- Wizualizacja rdzenia: holograficzny skaner ----------
 
 // UWAGA: uchwyt animacji musi byc OSOBNY dla kazdego rdzenia. Rysujemy dwa
 // (duzy na ekranie spoczynku i maly przy rozmowie), a wspolna zmienna
 // sprawiala, ze drugie wywolanie anulowalo klatke pierwszego i wielki rdzen
 // pozostawal pusty.
 
-// Rdzen jako pomaranczowa kula energii - "mozg AI" jako rozzarzone jadro,
-// z ktorego promieniuja wlokna energii (jak synapsy/impulsy nerwowe), a
-// wokol krazą sploszczone pierscienie orbit (2D trik na sugerowanie 3D:
-// elipsy zamiast kol, jak pierscienie Saturna widziane pod katem).
-//
-// Klucz do wygladu "swiecacej plazmy" (a nie plaskich kresek): warstwy
-// wlokien i iskier rysowane sa w trybie 'lighter' (addytywne mieszanie
-// swiatla) - tam gdzie kilka wlokien sie krzyzuje, jasnosc SUMUJE SIE,
-// dajac biale rozbielenia dokladnie tak jak w prawdziwym blasku, bez
-// potrzeby silnika 3D/WebGL (appka celowo zostaje przy 2D canvas, zeby
-// dzialac w pelni offline jako PWA).
+// Zamiast kuli plazmy (dawny "reaktor", kojarzacy sie ze zbroja): przejrzysty,
+// obracajacy sie globus z obreczy szerokosci/dlugosci geograficznej, po
+// ktorym bez przerwy przewija sie w gore i w dol pas skanujacy - jak LIDAR
+// albo sonar namierzajacy obiekt. Punkty na powierzchni "zapalaja sie" w
+// chwili, gdy pas je mija, pingi sonaru rozchodza sie z centrum, a radar na
+// krawedzi kreci sie wlasnym rytmem - cos sie dzieje caly czas, nawet gdy
+// Jarvis milczy. W samym centrum celownik namierzania, nie jadro energii.
 
-// Paleta rdzenia - reaktor cyjanowo-blekitny (spojny z akcentem --blue/--ice
-// calego interfejsu), zamiast dawnego pomaranczowego ognia.
-const CORE_ORANGE = (a) => `rgba(51, 224, 255, ${a})`;
-const CORE_AMBER = (a) => `rgba(80, 190, 255, ${a})`;
-const CORE_HOT = (a) => `rgba(190, 240, 255, ${a})`;
-const CORE_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
+const SCAN_BLUE = (a) => `rgba(51, 224, 255, ${a})`;
+const SCAN_ICE = (a) => `rgba(190, 240, 255, ${a})`;
+const SCAN_WHITE = (a) => `rgba(255, 255, 255, ${a})`;
 
-// Uklad wlokien/iskier/wezlow losowany RAZ przy starcie (nie w kazdej
-// klatce) i trzymany w ukladzie WZGLEDNYM (ulamek promienia "base") - tak
-// caly ksztalt skaluje sie do dowolnego rozmiaru canvasu bez przeliczania.
-function buildReactor(seed) {
+// Punkty na powierzchni kuli rozlozone rownomiernie spirala Fibonacciego
+// (zadnego zageszczenia przy biegunach) - cele, ktore pas skanujacy po
+// kolei "zapala". Uklad losowany RAZ przy starcie (ziarno rozne dla
+// duzego/malego rdzenia), nie w kazdej klatce.
+function buildScanner(seed) {
   let s = seed;
   const rnd = () => {
     // LCG - deterministyczny, zeby dwa rdzenie (duzy/maly) mialy rozne,
@@ -1694,75 +1581,92 @@ function buildReactor(seed) {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
-
-  // Wlokna energii - promieniuja od jadra ku krawedzi, lekko wygiete
-  // (nie proste linie - organiczny, "plazmowy" charakter). Duzo i cienko:
-  // gestosc jest tym, co odroznia "kilka kresek" od "gestej plazmy" - a
-  // przy prawdziwym bloomie (patrz startCoreVisual) cienkie linie i tak
-  // dostaja pelny, miekki blask, wiec nie trzeba ich rysowac grubo.
-  const FILAMENTS = 150;
-  const filaments = [];
-  for (let i = 0; i < FILAMENTS; i++) {
-    const ang = (i / FILAMENTS) * Math.PI * 2 + rnd() * 0.15;
-    filaments.push({
-      ang,
-      bend: (rnd() - 0.5) * 0.9, // wygiecie toru (dodatnie/ujemne = w ktora strone)
-      len: 0.58 + rnd() * 0.38, // jak daleko od jadra siega
-      phase: rnd() * Math.PI * 2,
-      speed: 0.5 + rnd() * 0.7,
-      width: 0.35 + rnd() * 0.75,
+  const N = 70;
+  const points = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i / (N - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = golden * i;
+    points.push({
+      x: Math.cos(theta) * r,
+      y,
+      z: Math.sin(theta) * r,
+      size: 0.009 + rnd() * 0.009,
+      flash: 0,
     });
   }
-
-  // Wezly (nawiazanie do "neuronow") - rozrzucone w pierscieniu srodkowym,
-  // rzadsze i subtelniejsze niz dominujace wlokna, polaczone kilkoma
-  // cienkimi progami synaps miedzy najblizszymi sasiadami.
-  const NODES = 34;
-  const nodes = [];
-  for (let i = 0; i < NODES; i++) {
-    const ang = rnd() * Math.PI * 2;
-    const rad = 0.32 + rnd() * 0.56;
-    nodes.push({
-      x: Math.cos(ang) * rad,
-      y: Math.sin(ang) * rad * 0.94,
-      phase: rnd() * Math.PI * 2,
-      speed: 1 + rnd() * 1.4,
-      size: 0.008 + rnd() * 0.012,
+  // Odczyty telemetrii wokol pierscienia - staly uklad katow, zmienna tresc.
+  const READOUTS = 6;
+  const readouts = [];
+  for (let i = 0; i < READOUTS; i++) {
+    readouts.push({ ang: (i / READOUTS) * Math.PI * 2, seed: Math.floor(rnd() * 99999) });
+  }
+  // Satelity namierzania - diamenciki krazace daleko poza globusem, kazdy
+  // wlasnym tempem/kierunkiem - osobna, wolniejsza warstwa ruchu niz
+  // skanowanie, zeby obrotu nie dalo sie "przewidziec" jednym spojrzeniem.
+  const BLIPS = 3;
+  const blips = [];
+  for (let i = 0; i < BLIPS; i++) {
+    blips.push({
+      ang: rnd() * Math.PI * 2,
+      speed: 0.12 + rnd() * 0.18,
+      dir: rnd() < 0.5 ? 1 : -1,
+      r: 1.28 + rnd() * 0.1,
+      phase: rnd() * 10,
     });
   }
-  const K = 2;
-  const edgeSet = new Set();
-  const edges = [];
-  nodes.forEach((n, i) => {
-    nodes
-      .map((m, j) => (j === i ? null : { j, d: (m.x - n.x) ** 2 + (m.y - n.y) ** 2 }))
-      .filter(Boolean)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, K)
-      .forEach(({ j }) => {
-        const key = i < j ? `${i}-${j}` : `${j}-${i}`;
-        if (edgeSet.has(key)) return;
-        edgeSet.add(key);
-        edges.push({ a: i, b: j, phase: rnd() * 10, cycle: 2.4 + rnd() * 2.2, dur: 0.3 + rnd() * 0.26 });
-      });
-  });
-
-  return { filaments, nodes, edges };
+  return { points, readouts, blips };
 }
 
-// Splaszczona elipsa pod katem - to ona sprzedaje wrazenie 3D: pierscien
-// widziany "z boku", nie plaski kolko na plaszczyznie ekranu.
-function ellipseRing(ctx, cx, cy, base, r, squash, tilt, color, lw) {
+// Obraca punkt (x,y,z znormalizowane do promienia 1) wokol osi Y (obrot
+// globusu) i X (stale przechylenie, zeby bieguny nie siedzialy plasko na
+// krawedzi), a potem rzuca na ekran ze slaba perspektywa - punkty blizej
+// "kamery" wypadaja odrobine wieksze.
+function rotateProject(p, spin, tiltX, base, cx, cy) {
+  const ca = Math.cos(spin), sa = Math.sin(spin);
+  const x1 = p.x * ca - p.z * sa;
+  const z1 = p.x * sa + p.z * ca;
+  const ct = Math.cos(tiltX), st = Math.sin(tiltX);
+  const y2 = p.y * ct - z1 * st;
+  const z2 = p.y * st + z1 * ct;
+  const scale = 1 / (1.7 - z2 * 0.55);
+  return { x: cx + x1 * base * scale, y: cy + y2 * base * scale, z: z2, scale };
+}
+
+// Jedna obrecz szerokosci geograficznej na wysokosci "y" (-1..1), na
+// podanym kontekscie (glowny canvas albo bufor blomu) - uzywana zarowno dla
+// statycznego szkieletu globusu, jak i dla samego (ruchliwego, podswietlonego)
+// pasa skanujacego.
+function latitudeRing(ctx, y, spin, tiltX, base, cx, cy, color, lw) {
+  const rad = Math.sqrt(Math.max(0, 1 - y * y));
+  if (rad < 0.02) return;
+  const STEPS = 56;
   ctx.beginPath();
-  const STEPS = 72;
   for (let i = 0; i <= STEPS; i++) {
     const a = (i / STEPS) * Math.PI * 2;
-    const ex = Math.cos(a) * r;
-    const ey = Math.sin(a) * r * squash;
-    const x = cx + (ex * Math.cos(tilt) - ey * Math.sin(tilt)) * base;
-    const y = cy + (ex * Math.sin(tilt) + ey * Math.cos(tilt)) * base;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+    const p = rotateProject({ x: Math.cos(a) * rad, y, z: Math.sin(a) * rad }, spin, tiltX, base, cx, cy);
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.stroke();
+}
+
+// Poludnik (biegun-biegun) w plaszczyznie obroconej o "off" wokol osi Y,
+// zanim doliczy sie globalny obrot calego globusu.
+function meridianRing(ctx, off, spin, tiltX, base, cx, cy, color, lw) {
+  const STEPS = 56;
+  ctx.beginPath();
+  for (let i = 0; i <= STEPS; i++) {
+    const a = (i / STEPS) * Math.PI * 2;
+    const p = rotateProject(
+      { x: Math.sin(a) * Math.cos(off), y: Math.cos(a), z: Math.sin(a) * Math.sin(off) },
+      spin, tiltX, base, cx, cy
+    );
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
   }
   ctx.strokeStyle = color;
   ctx.lineWidth = lw;
@@ -1782,21 +1686,19 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
   const widths = [...word].map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
 
-  // Napis siedzi PONIZEJ rozzarzonego jadra, nie na nim - na proznym
-  // jadrze (biel na bieli) litery po prostu znikaly, zostawal tylko
-  // przypadkowy fragment tam, gdzie tlo bylo akurat ciemniejsze.
-  // Dodatkowo ciemny obrys wokol kazdej litery daje czytelnosc niezaleznie
-  // od tego, co akurat przesuwa sie pod spodem (wlokna, wezly, obrot).
-  cy = cy + base * 0.6;
+  // Napis siedzi PONIZEJ globusu, nie na nim, z ciemnym obrysem wokol
+  // kazdej litery - tak zostaje czytelny niezaleznie od tego, co akurat
+  // przesuwa sie pod spodem (obreczy, punkty, pas skanujacy).
+  cy = cy + base * 0.62;
 
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.miterLimit = 2;
   ctx.strokeStyle = 'rgba(6, 4, 16, 0.75)';
   ctx.lineWidth = size * 0.16;
-  ctx.shadowColor = CORE_ORANGE(0.9);
+  ctx.shadowColor = SCAN_BLUE(0.9);
   ctx.shadowBlur = base * 0.08;
-  ctx.fillStyle = CORE_HOT(0.95 + lvl * 0.05);
+  ctx.fillStyle = SCAN_ICE(0.95 + lvl * 0.05);
   let x = cx - total / 2;
   for (let i = 0; i < word.length; i++) {
     ctx.strokeText(word[i], x, cy);
@@ -1808,17 +1710,21 @@ function drawWordmark(ctx, cx, cy, base, lvl) {
 
 function startCoreVisual(cv, seed = 42) {
   const ctx = cv.getContext('2d');
-  const reactor = buildReactor(seed);
+  const scanner = buildScanner(seed);
   let t = 0;
   let raf = null;
+  let prevLvl = 0;
+  // Krotkie "zaklocenie transmisji" co kilka-kilkanascie sekund - obraz
+  // globusu na chwile sie rozjezdza/miga, a ramka HUD (pierscien, celownik,
+  // odczyty) zostaje idealnie stabilna. To ona sprzedaje wrazenie, ze
+  // ogladamy NIESTABILNY sygnal z czegos, a nie animacje, ktora po prostu
+  // sie kreci.
+  let nextGlitch = 2 + Math.random() * 4;
+  let glitchUntil = 0;
 
-  // Bufor poza ekranem na "jasna warstwe" (wlokna, iskry, wezly, jadro).
-  // Prawdziwy bloom (miekki blask wokol jasnych ksztaltow, nie tylko
-  // twarda kreska) wymaga rozmycia Gaussa - ctx.filter = 'blur()' daje to
-  // za darmo (przyspieszone sprzetowo w przegladarce), ale trzeba miec
-  // GOTOWY obraz do rozmycia, a nie rozmywac scene w trakcie rysowania.
-  // Stad: najpierw caly jasny material ladujemy tutaj, dopiero potem
-  // nakladamy go na glowny canvas kilka razy z rosnacym rozmyciem.
+  // Bufor poza ekranem na "jasna warstwe" (pas skanujacy, zapalone punkty) -
+  // prawdziwy bloom (miekki blask, nie twarda kreska) wymaga rozmycia
+  // Gaussa gotowego obrazu, nie rozmywania sceny w trakcie rysowania.
   const bloomCv = document.createElement('canvas');
   const bloomCtx = bloomCv.getContext('2d');
 
@@ -1848,173 +1754,229 @@ function startCoreVisual(cv, seed = 42) {
       return;
     }
     const lvl = store.audioLevel;
+    const rise = Math.max(0, lvl - prevLvl);
+    prevLvl = lvl;
     t += 0.016;
-    const spin = t * (0.12 + lvl * 0.05);
+    const spin = t * (0.14 + lvl * 0.08);
+    const tiltX = 0.46;
 
-    // 1. Poswiata calosci - oddycha powoli, mocniej gdy Jarvis mowi.
-    const halo = ctx.createRadialGradient(cx, cy, base * 0.05, cx, cy, base * 1.08);
-    const breathe = 0.5 + Math.sin(t * 0.85) * 0.5;
-    halo.addColorStop(0, CORE_ORANGE(0.16 + lvl * 0.2 + breathe * 0.04));
-    halo.addColorStop(0.65, CORE_ORANGE(0.05 + lvl * 0.08));
+    // Zaklocenie: globus/pas skanujacy (nie HUD) na chwile "rozjezdza sie"
+    // losowo - gx/gy to srodek UZYWANY TYLKO przez warstwe projekcji,
+    // reszta (pierscien HUD, celownik, odczyty) trzyma sie cx/cy na sztywno.
+    if (t > nextGlitch && t > glitchUntil) {
+      glitchUntil = t + 0.1 + Math.random() * 0.1;
+      nextGlitch = t + 4 + Math.random() * 6;
+    }
+    const glitching = t < glitchUntil;
+    const gx = cx + (glitching ? (Math.random() - 0.5) * base * 0.035 : 0);
+    const gy = cy + (glitching ? (Math.random() - 0.5) * base * 0.02 : 0);
+
+    // 1. Poswiata ogolna - oddycha powoli, mocniej gdy Jarvis mowi.
+    const breathe = 0.5 + Math.sin(t * 0.8) * 0.5;
+    const halo = ctx.createRadialGradient(gx, gy, base * 0.1, gx, gy, base * 1.1);
+    halo.addColorStop(0, SCAN_BLUE(0.07 + lvl * 0.14 + breathe * 0.02));
     halo.addColorStop(1, 'rgba(51, 224, 255, 0)');
     ctx.beginPath();
-    ctx.arc(cx, cy, base * 1.08, 0, Math.PI * 2);
+    ctx.arc(gx, gy, base * 1.1, 0, Math.PI * 2);
     ctx.fillStyle = halo;
     ctx.fill();
 
-    // 2. Splaszczone orbity - kilka pierscieni pod roznymi katami/predkosciami,
-    // to one sugeruja obrot w przestrzeni, nie na plaszczyznie.
-    [
-      { r: 0.94, squash: 0.32, tilt: 0.15, dir: 1, a: 0.5, lw: 1.3 },
-      { r: 0.78, squash: 0.46, tilt: -0.28, dir: -1.4, a: 0.4, lw: 1 },
-      { r: 0.6, squash: 0.6, tilt: 0.5, dir: 1.8, a: 0.34, lw: 1 },
-    ].forEach((o) => {
-      ellipseRing(ctx, cx, cy, base, base * o.r, o.squash, o.tilt + spin * o.dir, CORE_ORANGE(o.a), o.lw);
-    });
+    // 2. Ping sonaru - pierscien co ok. 2.6s rozchodzi sie z centrum i gasnie,
+    // niezalezny od reszty - gwarantuje ruch nawet w calkowitym bezruchu.
+    const pingCycle = 2.6;
+    const pingTau = (t % pingCycle) / pingCycle;
+    ctx.beginPath();
+    ctx.arc(cx, cy, base * (0.12 + pingTau * 0.95), 0, Math.PI * 2);
+    ctx.strokeStyle = SCAN_BLUE((1 - pingTau) * 0.3);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
 
-    // 3. Pierscien HUD z podzialka na samej krawedzi - lacznik stylistyczny
-    // z reszta interfejsu.
-    const ticks = 90;
-    for (let i = 0; i < ticks; i++) {
-      const ang = (i / ticks) * Math.PI * 2 + t * 0.03;
-      const major = i % 6 === 0;
-      const len = major ? base * 0.045 : base * 0.02;
-      const r0 = base * 0.995 - len;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
-      ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
-      ctx.strokeStyle = CORE_ORANGE(major ? 0.45 : 0.16);
-      ctx.lineWidth = major ? 1.4 : 0.9;
-      ctx.stroke();
-    }
+    // 3. Szkielet globusu - rownoleznikowe obreczy + dwa poludniki + os
+    // biegunowa. Przezroczyste na wylot (to hologram, nie pelna kula), wiec
+    // nie trzeba usuwac "tylnej" polowki. Lekko migoce podczas zaklocenia.
+    ctx.globalAlpha = glitching ? 0.55 + Math.random() * 0.45 : 1;
+    [-0.6, -0.3, 0.3, 0.6].forEach((y) => latitudeRing(ctx, y, spin, tiltX, base, gx, gy, SCAN_BLUE(0.12), 1));
+    latitudeRing(ctx, 0, spin, tiltX, base, gx, gy, SCAN_BLUE(0.22), 1.2);
+    meridianRing(ctx, 0, spin, tiltX, base, gx, gy, SCAN_BLUE(0.1), 1);
+    meridianRing(ctx, Math.PI / 2, spin, tiltX, base, gx, gy, SCAN_BLUE(0.1), 1);
+    const north = rotateProject({ x: 0, y: 1, z: 0 }, spin, tiltX, base, gx, gy);
+    const south = rotateProject({ x: 0, y: -1, z: 0 }, spin, tiltX, base, gx, gy);
+    ctx.beginPath();
+    ctx.moveTo(north.x, north.y);
+    ctx.lineTo(south.x, south.y);
+    ctx.strokeStyle = SCAN_BLUE(0.1);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // --- Od tego miejsca rysujemy na BUFORZE (bloomCtx), nie na glownym
-    // canvasie - to jest material, ktory za chwile dostanie prawdziwy
-    // Gaussowski blask. Mieszanie addytywne ('lighter') w obrebie samego
-    // bufora dalej obowiazuje: jasnosci wlokien/iskier/wezlow sumuja sie
-    // tam, gdzie na siebie zachodza.
+    // canvasie - pas skanujacy i punkty, ktore ma zapalac, dostaja
+    // prawdziwy, miekki blask z addytywnym mieszaniem 'lighter'.
     bloomCtx.save();
     bloomCtx.globalCompositeOperation = 'lighter';
 
-    // 4. Wlokna energii - promieniuja z jadra, lekko wygiete, tetniace.
-    reactor.filaments.forEach((f) => {
-      const pulse = 0.5 + 0.5 * Math.sin(t * f.speed + f.phase);
-      const ang = f.ang + spin * 0.4;
-      const reach = f.len * (0.85 + pulse * 0.15 + lvl * 0.25);
-      const midR = base * reach * 0.55;
-      const endR = base * reach;
-      const bendAng = ang + f.bend * 0.5;
-
-      bloomCtx.beginPath();
-      bloomCtx.moveTo(cx, cy);
-      bloomCtx.quadraticCurveTo(
-        cx + Math.cos(bendAng) * midR,
-        cy + Math.sin(bendAng) * midR,
-        cx + Math.cos(ang) * endR,
-        cy + Math.sin(ang) * endR
-      );
-      const grad = bloomCtx.createLinearGradient(cx, cy, cx + Math.cos(ang) * endR, cy + Math.sin(ang) * endR);
-      grad.addColorStop(0, CORE_HOT(0.6 + pulse * 0.25 + lvl * 0.2));
-      grad.addColorStop(0.4, CORE_ORANGE(0.36 + pulse * 0.14 + lvl * 0.15));
-      grad.addColorStop(1, 'rgba(51, 224, 255, 0)');
-      bloomCtx.strokeStyle = grad;
-      bloomCtx.lineWidth = f.width * (0.8 + lvl * 0.6);
-      bloomCtx.stroke();
+    // 4. Pas skanujacy - przesuwa sie w gore i w dol sinusoidalnie,
+    // przyspiesza, gdy Jarvis mowi. To on "skanuje" powierzchnie. Dwa
+    // cienkie duchy-echa za nim (wczesniejsze pozycje) daja wrazenie ruchu
+    // nawet na nieruchomym zrzucie ekranu.
+    const scanSpeed = 0.5 + lvl * 0.5;
+    const scanY = Math.sin(t * scanSpeed) * 0.92;
+    [0.18, 0.1].forEach((dt, i) => {
+      const ghostY = Math.sin((t - dt) * scanSpeed) * 0.92;
+      latitudeRing(bloomCtx, ghostY, spin, tiltX, base, gx, gy, SCAN_ICE(0.12 - i * 0.04), 1.4);
     });
+    latitudeRing(bloomCtx, scanY, spin, tiltX, base, gx, gy, SCAN_ICE(0.65 + lvl * 0.3), 2.4);
 
-    // 5. Iskry wedrujace wzdluz wlokien ku krawedzi - stateless: pozycja
-    // wynika wprost z t, bez listy "zywych" czastek do zarzadzania.
-    reactor.filaments.forEach((f, i) => {
-      const cycle = 1.8 + (i % 5) * 0.3;
-      const speed = cycle / (1 + lvl * 1.6);
-      const tau = (t * 1.4 + f.phase * 1.7) % speed;
-      const f01 = tau / speed;
-      if (f01 > 0.85) return; // iskra "gasnie" przed samym koncem wlokna
-      const ang = f.ang + spin * 0.4;
-      const reach = f.len * base;
-      const r = f01 * reach;
-      const x = cx + Math.cos(ang) * r;
-      const y = cy + Math.sin(ang) * r;
-      const fade = Math.sin(Math.min(1, f01 / 0.85) * Math.PI);
+    // 5. Punkty na powierzchni - "zapalaja sie" na krotko, gdy pas skanujacy
+    // je mija (bez listy "zywych" iskier - stan trzymany wprost na kazdym
+    // punkcie, zanikajacy wykladniczo miedzy przejsciami pasa). Lekko
+    // "oddychaja" (wysuwaja sie) z poziomem glosu.
+    scanner.points.forEach((pt) => {
+      const near = Math.max(0, 1 - Math.abs(pt.y - scanY) / 0.09);
+      pt.flash = Math.max(pt.flash * 0.9, near);
+      const bulge = 1 + lvl * 0.06;
+      const p = rotateProject({ x: pt.x * bulge, y: pt.y * bulge, z: pt.z * bulge }, spin, tiltX, base, gx, gy);
+      const r = Math.max(0.5, base * pt.size * (0.7 + pt.flash * 1.6) * p.scale);
       bloomCtx.beginPath();
-      bloomCtx.arc(x, y, base * 0.012 * (0.6 + fade), 0, Math.PI * 2);
-      bloomCtx.fillStyle = CORE_WHITE(0.6 * fade + lvl * 0.2);
+      bloomCtx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      bloomCtx.fillStyle = pt.flash > 0.08 ? SCAN_WHITE(0.25 + pt.flash * 0.75) : SCAN_BLUE(0.1 + lvl * 0.12);
       bloomCtx.fill();
     });
-
-    // 6. Wezly ("neurony") - subtelniejsza, rzadsza warstwa w pierscieniu
-    // srodkowym, spiete kilkoma cienkimi synapsami.
-    reactor.edges.forEach((e) => {
-      const a = reactor.nodes[e.a];
-      const b = reactor.nodes[e.b];
-      const ca = Math.cos(spin * 0.4), sa = Math.sin(spin * 0.4);
-      const ax = cx + (a.x * ca - a.y * sa) * base;
-      const ay = cy + (a.x * sa + a.y * ca) * base;
-      const bx = cx + (b.x * ca - b.y * sa) * base;
-      const by = cy + (b.x * sa + b.y * ca) * base;
-      const tau = ((t + e.phase) % e.cycle) / e.cycle;
-      const firing = tau < e.dur / e.cycle;
-      bloomCtx.beginPath();
-      bloomCtx.moveTo(ax, ay);
-      bloomCtx.lineTo(bx, by);
-      bloomCtx.strokeStyle = CORE_AMBER((firing ? 0.4 : 0.12) + lvl * 0.08);
-      bloomCtx.lineWidth = firing ? 1 : 0.6;
-      bloomCtx.stroke();
-    });
-    reactor.nodes.forEach((n) => {
-      const pulse = 0.5 + 0.5 * Math.sin(t * n.speed + n.phase);
-      const ca = Math.cos(spin * 0.4), sa = Math.sin(spin * 0.4);
-      const x = cx + (n.x * ca - n.y * sa) * base;
-      const y = cy + (n.x * sa + n.y * ca) * base;
-      const r = base * n.size * (0.8 + pulse * 0.3 + lvl * 0.4);
-      bloomCtx.beginPath();
-      bloomCtx.arc(x, y, r, 0, Math.PI * 2);
-      bloomCtx.fillStyle = CORE_AMBER(0.35 + pulse * 0.3 + lvl * 0.3);
-      bloomCtx.fill();
-    });
-
-    // 7. Jadro - rozzarzony, bialo-pomaranczowy rdzen w samym centrum.
-    // Silnie pulsuje z poziomem glosu - to serce calej kompozycji.
-    const coreR = base * (0.13 + lvl * 0.035);
-    const core = bloomCtx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
-    core.addColorStop(0, CORE_WHITE(0.95));
-    core.addColorStop(0.3, CORE_HOT(0.75 + lvl * 0.2));
-    core.addColorStop(0.65, CORE_ORANGE(0.4 + lvl * 0.15));
-    core.addColorStop(1, 'rgba(51, 224, 255, 0)');
-    bloomCtx.beginPath();
-    bloomCtx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
-    bloomCtx.fillStyle = core;
-    bloomCtx.fill();
 
     bloomCtx.restore();
 
     // --- Bloom: naklejamy bufor na glowny canvas kilka razy z rosnacym
-    // rozmyciem Gaussa i malejaca sila - to jest ten "miekki blask wokol
-    // jasnych ksztaltow" z referencji, nie do uzyskania samym mieszaniem
-    // addytywnym bez rozmycia. Kompozycje robimy w UKLADZIE SUROWYCH
-    // pikseli (transform=identity), bo blomCv juz zawiera gotowy obraz w
-    // rozdzielczosci urzadzenia - inaczej dpr zostalby doliczony podwojnie.
+    // rozmyciem Gaussa i malejaca sila, plus ostry przebieg na wierzchu,
+    // zeby struktura nie zgubila sie w samym rozmyciu. Kompozycje robimy w
+    // ukladzie surowych pikseli (transform=identity), bo bloomCv juz
+    // zawiera gotowy obraz w rozdzielczosci urzadzenia.
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'lighter';
     [
-      { blur: 2, alpha: 0.9 },
-      { blur: 7, alpha: 0.55 },
-      { blur: 16, alpha: 0.38 },
-      { blur: 34, alpha: 0.22 },
+      { blur: 1.5, alpha: 0.9 },
+      { blur: 6, alpha: 0.5 },
+      { blur: 14, alpha: 0.3 },
     ].forEach((pass) => {
       ctx.filter = `blur(${pass.blur * dpr}px)`;
       ctx.globalAlpha = pass.alpha;
       ctx.drawImage(bloomCv, 0, 0);
     });
-    // Ostry przebieg na wierzchu - bez niego wlokna w bezposrednim
-    // sasiedztwie jadra gubily sie w samym rozmyciu i traciy strukture.
     ctx.filter = 'none';
     ctx.globalAlpha = 1;
     ctx.drawImage(bloomCv, 0, 0);
+
+    // Chromatyczny poblask - ten sam material nalozony z malym przesunieciem
+    // i przebarwieniem w obie strony. Nie jest to prawdziwy rozdzial
+    // kanalow RGB, ale na oko czyta sie jak "hologram", zwlaszcza gdy
+    // przesuniecie chwilowo rosnie podczas zaklocenia.
+    const fringe = (1 + (glitching ? 2.4 : 0)) * dpr;
+    ctx.globalAlpha = glitching ? 0.32 : 0.12;
+    ctx.filter = `blur(${1.5 * dpr}px) hue-rotate(-45deg) saturate(2)`;
+    ctx.drawImage(bloomCv, -fringe, 0);
+    ctx.filter = `blur(${1.5 * dpr}px) hue-rotate(45deg) saturate(2)`;
+    ctx.drawImage(bloomCv, fringe, 0);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
     ctx.restore();
 
-    // 8. Napis - zwykle mieszanie, zeby zostal czytelny na tle jasnego jadra.
+    // 6. Pierscien HUD z podzialka na samej krawedzi.
+    const ticks = 90;
+    for (let i = 0; i < ticks; i++) {
+      const ang = (i / ticks) * Math.PI * 2 - spin * 0.6;
+      const major = i % 6 === 0;
+      const len = major ? base * 0.045 : base * 0.02;
+      const r0 = base * 1.03 - len;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+      ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
+      ctx.strokeStyle = SCAN_BLUE(major ? 0.4 : 0.14);
+      ctx.lineWidth = major ? 1.3 : 0.8;
+      ctx.stroke();
+    }
+
+    // 7. Luk radaru na krawedzi pierscienia HUD - wlasny, szybszy obrot z
+    // gasnacym ogonem, niezalezny od pasa skanujacego na globusie, zeby
+    // zawsze bylo widac jakis ruch, nawet gdy pas jest akurat przy biegunie.
+    const sweepAng = t * 1.1;
+    for (let i = 0; i < 10; i++) {
+      const a0 = sweepAng - i * 0.05;
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * 1.03, a0, a0 + 0.045);
+      ctx.strokeStyle = SCAN_ICE((1 - i / 10) * 0.5);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 8. Satelity namierzania - diamenciki krazace daleko poza pierscieniem
+    // HUD, wlasnym, wolniejszym tempem niz globus - kolejna warstwa ruchu,
+    // ktora nie daje sie "przewidziec" jednym spojrzeniem na ekran.
+    scanner.blips.forEach((b) => {
+      const ang = b.ang + t * b.speed * b.dir;
+      const bx = cx + Math.cos(ang) * base * b.r;
+      const by = cy + Math.sin(ang) * base * b.r;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.2 + b.phase);
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(ang + Math.PI / 4);
+      const s = base * 0.014 * (0.8 + pulse * 0.4);
+      ctx.beginPath();
+      ctx.rect(-s, -s, s * 2, s * 2);
+      ctx.strokeStyle = SCAN_ICE(0.25 + pulse * 0.4);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // 9. Tęczówka celownika - zamiast prostego krzyza: ostrza jak przeslona
+    // aparatu, ktore delikatnie "oddychaja" i rozwieraja sie z poziomem
+    // glosu, plus jasny rozblysk w samym srodku przy nagłym skoku glosu
+    // (poczatek wypowiedzi) - nie stale jarzace sie jadro energii.
+    const openness = 0.5 + Math.sin(t * 0.7) * 0.18 + lvl * 0.35;
+    const bladeR = base * (0.075 + openness * 0.045);
+    const blades = 6;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(spin * 0.25);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = SCAN_ICE(0.55 + lvl * 0.3);
+    for (let i = 0; i < blades; i++) {
+      const a0 = (i / blades) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, bladeR, a0, a0 + ((Math.PI * 2) / blades) * 0.58);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, bladeR * 0.5, 0, Math.PI * 2);
+    ctx.strokeStyle = SCAN_BLUE(0.5 + lvl * 0.3);
+    ctx.stroke();
+    const flare = Math.min(1, rise * 7);
+    if (flare > 0.03) {
+      const burst = ctx.createRadialGradient(0, 0, 0, 0, 0, bladeR * (1.4 + flare * 1.2));
+      burst.addColorStop(0, SCAN_WHITE(0.8 * flare));
+      burst.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.beginPath();
+      ctx.arc(0, 0, bladeR * (1.4 + flare * 1.2), 0, Math.PI * 2);
+      ctx.fillStyle = burst;
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 10. Odczyty telemetrii plywajace wokol pierscienia - wartosc zmienia
+    // sie co kawalek, zeby zawsze cos "migalo" nawet w bezruchu.
+    ctx.font = `${Math.max(7, base * 0.032)}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    scanner.readouts.forEach((rd) => {
+      const ang = rd.ang + spin * 0.15;
+      const rx = cx + Math.cos(ang) * base * 1.18;
+      const ry = cy + Math.sin(ang) * base * 1.18;
+      const tick = Math.floor(t * 2 + rd.seed) % 4096;
+      ctx.fillStyle = SCAN_BLUE(0.3);
+      ctx.fillText(tick.toString(16).padStart(3, '0').toUpperCase(), rx, ry);
+    });
+
+    // 11. Napis - zwykle mieszanie, zeby zostal czytelny.
     drawWordmark(ctx, cx, cy, base, lvl);
 
     store.audioLevel *= 0.92;
@@ -3549,9 +3511,17 @@ function applyRole(role) {
   const changed = store.role !== role;
   store.role = role;
   if (role === 'owner') {
-    // Okna wlasciciela zamkniete przy poprzednim wylogowaniu wracaja, jesli
-    // byly otwarte, gdy zniknely - ta sama zasada co przy zwyklym starcie.
-    MODULES.filter((m) => m.owner && loadWinState(m.id)?.open && !isWindowOpen(m.id)).forEach((m) => openWindow(m.id));
+    // Modul wlasciciela zamkniety przy poprzednim wylogowaniu wraca, jesli
+    // byl na scenie, gdy zniknal - ta sama zasada co przy zwyklym starcie.
+    try {
+      const pre = localStorage.getItem(PRELOGOUT_KEY);
+      if (pre && moduleById(pre)?.owner) {
+        localStorage.removeItem(PRELOGOUT_KEY);
+        openWindow(pre);
+      }
+    } catch {
+      /* localStorage moze byc niedostepny */
+    }
     refreshOwnerPanes();
     hudConnect();
   } else {
@@ -3709,10 +3679,10 @@ async function boot() {
   setTimeout(() => $('#boot').remove(), 800);
 
   // Dwa rdzenie: duzy na ekranie spoczynku i maly w kolumnie rozmowy.
-  // Kazdy ma wlasna petle rysowania, obie karmione tym samym poziomem
-  // dzwieku, wiec reaguja identycznie.
+  // Rdzen na ekranie spoczynku jest teraz jedynym miejscem rozmowy - panel
+  // "Rozmowa" na mostku jest ukryty (patrz .comms w style.css), wiec drugi
+  // rdzen (#sideCore) nigdy nie jest widoczny i nie ma sensu go animowac.
   startCoreVisual($('#coreCanvas'), 42);
-  startCoreVisual($('#sideCore'), 90210);
   $('#coreHit').addEventListener('click', liveToggle);
 
   startGalaxy($('#galaxyCanvas'));
