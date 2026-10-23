@@ -1489,6 +1489,10 @@ function startGalaxy(cv) {
   let dpr = 1;
   let t = 0;
   let frame = 0;
+  // Czas liczony od zegara, nie od liczby klatek - na ekranie 120/144 Hz
+  // requestAnimationFrame odpala sie 2-2.4x czesciej niz na 60 Hz, wiec
+  // przyrost "na klatke" kreciłby galaktyka proporcjonalnie szybciej.
+  let lastT = performance.now();
 
   const fit = () => {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1502,6 +1506,11 @@ function startGalaxy(cv) {
 
   const draw = () => {
     galaxyRaf = requestAnimationFrame(draw);
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+    t += dt * 0.132; // = dawne "0.0022 na klatke" przy zalozeniu 60 Hz
+
     frame++;
     if (frame % 2) return;
 
@@ -1512,7 +1521,6 @@ function startGalaxy(cv) {
     const cy = h * 0.44;
     const R = Math.max(w, h) * 0.66;
     const flat = 0.4; // splaszczenie dysku - dysk widziany pod katem
-    t += 0.0022;
     const lvl = store.audioLevel;
 
     // Mglawica - trzy plamy krazace wolniej niz gwiazdy
@@ -1714,6 +1722,11 @@ function startCoreVisual(cv, seed = 42) {
   let t = 0;
   let raf = null;
   let prevLvl = 0;
+  // Czas liczony od zegara, nie od liczby klatek - na ekranach 120/144 Hz
+  // (i w oknie Electrona, gdzie rAF bywa jeszcze mniej ograniczone) kazda
+  // klatka to mniej czasu niz na 60 Hz, wiec staly przyrost "na klatke"
+  // kreciłby caly rdzen proporcjonalnie szybciej niz zaprojektowano.
+  let lastT = performance.now();
   // Krotkie "zaklocenie transmisji" co kilka-kilkanascie sekund - obraz
   // globusu na chwile sie rozjezdza/miga, a ramka HUD (pierscien, celownik,
   // odczyty) zostaje idealnie stabilna. To ona sprzedaje wrazenie, ze
@@ -1756,7 +1769,10 @@ function startCoreVisual(cv, seed = 42) {
     const lvl = store.audioLevel;
     const rise = Math.max(0, lvl - prevLvl);
     prevLvl = lvl;
-    t += 0.016;
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+    t += dt * 0.96; // = dawne "0.016 na klatke" przy zalozeniu 60 Hz
     const spin = t * (0.14 + lvl * 0.08);
     const tiltX = 0.46;
 
@@ -3606,6 +3622,7 @@ function bootVisual(cv) {
   cv.width = cv.height = Math.round(size * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   let t = 0;
+  let lastT = performance.now();
 
   const draw = () => {
     // Po zakonczeniu startu element znika z DOM - bez tego sprawdzenia
@@ -3614,7 +3631,12 @@ function bootVisual(cv) {
     if (!bootEl || bootEl.classList.contains('gone')) return;
     ctx.clearRect(0, 0, size, size);
     const c = size / 2;
-    t += 0.02;
+    // Czas od zegara, nie od liczby klatek - patrz ten sam zabieg w
+    // startCoreVisual/startGalaxy (ekrany >60 Hz inaczej kreciłyby to szybciej).
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+    t += dt * 1.2; // = dawne "0.02 na klatke" przy zalozeniu 60 Hz
 
     // Miekka poswiata + smukly pierscien wypelniania - minimalistyczny
     // splash zamiast dawnego terminalowego dziennika rozruchu.
