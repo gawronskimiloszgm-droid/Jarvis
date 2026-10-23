@@ -2888,6 +2888,25 @@ function stripActionTags(text) {
   return text.replace(ACT_RE, '').replace(TRYB_RE, '').replace(CMD_RE, '').replace(IMG_RE, '').replace(CAD_RE, '');
 }
 
+// [AKCJA: nazwa] sam w sobie nie moze niczego przekazac - np.
+// "otworz-aplikacje" bez nazwy programu konczy sie bledem "Nie podano
+// nazwy aplikacji", bo runAction dostaje puste parametry. Parametr
+// dolaczamy po "|" - [AKCJA: otworz-aplikacje | notepad] - i tu
+// tlumaczymy go na ksztalt, jakiego oczekuje kazda konkretna akcja
+// (patrz desktop/actions.js). Patrz tez prompt w server/core/jarvis.js,
+// ktory uczy model dokladnie tej skladni.
+function paramsForAction(name, raw) {
+  if (!raw) return undefined;
+  if (name === 'otworz-aplikacje' || name === 'zamknij-proces') return { nazwa: raw };
+  if (name === 'przelacz-okno') return { tytul: raw };
+  if (name === 'pisz-tekst') return { tekst: raw };
+  if (name === 'kliknij-na-ekranie') {
+    const [x, y] = raw.split(',').map((n) => Number(n.trim()));
+    return { x, y };
+  }
+  return undefined;
+}
+
 async function sendTyped(text) {
   window.SFX?.play('send');
   pushSaid('me', text);
@@ -2913,7 +2932,8 @@ async function sendTyped(text) {
       for (const m of full.matchAll(ACT_RE)) {
         if (!done.has(m[1])) {
           done.add(m[1]);
-          runDeviceAction(m[1].trim());
+          const [rawName, rawParam] = m[1].split('|').map((s) => s.trim());
+          runDeviceAction(rawName, paramsForAction(rawName, rawParam));
         }
       }
       for (const m of full.matchAll(TRYB_RE)) {
