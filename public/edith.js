@@ -178,6 +178,7 @@
     (result.killedThreats || []).forEach((p) => ul.appendChild(li('Odcieto: ' + p, 'zagrozenie zneutralizowane')));
     (result.startupNew || []).forEach((i) => ul.appendChild(li(i.name + ' - ' + i.command, 'nowy wpis autostartu')));
     (result.listeningNew || []).forEach((l) => ul.appendChild(li(l.process + ':' + l.port, 'nowy nasluch w sieci')));
+    (result.riskFindings || []).forEach((r) => ul.appendChild(li(r.text, r.level === 'warn' ? 'do sprawdzenia' : 'informacja')));
     (result.defenderThreats || []).forEach((t) => ul.appendChild(li(t.threat + (t.remediated ? ' (usuniete)' : ' (NIEUSUNIETE)'), 'wykrycie Defendera')));
     if (!ul.children.length) ul.appendChild(li(result.summary || 'Nic podejrzanego.'));
   }

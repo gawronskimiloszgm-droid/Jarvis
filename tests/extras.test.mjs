@@ -40,3 +40,24 @@ test('polityka desktop i serwer sa zsynchronizowane', () => {
   assert.deepEqual([...desktop.SAFE_ACTIONS].sort(), [...SAFE_ACTIONS].sort());
   assert.deepEqual([...desktop.READ_ONLY].sort(), [...READ_ONLY].sort());
 });
+
+test('patrol: stale reguly ryzyka wykrywaja koparke, RDP i brak pelnego skanu', () => {
+  const { riskFindings, exeOf } = require('../desktop/patrol.js');
+  assert.equal(exeOf('"C:\Program Files\X\x.exe" --auto'), 'C:\Program Files\X\x.exe');
+  assert.equal(exeOf('C:\Tools\y.exe /s'), 'C:\Tools\y.exe');
+  const f = riskFindings(
+    [
+      { where: 'Rejestr', name: 'XMRig helper', command: '"C:\nope\xmrig.exe"' },
+      { where: 'Rejestr', name: 'Setup', command: '"C:\Users\a\Downloads\setup.exe"' },
+      { where: 'Rejestr', name: 'Stary', command: '"C:\nie\ma\stary.exe"' },
+    ],
+    { status: { lastFullScan: '' } },
+    { rdp: true, listening: true }
+  );
+  const keys = f.map((x) => x.key);
+  assert.ok(keys.includes('miner:XMRig helper'));
+  assert.ok(keys.includes('rdp'));
+  assert.ok(keys.includes('fullscan'));
+  assert.ok(keys.includes('orphans'));
+  assert.equal(f.find((x) => x.key === 'miner:XMRig helper').level, 'info'); // plik nie istnieje
+});

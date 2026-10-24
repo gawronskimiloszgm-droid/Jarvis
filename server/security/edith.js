@@ -61,6 +61,10 @@ export function ingestScan(scan) {
     listeningNew: Array.isArray(scan?.listeningNew) ? scan.listeningNew.slice(0, 20) : [],
     defenderThreats: Array.isArray(scan?.defenderThreats) ? scan.defenderThreats.slice(0, 20) : [],
     defenderSignatureAgeDays: Number.isFinite(scan?.defenderSignatureAgeDays) ? scan.defenderSignatureAgeDays : null,
+    riskFindings: (Array.isArray(scan?.riskFindings) ? scan.riskFindings : [])
+      .slice(0, 12)
+      .map((r) => ({ key: String(r?.key || '').slice(0, 80), level: r?.level === 'warn' ? 'warn' : 'info', text: String(r?.text || '').slice(0, 400) }))
+      .filter((r) => r.key && r.text),
   };
   state.scans.unshift(entry);
   state.scans = state.scans.slice(0, 14);
@@ -104,6 +108,15 @@ export function ingestScan(scan) {
   }
   if (entry.defenderSignatureAgeDays > 7) {
     finding(`Sygnatury Defendera maja ${entry.defenderSignatureAgeDays} dni - zaktualizuj.`, 'E.D.I.T.H. — nieaktualne sygnatury');
+  }
+  // Stale reguly ryzyka: pokazujemy zawsze, ale alarmujemy o danej regule najwyzej
+  // raz na dobe (inaczej ten sam komunikat leciaby co 15 min).
+  const seen = (state.riskSeen = state.riskSeen && typeof state.riskSeen === 'object' ? state.riskSeen : {});
+  for (const r of entry.riskFindings) {
+    if (r.level !== 'warn') continue;
+    if (seen[r.key] && Date.now() - seen[r.key] < DAY) continue;
+    seen[r.key] = Date.now();
+    finding(r.text, 'E.D.I.T.H. — do sprawdzenia');
   }
   if (entry.suspiciousProcesses.length) {
     const reason = `Do przejrzenia (bardzo wysokie zuzycie procesora): ${entry.suspiciousProcesses.join(', ')}.`;

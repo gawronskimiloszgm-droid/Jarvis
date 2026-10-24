@@ -9,6 +9,7 @@
 // zainstalowal); kolejne zglaszaja tylko ROZNICE. To heurystyka zmian, nie
 // baza sygnatur - prawdziwa ochrona to Defender, tu go tylko wypytujemy.
 
+const fs = require('fs');
 const scripts = require('./pcscripts');
 const settings = require('./settings');
 
@@ -39,11 +40,56 @@ function json(res) {
   }
 }
 
+// Reguly "postawy" - sprawdzane przy KAZDYM skanie, bo linia bazowa nie
+// zlapie czegos, co jest na komputerze od dawna (koparka w autostarcie, wlaczony
+// pulpit zdalny, brak pelnego skanu).
+const MINER_RE = /miner|xmrig|cryptonight|nicehash|coinhive|monero|ethminer/i;
+const RISKY_DIR_RE = /\\(temp|downloads|users\\public)\\/i;
+const RDP_SCRIPT = "@{ rdp = ((Get-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server').fDenyTSConnections -eq 0); listening = [bool](Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue) } | ConvertTo-Json -Compress";
+
+// Sciezka pliku .exe z polecenia autostartu (w cudzyslowie albo bez).
+function exeOf(cmd) {
+  const s = String(cmd || '');
+  const m = /^\s*"([^"]+\.exe)"/i.exec(s) || /^\s*([A-Za-z]:\\[^"]*?\.exe)(\s|$)/i.exec(s);
+  return m ? m[1] : null;
+}
+
+function riskFindings(items, def, rdp) {
+  const out = [];
+  const orphans = [];
+  for (const i of items || []) {
+    const exe = exeOf(i.command);
+    const missing = exe && !fs.existsSync(exe);
+    const label = i.name + (missing ? ' (pliku juz nie ma)' : '');
+    if (MINER_RE.test(i.name) || MINER_RE.test(String(i.command))) {
+      out.push(missing
+        ? { key: 'miner:' + i.name, level: 'info', text: 'Wpis w autostarcie wskazuje na program do kopania kryptowalut (' + i.name + '), ale pliku juz nie ma, wiec nic nie kopie. Warto usunac sam wpis.' }
+        : { key: 'miner:' + i.name, level: 'warn', text: 'Autostart uruchamia program do kopania kryptowalut: ' + i.name + '. Jesli to nie Twoje - usun wpis i program (zasoby komputera i pradu ida na cudzy portfel).' });
+    } else if (RISKY_DIR_RE.test(String(i.command)) && !missing) {
+      out.push({ key: 'dir:' + i.name, level: 'warn', text: 'Autostart uruchamia program z folderu tymczasowego/pobranych: ' + i.name + ' - ' + String(i.command).slice(0, 120) + '. Zwykle tak nie instaluje sie uczciwe programy.' });
+    } else if (missing && i.where && !/zaplanowane/i.test(i.where)) {
+      orphans.push(i.name);
+    }
+  }
+  if (orphans.length) out.push({ key: 'orphans', level: 'info', text: 'Wpisy autostartu bez pliku (pozostalosci po odinstalowanych programach): ' + orphans.slice(0, 8).join(', ') + '.' });
+  if (rdp && rdp.rdp && rdp.listening) {
+    out.push({ key: 'rdp', level: 'warn', text: 'Pulpit zdalny (RDP) jest wlaczony i nasluchuje na porcie 3389. Jesli go nie uzywasz, wylacz: Ustawienia > System > Pulpit zdalny.' });
+  }
+  const full = def && def.status ? parseDefenderDate(def.status.lastFullScan) : 0;
+  const days = full ? Math.floor((Date.now() - full) / 86400000) : null;
+  if (def && def.status && (days === null || days > 45)) {
+    out.push({ key: 'fullscan', level: 'info', text: days === null ? 'Pelny skan Defendera nigdy nie zostal uruchomiony.' : 'Ostatni pelny skan Defendera byl ' + days + ' dni temu.' });
+  }
+  return out;
+}
+
 async function patrol(runPowerShell) {
-  const out = { startupNew: [], listeningNew: [], defenderThreats: [], defenderSignatureAgeDays: null, baselineCreated: false };
+  const out = { startupNew: [], listeningNew: [], defenderThreats: [], defenderSignatureAgeDays: null, baselineCreated: false, riskFindings: [] };
+  let startupItems = [];
 
   const startup = json(await runPowerShell(scripts.startupScript()));
   if (startup?.items) {
+    startupItems = startup.items;
     const keys = startup.items.map(startupKey);
     const d = diffBaseline('startupBaseline', keys);
     out.baselineCreated = out.baselineCreated || d.first;
@@ -76,7 +122,14 @@ async function patrol(runPowerShell) {
     if (!seen) out.baselineCreated = true;
     settings.set('defenderSeen', max || Date.now());
   }
+  let rdp = null;
+  try {
+    rdp = json(await runPowerShell(RDP_SCRIPT));
+  } catch {
+    /* RDP to dodatek */
+  }
+  out.riskFindings = riskFindings(startupItems, def, rdp);
   return out;
 }
 
-module.exports = { patrol, parseDefenderDate, diffBaseline, startupKey, listenKey };
+module.exports = { patrol, parseDefenderDate, diffBaseline, startupKey, listenKey, riskFindings, exeOf };
