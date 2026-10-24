@@ -2,6 +2,6 @@
 // parsowania strony) - dzieki temu kazdy z nich zdazy sie zarejestrowac w
 // JarvisUI, zanim boot() zbuduje dok. Nowa funkcja = nowy plik + wpis tutaj.
 (function () {
-  const FILES = ['system', 'analysis'];
+  const FILES = ['system', 'analysis', 'agent_gui'];
   FILES.forEach((f) => document.write('<script src="/extras/' + f + '.js"><\/script>'));
 })();

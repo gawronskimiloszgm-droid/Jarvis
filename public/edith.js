@@ -49,7 +49,45 @@
     }
   }
 
+  let auditFilter = '';
+  const VERDICT_LABEL = { ok: 'OK', failed: 'BLAD', blocked: 'ZABLOKOWANE', confirm: 'POTWIERDZENIE', denied: 'ODRZUCONE', allowed: 'START' };
+
+  async function refreshAudit() {
+    const list = root.querySelector('#edithAudit');
+    if (!list) return;
+    try {
+      const res = await fetch(`/api/audit?limit=60${auditFilter ? `&verdict=${auditFilter}` : ''}`, { headers: window.authHeaders ? authHeaders() : {} });
+      if (!res.ok) return;
+      const data = await res.json();
+      list.innerHTML = '';
+      data.entries.forEach((e) => {
+        const li = document.createElement('li');
+        li.className = `edith-alert ${e.verdict === 'blocked' || e.verdict === 'denied' ? 'block' : e.verdict === 'failed' || e.verdict === 'confirm' ? 'warn' : ''}`;
+        const t = document.createElement('span');
+        t.className = 'when';
+        t.textContent = `${when(e.at)} · ${VERDICT_LABEL[e.verdict] || e.verdict} · ${e.source}`;
+        li.append(t, document.createTextNode(`${e.name}${e.detail ? ` — ${e.detail}` : ''}${e.note ? ` (${e.note})` : ''}`));
+        list.appendChild(li);
+      });
+      if (!data.entries.length) {
+        const li = document.createElement('li');
+        li.textContent = 'Brak wpisow.';
+        list.appendChild(li);
+      }
+    } catch {
+      /* dziennik jest dodatkiem */
+    }
+  }
+
+  root.querySelectorAll('[data-audit]').forEach((b) =>
+    b.addEventListener('click', () => {
+      auditFilter = b.dataset.audit;
+      refreshAudit();
+    })
+  );
+
   async function refresh() {
+    refreshAudit();
     try {
       const res = await fetch('/api/edith/state', { headers: window.authHeaders ? authHeaders() : {} });
       if (!res.ok) return;

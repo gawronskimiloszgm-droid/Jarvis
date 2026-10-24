@@ -3,6 +3,8 @@
 
 import system, { SERVER_VERSION, MIN_DESKTOP_VERSION } from './system.js';
 import documents from './documents.js';
+import audit from './audit.js';
+import agent from './agent.js';
 
-export const extraRouters = [system, documents];
+export const extraRouters = [system, documents, audit, agent];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

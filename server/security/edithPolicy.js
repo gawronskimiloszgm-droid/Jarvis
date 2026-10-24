@@ -43,7 +43,10 @@ export const SAFE_ACTIONS = new Set([
   'kliknij-na-ekranie',
   'lista-okien',
   'przelacz-okno',
-  'wczytaj-plik-pc'
+  'wczytaj-plik-pc',
+  'lista-elementow',
+  'kliknij-element',
+  'wpisz-w-element'
 ]);
 
 // Akcje, ktore zawsze wymagaja wyraznego potwierdzenia ("tak"/"potwierdzam"

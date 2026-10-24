@@ -2767,6 +2767,22 @@ function runDeviceAction(name, params, options) {
   return actionChain;
 }
 
+// Kazda akcja na komputerze laduje w dzienniku audytowym (panel E.D.I.T.H.):
+// co, z jakimi parametrami i co powiedziala polityka. Pliki (base64) i dlugie
+// teksty sa przycinane - dziennik ma byc czytelny, nie archiwum danych.
+function auditAction(name, params, r) {
+  if (!isOwner()) return;
+  const detail = Object.entries(params || {})
+    .map(([k, v]) => `${k}=${String(v).slice(0, 80)}`)
+    .join(' ');
+  const verdict = r?.requiresEdithConfirmation ? 'confirm' : r?.blocked ? 'blocked' : r?.ok === false ? 'failed' : 'ok';
+  api('/api/audit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, detail, verdict, note: r?.edithReason || r?.warning || r?.error || '', source: 'jarvis' }),
+  }).catch(() => {});
+}
+
 async function runDeviceActionNow(name, params, options) {
   if (!isOwner()) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
@@ -2810,6 +2826,7 @@ async function runDeviceActionNow(name, params, options) {
   try {
     if (window.jarvisDesktop) {
       const r = await window.jarvisDesktop.runAction(name, params, options);
+      auditAction(name, params, r);
       if (r?.requiresEdithConfirmation) {
         askConfirm(name, params, r.warning || r.reason);
         return;
@@ -2958,6 +2975,12 @@ function paramsForAction(name, raw) {
     return { x, y };
   }
   if (name === 'wczytaj-plik-pc') return { sciezka: raw };
+  if (name === 'wykonaj-na-ekranie') return { cel: raw };
+  if (name === 'kliknij-element') return { nazwa: raw };
+  if (name === 'wpisz-w-element') {
+    const i = raw.indexOf('=>');
+    return i < 0 ? { tekst: raw } : { nazwa: raw.slice(0, i).trim(), tekst: raw.slice(i + 2).trim() };
+  }
   if (name === 'analizuj-ekran') return { pytanie: raw };
   return undefined;
 }

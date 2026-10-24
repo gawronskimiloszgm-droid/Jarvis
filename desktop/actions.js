@@ -3,6 +3,7 @@ const fsp = require('fs/promises');
 const { shell, app, desktopCapturer, screen } = require('electron');
 const { exec, spawn } = require('child_process');
 const { judge } = require('./edithPolicy');
+const uia = require('./uia');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -216,6 +217,36 @@ Start-Sleep -Milliseconds 40
     if (st.size > MAX_READ_BYTES) return { ok: false, error: `Plik jest za duzy (${Math.round(st.size / 1048576)} MB, limit ${MAX_READ_BYTES / 1048576} MB).` };
     const buf = await fsp.readFile(full);
     return { ok: true, nazwa: path.basename(full), sciezka: full, size: st.size, dataBase64: buf.toString('base64') };
+  },
+
+  // --- Windows UI Automation: nazwane elementy zamiast zgadywania pikseli ---
+  'lista-elementow': async (params) => {
+    const res = await runPowerShell(uia.listScript(params.limit || 120));
+    try {
+      return { ok: true, ...JSON.parse(res.output) };
+    } catch {
+      return { ok: false, error: 'Nie udalo sie odczytac elementow aktywnego okna.' };
+    }
+  },
+  'kliknij-element': async (params) => {
+    const name = String(params.nazwa || params.name || '').trim();
+    if (!name) return { ok: false, error: 'Nie podano nazwy elementu.' };
+    const res = await runPowerShell(uia.clickScript(name, params.typ || ''));
+    try {
+      return JSON.parse(res.output);
+    } catch {
+      return { ok: false, error: 'Klikniecie elementu nie powiodlo sie.' };
+    }
+  },
+  'wpisz-w-element': async (params) => {
+    const text = String(params.tekst || params.text || '');
+    if (!text) return { ok: false, error: 'Brak tekstu do wpisania.' };
+    const res = await runPowerShell(uia.typeScript(String(params.nazwa || params.name || ''), text));
+    try {
+      return JSON.parse(res.output);
+    } catch {
+      return { ok: false, error: 'Wpisanie tekstu nie powiodlo sie.' };
+    }
   },
 
   // Lista widocznych okien (tytul + proces) - zeby Jarvis wiedzial, co jest

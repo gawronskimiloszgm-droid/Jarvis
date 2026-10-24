@@ -656,3 +656,14 @@ body[data-posture='recovery'] { --blue: #3dffb0; --ice: #a7f0e7; }
 .dropzone:hover, .dropzone.over { background: rgba(51, 224, 255, .08); border-color: var(--blue); }
 .analysis.busy .dropzone { opacity: .55; pointer-events: none; }
 .analysis .said { white-space: pre-wrap; }
+
+/* --- Agent ekranu --- */
+.agent-log { margin-top: 12px; max-height: 52vh; overflow: auto; display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 11px; }
+.agent-step { padding: 5px 8px; border-left: 2px solid var(--line-2); color: var(--dim); white-space: pre-wrap; }
+.agent-step.goal { border-color: var(--blue); color: var(--bright); }
+.agent-step.act { border-color: var(--ice); color: var(--txt); }
+.agent-step.ok { border-color: var(--good); }
+.agent-step.bad { border-color: var(--red); color: var(--red); }
+.agent-step.done { border-color: var(--good); color: var(--good); }
+.agent-step.ask { border-color: var(--amber); color: var(--amber); }
+.agent-ask { padding: 10px; border: 1px solid var(--amber); border-radius: var(--r-sm); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
