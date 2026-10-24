@@ -11,7 +11,8 @@
 
 const fs = require('fs');
 const scripts = require('./pcscripts');
-const settings = require('./settings');
+// Ladowane leniwie: settings.js wymaga 'electron', a reguly ryzyka da sie testowac bez niego.
+const settings = { get: (k) => require('./settings').get(k), set: (k, v) => require('./settings').set(k, v) };
 
 const startupKey = (i) => `${i.where}|${i.name}|${String(i.command || '').toLowerCase()}`;
 const listenKey = (l) => `${String(l.process || '?').toLowerCase()}:${l.port}`;
