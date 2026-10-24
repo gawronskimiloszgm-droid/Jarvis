@@ -1,6 +1,6 @@
 // Doswiadczenie glosowe po stronie klienta:
 //  - "Slysze: ..." na zywo (widac, CO model uslyszal, zanim zadziala)
-//  - bramka przed akcjami z glosu: opis + 2,5 s na anulowanie (Escape/przycisk)
+//  - OPCJONALNA bramka przed akcjami z glosu (domyslnie wylaczona - akcje ida od razu)
 //  - tryb "nie przeszkadzac"
 //  - slownik wlasnych nazw (aliasy) i ustawienia tego wszystkiego w Ustawieniach
 (function () {
@@ -39,7 +39,7 @@
 
   function gateMs() {
     const v = localStorage.getItem('jarvis.voiceGateMs');
-    return v == null ? 2500 : Number(v);
+    return v == null ? 0 : Number(v);
   }
 
   // Zwraca Promise<boolean> - czy wykonac. Dla akcji spoza listy albo przy
@@ -118,9 +118,9 @@
     build(body) {
       body.innerHTML = '';
 
-      body.appendChild(el('div', 'sub', 'BRAMKA PRZED AKCJA Z GLOSU'));
+      body.appendChild(el('div', 'sub', 'BRAMKA PRZED AKCJA Z GLOSU (opcjonalna)'));
       const sel = el('select', 'inp');
-      [['0', 'wylaczona'], ['1500', '1,5 s'], ['2500', '2,5 s (domyslnie)'], ['5000', '5 s']].forEach(([v, l]) => {
+      [['0', 'wylaczona (domyslnie - od razu)'], ['1500', '1,5 s'], ['2500', '2,5 s'], ['5000', '5 s']].forEach(([v, l]) => {
         const o = el('option', null, l);
         o.value = v;
         sel.appendChild(o);
