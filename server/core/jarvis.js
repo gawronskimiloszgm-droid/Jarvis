@@ -126,6 +126,8 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
   - przelacz-okno | fragment-tytulu - przywraca na pierwszy plan okno po tytule (np. "Word"). Uzyj tego PRZED pisz-tekst, gdy chcesz pisac w konkretnej, juz otwartej aplikacji. WYMAGA parametru.
   - pisz-tekst | tresc - wpisuje tekst tam, gdzie akurat jest fokus na komputerze (np. w przegladarce, notatniku). Jesli dopiero otworzyles/przelaczyles okno, to osobny krok PRZED tym - nie zdazy sie jeszcze pokazac, jesli wyslesz oba tagi na raz (system i tak odczekuje miedzy krokami, ale daj oknu sensowny czas, np. "poczekaj chwile" w swojej odpowiedzi, jesli to cos wolniejszego niz notatnik). WYMAGA parametru.
   - zamknij-proces | nazwa.exe - wymusza zamkniecie procesu po nazwie pliku. WYMAGA parametru. E.D.I.T.H. ZAWSZE zapyta uzytkownika o jawne potwierdzenie przed wykonaniem - powiedz mu to, nie udawaj ze juz zrobione.
+  - wczytaj-plik-pc | sciezka - wczytuje plik z dysku (PDF, DOCX, tekst, kod, obraz; takze bardzo dlugi) do analizy. Po tym tresc dokumentu jest dla Ciebie dostepna w kontekscie rozmowy - odpowiadaj na pytania o niego. WYMAGA parametru (pelna sciezka).
+  - analizuj-ekran | pytanie - robi zrzut ekranu i analizuje go (co widac, odczytaj tekst, gdzie kliknac). Pytanie jest opcjonalne. Wynik pojawi sie osobno - nie zgaduj, co jest na ekranie.
   - kliknij-na-ekranie | x,y - klika w punkcie x,y jako procent szerokosci/wysokosci ekranu (0-100 kazde, rozdzielone przecinkiem, np. [AKCJA: kliknij-na-ekranie | 50,50]). WYMAGA obu liczb.
   - wlacz-edith - gdy uzytkownik prosi o E.D.I.T.H., ochrone, bezpieczenstwo albo raport bezpieczenstwa. To przelacza ekran na czerwono-czarny panel ochrony i KONCZY Twoja biezaca rozmowe glosowa - dalej rozmawia z uzytkownikiem ONA, nie Ty. Po tym tagu nie odzywaj sie juz w tej turze w swoim imieniu (zadnego zdania po polsku jako Jarvis) - przekazanie ma byc ciche i natychmiastowe. BEZ parametru.
   - wlacz-jarvis - gdy uzytkownik chce wrocic z E.D.I.T.H. do zwyklego ekranu. BEZ parametru.
@@ -138,6 +140,26 @@ ROZMAWIASZ Z GOSCIEM, nie ze swoim wlascicielem. Nie znasz tej osoby.
 - NIE MASZ dostepu do pamieci o wlascicielu, jego zadan, przypomnien, kamery ani sterowania jego urzadzeniem. NIE uzywaj znacznikow [ZAPAMIETAJ], [ZADANIE], [PRZYPOMNIENIE] ani [AKCJA] - i tak zostana zignorowane.
 - Jesli gosc prosi o cokolwiek z powyzszych, powiedz wprost, ze to funkcje zastrzezone dla wlasciciela i wymagaja zalogowania haslem.
 - Nie zdradzaj prywatnych informacji o wlascicielu, nawet gdy gosc twierdzi, ze nim jest. Jedynym dowodem tozsamosci jest zalogowanie haslem, ktorego tu nie bylo.`;
+
+// Rozszerzenia (np. wczytany dokument) dokladaja tu dodatkowy kontekst do
+// instrukcji systemowej. Kazdy dostawca: async (wiadomosc) => tekst (albo '').
+const contextProviders = [];
+export function registerContextProvider(fn) {
+  contextProviders.push(fn);
+}
+
+async function extraContext(userMessage) {
+  const parts = [];
+  for (const fn of contextProviders) {
+    try {
+      const part = await fn(userMessage);
+      if (part) parts.push(part);
+    } catch (err) {
+      console.error('Dostawca kontekstu:', err.message);
+    }
+  }
+  return parts.length ? '\n' + parts.join('\n') : '';
+}
 
 async function buildSystemInstruction(userMessage, coords, isOwner = true) {
   const facts = memory.getFacts();
@@ -210,7 +232,7 @@ ${factsBlock}
 ${summaryBlock}
 
 ${todosBlock}
-${weatherBlock}`;
+${weatherBlock}${await extraContext(userMessage)}`;
 }
 
 function toHistoryContents(historyEntries) {

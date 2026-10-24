@@ -649,3 +649,10 @@ body[data-posture='recovery'] { --blue: #3dffb0; --ice: #a7f0e7; }
 .doc-dot.warn { color: var(--amber); }
 .doc-dot.bad { color: var(--red); }
 .doc-fix { margin-top: 3px; font-size: 11px; color: var(--amber); }
+
+/* --- Analiza --- */
+.dropzone { border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 22px 16px; text-align: center; color: var(--dim); cursor: pointer; transition: background .15s, border-color .15s; }
+.dropzone b { color: var(--bright); }
+.dropzone:hover, .dropzone.over { background: rgba(51, 224, 255, .08); border-color: var(--blue); }
+.analysis.busy .dropzone { opacity: .55; pointer-events: none; }
+.analysis .said { white-space: pre-wrap; }

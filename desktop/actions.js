@@ -65,6 +65,9 @@ async function captureScreenForVision() {
   return { ok: true, imageBase64: sources[0].thumbnail.toPNG().toString('base64'), mimeType: 'image/png' };
 }
 
+const MAX_READ_BYTES = 45 * 1024 * 1024;
+const { SENSITIVE_PATH } = require('./sensitivePaths');
+
 const WAKE_TRACK_ID = process.env.JARVIS_WAKE_TRACK || '08mG3Y1vljYA6bvDt4Wqkj';
 
 // Rozszerzona baza akcji systemowych
@@ -189,6 +192,30 @@ Start-Sleep -Milliseconds 40
 `;
     const res = await runPowerShell(script);
     return { ...res, x, y };
+  },
+
+  // Odczyt DOWOLNEGO pliku z dysku (tylko do odczytu) - zeby Jarvis mogl
+  // przeanalizowac dlugi dokument bez przeciagania go recznie. Plik trafia do
+  // serwera jako base64 (patrz extras/analysis.js), wiec sa tu dwa
+  // zabezpieczenia: limit rozmiaru i lista miejsc z poswiadczeniami, ktorych
+  // nigdy nie czytamy, nawet na prosbe (klucze SSH/chmur, hasla przegladarek).
+  'wczytaj-plik-pc': async (params) => {
+    const raw = String(params.sciezka || params.path || '').trim().replace(/^"|"$/g, '');
+    if (!raw) return { ok: false, error: 'Nie podano sciezki do pliku.' };
+    const full = path.resolve(raw);
+    if (SENSITIVE_PATH.test(full)) {
+      return { ok: false, blocked: true, edithReason: 'E.D.I.T.H.: To miejsce zawiera poswiadczenia/klucze - nie czytam go.' };
+    }
+    let st;
+    try {
+      st = await fsp.stat(full);
+    } catch {
+      return { ok: false, error: `Nie ma takiego pliku: ${full}` };
+    }
+    if (!st.isFile()) return { ok: false, error: 'To jest folder, nie plik.' };
+    if (st.size > MAX_READ_BYTES) return { ok: false, error: `Plik jest za duzy (${Math.round(st.size / 1048576)} MB, limit ${MAX_READ_BYTES / 1048576} MB).` };
+    const buf = await fsp.readFile(full);
+    return { ok: true, nazwa: path.basename(full), sciezka: full, size: st.size, dataBase64: buf.toString('base64') };
   },
 
   // Lista widocznych okien (tytul + proces) - zeby Jarvis wiedzial, co jest

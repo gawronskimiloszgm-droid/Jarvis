@@ -2772,6 +2772,18 @@ async function runDeviceActionNow(name, params, options) {
     toast('Sterowanie urzadzeniem wymaga zalogowania.');
     return;
   }
+  // Akcje zarejestrowane przez rozszerzenia (JarvisUI.clientActions) dzialaja
+  // w przegladarce/aplikacji i nie ida do desktop/actions.js - np. analiza
+  // ekranu, ktora sama pobiera zrzut i wysyla go do serwera.
+  const clientAction = window.JarvisUI?.clientActions?.[name];
+  if (clientAction) {
+    try {
+      await clientAction(params || {}, options || {});
+    } catch (err) {
+      toast(err?.message || `Nie udalo sie: ${name}`);
+    }
+    return;
+  }
   // "wlacz-edith"/"wlacz-jarvis" sa czysto klienckie (przelaczaja widok),
   // nie maja odpowiednika w desktop/actions.js - obsluzone od razu, bez
   // wysylania do aplikacji desktopowej/mobilnej.
@@ -2806,7 +2818,8 @@ async function runDeviceActionNow(name, params, options) {
         toast(`Zablokowane przez E.D.I.T.H.: ${r.edithReason || ''}`);
         return;
       }
-      if (!r?.ok) toast(`Nie udalo sie: ${name}`);
+      if (!r?.ok) toast(r?.error ? `${name}: ${r.error}` : `Nie udalo sie: ${name}`);
+      else window.dispatchEvent(new CustomEvent('jarvis:action-result', { detail: { name, params, result: r } }));
       // Krotkie odczekanie PO kazdej akcji (nie tylko udanej - nawet
       // nieudana proba otwarcia zajela chwile) - zanim kolejka przepusci
       // nastepny krok. To ta sama logika co runRoutineSteps, tylko dla
@@ -2944,6 +2957,8 @@ function paramsForAction(name, raw) {
     const [x, y] = raw.split(',').map((n) => Number(n.trim()));
     return { x, y };
   }
+  if (name === 'wczytaj-plik-pc') return { sciezka: raw };
+  if (name === 'analizuj-ekran') return { pytanie: raw };
   return undefined;
 }
 
@@ -4066,6 +4081,8 @@ window.JarvisUI = {
   $, el, api, toast, authHeaders, store, isOwner, logEvent, speak, pushSaid,
   setCoreState, openWindow, runDeviceAction, deaccent,
   // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
+  // Akcje po stronie klienta: { nazwa: async (params) => ... } - patrz runDeviceActionNow.
+  clientActions: {},
   register(def) {
     if (MODULES.some((m) => m.id === def.id)) return;
     const panelIds = Object.keys(def.panels || {});

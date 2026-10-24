@@ -41,7 +41,8 @@ const SAFE_ACTIONS = new Set([
   'skrot-klawiszowy',
   'kliknij-na-ekranie',
   'lista-okien',
-  'przelacz-okno'
+  'przelacz-okno',
+  'wczytaj-plik-pc'
 ]);
 
 // Akcje, ktore zawsze wymagaja wyraznego potwierdzenia ("tak"/"potwierdzam"

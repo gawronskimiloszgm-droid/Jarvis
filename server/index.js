@@ -122,7 +122,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '8mb' }));
+// Wczytywanie plikow i zrzutow ekranu (server/extras/documents.js) ma wlasny,
+// wiekszy limit na poziomie trasy - globalny 8 MB odcialby je wczesniej.
+const BIG_BODY = (req) => (req.method === 'POST' && (req.path === '/api/docs' || req.path === '/api/screen/analyze'));
+const smallJson = express.json({ limit: '8mb' });
+app.use((req, res, next) => (BIG_BODY(req) ? next() : smallJson(req, res, next)));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(devicesRouter);
 app.use(agentCoreRouter);

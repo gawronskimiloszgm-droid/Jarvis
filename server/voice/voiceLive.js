@@ -9,6 +9,7 @@
 // tutaj, po stronie serwera - model po prostu nie dostaje deklaracji
 // narzedzi, do ktorych rola nie ma prawa.
 
+import { askCurrent } from '../extras/documents.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
 import { getWeather, getWeatherByCoords } from '../core/weather.js';
@@ -211,6 +212,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
+- Dlugie pliki i dokumenty: wczytaj_plik (sciezka na dysku) albo uzytkownik wrzuca plik w panelu Analiza; potem na KAZDE pytanie o ich tresc uzywaj zapytaj_dokument i odpowiadaj na podstawie wyniku - nie zgaduj. Do patrzenia na ekran jest co_na_ekranie.
 - zamknij_proces ZAWSZE wymaga wyraznego potwierdzenia uzytkownika (E.D.I.T.H. o nie zapyta na ekranie/w czacie) - powiedz uzytkownikowi, ze to zrobiles i czeka na jego "tak", nie obiecuj ze juz jest zamkniete.
 - Gdy nie jestes pewien, CO dokladnie uzytkownik chce zrobic (zle usłyszane słowo, dwuznaczna nazwa procesu/aplikacji, cicha albo urwana wypowiedz) - zapytaj krotko zamiast zgadywac i wykonywac akcje "na wszelki wypadek". Lepiej dopytac raz, niz kliknac/zamknac/napisac cos, czego nikt nie chcial.
 - zapisz_tryb / uruchom_tryb: nazwany tryb to zapamietana kolejnosc krokow steruj_urzadzeniem, odtwarzana jedna komenda ("Jarvis, dobranoc" zamiast wymieniac kroki). Zapisz gdy uzytkownik poprosi o zapamietanie rutyny, uruchom po samej nazwie.
@@ -274,6 +276,24 @@ const ALL_TOOLS = [
     name: 'wylacz_kamere',
     description: 'Wylacz kamere.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'wczytaj_plik',
+    description: 'Wczytaj plik z dysku komputera wlasciciela do analizy (PDF, DOCX, tekst, kod, obraz - takze bardzo dlugie). Potem odpowiadaj na pytania przez zapytaj_dokument.',
+    parameters: {
+      type: 'object',
+      properties: { sciezka: { type: 'string', description: 'Pelna sciezka do pliku, np. C:/Users/Ty/Documents/umowa.pdf' } },
+      required: ['sciezka'],
+    },
+  },
+  {
+    name: 'zapytaj_dokument',
+    description: 'Zadaj pytanie o OSTATNIO wczytany dokument (przez panel Analiza albo wczytaj_plik). Zwraca odpowiedz oparta na tresci dokumentu.',
+    parameters: {
+      type: 'object',
+      properties: { pytanie: { type: 'string' } },
+      required: ['pytanie'],
+    },
   },
   {
     name: 'otworz_aplikacje',
@@ -912,6 +932,20 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   result = { ok: true };
                 } else {
                   result = { error: 'nieznana akcja' };
+                }
+              } else if (call.name === 'wczytaj_plik') {
+                const { sciezka } = call.args || {};
+                if (!sciezka) {
+                  result = { error: 'brak sciezki' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'wczytaj-plik-pc', params: { sciezka } }));
+                  result = { ok: true, note: 'plik jest wczytywany i streszczany - za kilka sekund mozna pytac przez zapytaj_dokument' };
+                }
+              } else if (call.name === 'zapytaj_dokument') {
+                try {
+                  result = await askCurrent((call.args || {}).pytanie);
+                } catch {
+                  result = { error: 'nie udalo sie odpowiedziec na podstawie dokumentu' };
                 }
               } else if (call.name === 'otworz_aplikacje') {
                 const { nazwa } = call.args || {};
