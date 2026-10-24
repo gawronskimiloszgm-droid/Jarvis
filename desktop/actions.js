@@ -470,7 +470,7 @@ async function runAction(name, params = {}, options = {}) {
   const fn = ACTIONS[name];
   if (!fn) return { ok: false, error: 'E.D.I.T.H.: Wybrana akcja nie istnieje.' };
   try {
-    return await fn();
+    return await fn(params || {}); // parametry dostaja tez akcje standardowe (np. otworz-link)
   } catch (e) {
     return { ok: false, error: e.message };
   }
