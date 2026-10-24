@@ -4,6 +4,9 @@ const { shell, app, desktopCapturer, screen } = require('electron');
 const { exec, spawn } = require('child_process');
 const { judge } = require('./edithPolicy');
 const uia = require('./uia');
+const settings = require('./settings');
+const pcTools = require('./pcTools');
+const taskScheduler = require('./scheduler');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -116,6 +119,8 @@ const FILE_ACTIONS = {
 
 // Nowe uniwersalne funkcje rozszerzające sterowanie komputerem
 const DYNAMIC_SYSTEM_ACTIONS = {
+  ...pcTools.make({ runPowerShell }),
+  ...taskScheduler.make(),
   // Uruchamianie dowolnych aplikacji systemowych (np. "notepad", "calc", "chrome", "steam")
   'otworz-aplikacje': async (params) => {
     const appName = String(params.nazwa || params.app || '').trim();
@@ -397,7 +402,9 @@ try { $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Na
 async function runAction(name, params = {}, options = {}) {
   // 1. Analiza bezpieczeństwa i ocena E.D.I.T.H.
   const commandText = params.tresc || params.command || '';
-  const verdict = judge(name, commandText, options, params);
+  // Tryb uprawnien to ustawienie TEGO komputera (panel E.D.I.T.H.) - nie ufamy
+  // wartosci przyslanej z renderera, tylko czytamy z lokalnych ustawien.
+  const verdict = judge(name, commandText, { ...options, mode: settings.get('permissionMode') }, params);
 
   if (!verdict.allow) {
     if (verdict.requiresConfirmation) {

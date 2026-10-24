@@ -1,9 +1,11 @@
-const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { app, BrowserWindow, session, ipcMain, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { runAction } = require('./actions');
 const { initUpdater } = require('./updater');
+const shell = require('./shell');
+const scheduler = require('./scheduler');
 
 let mainWindow = null;
 
@@ -85,6 +87,16 @@ function createWindow() {
   });
 
   mainWindow = win;
+  // Zamkniecie okna chowa aplikacje do zasobnika (Jarvis dalej nasluchuje,
+  // dziala skrot globalny i zadania cykliczne). Prawdziwe wyjscie: menu
+  // zasobnika -> Zakoncz.
+  win.on('close', (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+  if (process.argv.includes('--hidden')) win.once('ready-to-show', () => win.hide());
   win.loadURL(JARVIS_URL);
   startWakeWordListener(win);
 }
@@ -108,18 +120,35 @@ app.whenReady().then(() => {
 
   createWindow();
   initUpdater(() => mainWindow);
+  shell.init({
+    getWindow: () => mainWindow,
+    quit: () => {
+      quitting = true;
+      app.quit();
+    },
+  });
+  scheduler.init(
+    (name, params, options) => runAction(name, params, options),
+    (title, body) => {
+      try {
+        new Notification({ title, body }).show();
+      } catch {
+        /* powiadomienia wylaczone w systemie */
+      }
+    }
+  );
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+// Aplikacja zyje w zasobniku - zamkniecie okna nie konczy procesu.
+app.on('window-all-closed', () => {});
 
 app.on('before-quit', () => {
   quitting = true;
+  shell.dispose();
   if (wakeProc) {
     try { wakeProc.kill(); } catch (e) { /* noop */ }
     wakeProc = null;

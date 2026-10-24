@@ -56,3 +56,46 @@ for (const [label, judge] of [['desktop', desktop.judge], ['serwer', serverJudge
     assert.equal(judge('polecenie', 'Get-ChildItem').allow, true);
   });
 }
+
+// --- tryby uprawnien ---
+import { READ_ONLY as serverReadOnly } from '../server/security/edithPolicy.js';
+
+test('READ_ONLY identyczne po obu stronach i zawiera sie w SAFE_ACTIONS', () => {
+  assert.deepEqual([...desktop.READ_ONLY].sort(), [...serverReadOnly].sort());
+  for (const a of desktop.READ_ONLY) assert.ok(desktop.SAFE_ACTIONS.has(a), a);
+});
+
+for (const [label, judge] of [['desktop', desktop.judge], ['serwer', serverJudge]]) {
+  test(`${label}: tryb "podglad" przepuszcza tylko odczyt`, () => {
+    const o = { mode: 'podglad' };
+    assert.equal(judge('szukaj-plikow', '', o, { zapytanie: 'x' }).allow, true);
+    assert.equal(judge('lista-procesow', '', o).allow, true);
+    assert.equal(judge('otworz-aplikacje', '', o, { nazwa: 'notepad' }).allow, false);
+    assert.equal(judge('glosniej', '', o).allow, false);
+    assert.equal(judge('polecenie', 'Get-ChildItem', o).allow, false);
+  });
+
+  test(`${label}: tryb "pytaj" wymaga zgody na zmiany, nie na odczyt`, () => {
+    const o = { mode: 'pytaj' };
+    assert.equal(judge('lista-okien', '', o).allow, true);
+    const v = judge('otworz-spotify', '', o);
+    assert.equal(v.requiresConfirmation, true);
+    assert.equal(judge('otworz-spotify', '', { ...o, confirmedByEdith: true }).allow, true);
+    assert.equal(judge('polecenie', 'Get-ChildItem', o).requiresConfirmation, true);
+  });
+
+  test(`${label}: blokady krytyczne dzialaja w KAZDYM trybie`, () => {
+    for (const mode of ['podglad', 'pytaj', 'zaufany']) {
+      const v = judge('polecenie', 'format c:', { mode, confirmedByEdith: true });
+      assert.equal(v.allow, false, mode);
+    }
+  });
+
+  test(`${label}: nieznany tryb spada do "zaufany"`, () => {
+    assert.equal(judge('otworz-spotify', '', { mode: 'cokolwiek' }).allow, true);
+  });
+
+  test(`${label}: zawieszenie procesu wymaga potwierdzenia`, () => {
+    assert.equal(judge('zawies-proces', '', {}, { nazwa: 'x.exe' }).requiresConfirmation, true);
+  });
+}

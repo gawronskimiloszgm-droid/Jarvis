@@ -45,8 +45,32 @@ const SAFE_ACTIONS = new Set([
   'wczytaj-plik-pc',
   'lista-elementow',
   'kliknij-element',
-  'wpisz-w-element'
+  'wpisz-w-element',
+  'szukaj-plikow',
+  'skan-autostartu',
+  'polaczenia-sieciowe',
+  'defender-status',
+  'defender-skan',
+  'zawies-proces',
+  'wznow-proces',
+  'ukladaj-okno',
+  'schowek-odczyt',
+  'schowek-zapis',
+  'schowek-historia',
+  'zadania-lista',
+  'zadania-dodaj',
+  'zadania-usun'
 ]);
+
+// Akcje, ktore niczego nie zmieniaja w systemie (tylko czytaja/patrza/liczą).
+// Tryb "tylko podglad" przepuszcza WYLACZNIE te.
+const READ_ONLY = new Set([
+  'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
+  'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
+  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'wlacz-edith', 'wlacz-jarvis'
+]);
+
+const MODES = ['podglad', 'pytaj', 'zaufany'];
 
 // Akcje, ktore zawsze wymagaja wyraznego potwierdzenia ("tak"/"potwierdzam"
 // od uzytkownika), nawet gdy sa na liscie dozwolonych - bo sa nieodwracalne
@@ -55,9 +79,11 @@ const SAFE_ACTIONS = new Set([
 // procesu (moze ubic cos innego niz uzytkownik mial na mysli) i wylaczenie
 // sieci (odcina tez Jarvisa/Edith od swiata, dopoki ktos tego nie wlaczy
 // z powrotem recznie).
-const CONFIRM_ALWAYS = new Set(['wylacz-komputer', 'restart-komputera', 'zamknij-proces']);
+const CONFIRM_ALWAYS = new Set(['wylacz-komputer', 'restart-komputera', 'zamknij-proces', 'zawies-proces']);
 
 function describeAction(name, params = {}) {
+  const extra = Object.entries(params || {}).filter(([, v]) => typeof v !== 'object').map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(', ');
+  if (!['zamknij-proces', 'sterowanie-siecia'].includes(name)) return `Wykonanie: ${name}${extra ? ` (${extra})` : ''}`;
   if (name === 'zamknij-proces') return `Zamkniecie procesu "${params.nazwa || params.process || '?'}"`;
   if (name === 'sterowanie-siecia') return 'Wylaczenie karty sieciowej';
   return `Wykonanie: ${name}`;
@@ -92,6 +118,11 @@ function judge(action, command = '', options = {}, params = {}) {
   const name = String(action || '').trim();
   const text = String(command || '').trim();
   const confirmedByEdith = Boolean(options.confirmedByEdith);
+  // Tryb uprawnien wybrany przez uzytkownika (panel E.D.I.T.H.):
+  //  podglad - tylko odczyt, wszystko, co zmienia stan, jest zablokowane
+  //  pytaj   - kazda zmiana wymaga jawnego "tak"
+  //  zaufany - domyslnie: pytamy tylko o rzeczy nieodwracalne/ryzykowne
+  const mode = MODES.includes(options.mode) ? options.mode : 'zaufany';
 
   // 1. Sprawdzenie nazwanej akcji
   if (name && name !== 'polecenie') {
@@ -104,8 +135,14 @@ function judge(action, command = '', options = {}, params = {}) {
     // "sterowanie-siecia" tylko przy WYLACZANIU - wlaczenie z powrotem nie
     // szkodzi, a bez tego wyjatku Jarvis nie moglby sam odblokowac sieci,
     // ktora wczesniej na prosbe wylaczyl.
+    if (mode === 'podglad' && !READ_ONLY.has(name)) {
+      return { allow: false, action: name, reason: 'E.D.I.T.H.: tryb "tylko podglad" - ta akcja zmieniłaby stan komputera.' };
+    }
+
     const needsConfirm =
-      CONFIRM_ALWAYS.has(name) || (name === 'sterowanie-siecia' && params.wlacz === false);
+      CONFIRM_ALWAYS.has(name) ||
+      (name === 'sterowanie-siecia' && params.wlacz === false) ||
+      (mode === 'pytaj' && !READ_ONLY.has(name));
 
     if (needsConfirm && !confirmedByEdith) {
       return {
@@ -121,6 +158,7 @@ function judge(action, command = '', options = {}, params = {}) {
   }
 
   // 2. Sprawdzenie dowolego polecenia systemowego
+  if (mode === 'podglad') return { allow: false, action: 'polecenie', reason: 'E.D.I.T.H.: tryb "tylko podglad" - polecenia systemowe sa wylaczone.' };
   if (!text) return { allow: false, action: 'polecenie', reason: 'E.D.I.T.H.: Otrzymano puste polecenie.' };
   if (text.length > 4000) return { allow: false, action: 'polecenie', reason: 'E.D.I.T.H.: Polecenie przekracza bezpieczny limit długości.' };
 
@@ -132,6 +170,9 @@ function judge(action, command = '', options = {}, params = {}) {
   }
 
   // Weryfikacja akcji wrażliwych - wymagających potwierdzenia
+  if (!confirmedByEdith && mode === 'pytaj') {
+    return { allow: false, requiresConfirmation: true, action: 'polecenie', warning: 'Polecenie systemowe', reason: 'E.D.I.T.H.: tryb "pytaj o wszystko" - kazde polecenie wymaga potwierdzenia.' };
+  }
   if (!confirmedByEdith) {
     for (const pattern of SENSITIVE_COMMAND_PATTERNS) {
       if (pattern.re.test(text)) {
@@ -149,4 +190,4 @@ function judge(action, command = '', options = {}, params = {}) {
   return { allow: true, action: 'polecenie' };
 }
 
-module.exports = { judge, SAFE_ACTIONS };
+module.exports = { judge, SAFE_ACTIONS, READ_ONLY, MODES };

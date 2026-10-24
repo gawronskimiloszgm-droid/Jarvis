@@ -11,5 +11,10 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   updateStatus: () => ipcRenderer.invoke('jarvis-update-status'),
   checkForUpdate: () => ipcRenderer.invoke('jarvis-update-check'),
   installUpdate: () => ipcRenderer.invoke('jarvis-update-install'),
+  // Ustawienia lokalne tego komputera (tryb uprawnien, schowek, autostart...).
+  getSetting: (key) => ipcRenderer.invoke('jarvis-setting-get', key),
+  setSetting: (key, value) => ipcRenderer.invoke('jarvis-setting-set', key, value),
+  // Polecenia z zasobnika/skrotu: { type: 'open-edith' | 'hotkey' | 'permission-mode', ... }
+  onCommand: (cb) => ipcRenderer.on('jarvis-command', (_e, c) => cb(c)),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
 });
