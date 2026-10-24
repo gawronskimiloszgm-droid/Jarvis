@@ -6,6 +6,7 @@
 import express from 'express';
 import { requireOwner } from '../core/auth.js';
 import * as spotify from '../connect/spotify.js';
+import * as player from '../connect/spotifyPlayer.js';
 
 const router = express.Router();
 
@@ -50,6 +51,67 @@ router.get('/api/music/resolve', requireOwner, async (req, res) => {
     });
   }
   res.json(found);
+});
+
+// --- Spotify: polaczenie konta i odtwarzanie przez API ---
+
+function origin(req) {
+  const host = req.get('host') || 'localhost';
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  return proto.split(',')[0] + '://' + host;
+}
+
+router.get('/api/spotify/status', requireOwner, (req, res) => {
+  res.json({ configured: player.isConfigured(), connected: player.isConnected(), redirectUri: origin(req) + '/callback' });
+});
+
+router.get('/api/spotify/auth-url', requireOwner, (req, res) => {
+  if (!player.isConfigured()) return res.status(400).json({ error: 'Brak SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET w konfiguracji serwera.' });
+  const redirectUri = origin(req) + '/callback';
+  res.json({ url: player.authUrl(redirectUri), redirectUri });
+});
+
+// Spotify przekierowuje tu przegladarke BEZ naszych naglowkow - bezpieczenstwo daje
+// jednorazowy "state" wydany wylacznie po wejsciu na /api/spotify/auth-url jako wlasciciel.
+router.get('/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  const page = (title, msg) =>
+    res.type('html').send(
+      '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#05090b;color:#cdeef7;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:20px"><h2>' +
+        title + '</h2><p>' + msg + '</p></div></body>'
+    );
+  if (error) return page('Spotify', 'Spotify zwrocil blad: ' + String(error).replace(/[<>&]/g, ''));
+  if (!code || !state) return page('Spotify', 'Brak kodu autoryzacji.');
+  try {
+    await player.exchangeCode(String(code), String(state));
+    page('Spotify polaczone', 'Mozesz zamknac to okno i wrocic do Jarvisa. Powiedz: "Jarvis, pusc Metallice".');
+  } catch (err) {
+    page('Nie udalo sie polaczyc', String(err.message || err).replace(/[<>&]/g, ''));
+  }
+});
+
+router.post('/api/spotify/disconnect', requireOwner, (req, res) => {
+  player.disconnect();
+  res.json({ ok: true });
+});
+
+// "Graj X": szukamy utworu, a gdy konto Spotify jest polaczone - odtwarzamy je
+// przez API (dziala na dowolnym urzadzeniu). Inaczej oddajemy link do otwarcia przez klienta.
+router.post('/api/music/play', requireOwner, async (req, res) => {
+  const q = String(req.body?.zapytanie || '').trim();
+  if (!q) return res.status(400).json({ error: 'Podaj, co zagrac.' });
+  const found = await resolveTrack(q);
+  if (!found) return res.status(404).json({ error: 'Nic nie znalazlem.' });
+  if (found.zrodlo === 'spotify' && player.isConnected()) {
+    try {
+      const r = await player.playUri(found.url.replace(/:play$/, ''));
+      return res.json({ ok: true, played: true, nazwa: found.nazwa, device: r.device });
+    } catch (err) {
+      // Nie udalo sie przez API (np. Spotify wylaczone) - klient sprobuje otworzyc link.
+      return res.json({ ok: true, played: false, found, warning: err.message });
+    }
+  }
+  res.json({ ok: true, played: false, found });
 });
 
 export default router;
