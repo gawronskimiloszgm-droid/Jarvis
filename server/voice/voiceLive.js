@@ -217,6 +217,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
+- pilot_pc: sterowanie KOMPUTEREM zdalnie (takze gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, zrzut ekranu, otwieranie aplikacji, wpisywanie tekstu. Uzywaj gdy user mowi o komputerze/PC/laptopie i jest poza nim.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
 - zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
 - Dlugie pliki i dokumenty: wczytaj_plik (sciezka na dysku) albo uzytkownik wrzuca plik w panelu Analiza; potem na KAZDE pytanie o ich tresc uzywaj zapytaj_dokument i odpowiadaj na podstawie wyniku - nie zgaduj. Do patrzenia na ekran jest co_na_ekranie.
@@ -306,6 +307,18 @@ const ALL_TOOLS = [
         rozszerzenie: { type: 'string', description: 'Opcjonalnie: pdf, docx, xlsx...' },
       },
       required: ['zapytanie'],
+    },
+  },
+  {
+    name: 'pilot_pc',
+    description: 'Steruj KOMPUTEREM uzytkownika zdalnie (dziala tez, gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, pulpit, zrzut ekranu, otwarcie aplikacji, wpisanie tekstu, uspienie/restart/wylaczenie. Uzywaj, gdy uzytkownik mowi o komputerze/PC/laptopie.',
+    parameters: {
+      type: 'object',
+      properties: {
+        akcja: { type: 'string', enum: ['odtworz-pauza', 'nastepny-utwor', 'poprzedni-utwor', 'glosniej', 'ciszej', 'wycisz', 'zablokuj-ekran', 'pokaz-pulpit', 'zamknij-okno', 'zrzut-i-opisz', 'otworz-aplikacje', 'przelacz-okno', 'pisz-tekst', 'uspij-komputer', 'restart-komputera', 'wylacz-komputer'] },
+        wartosc: { type: 'string', description: 'Nazwa aplikacji / tytul okna / tekst - tylko dla otworz-aplikacje, przelacz-okno, pisz-tekst.' },
+      },
+      required: ['akcja'],
     },
   },
   {
@@ -1040,6 +1053,10 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'pilot_pc') {
+                const { akcja, wartosc } = call.args || {};
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'pilot-pc', params: { akcja: String(akcja || ''), wartosc: String(wartosc || '') } }));
+                result = { ok: true, note: 'polecenie poszlo do komputera; potwierdz krotko' };
               } else if (call.name === 'ustaw_profil') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'profil', params: { nazwa: String((call.args || {}).nazwa || '') } }));
                 result = { ok: true, note: 'profil sie przelacza; potwierdz krotko' };

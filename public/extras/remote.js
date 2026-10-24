@@ -152,6 +152,34 @@
     throw new Error('Komputer nie odpowiedzial na czas.');
   }
 
+  // Glos / czat: "Jarvis, wycisz komputer" z telefonu. Na samym komputerze
+  // akcja idzie normalnie lokalnie, na telefonie - przez serwer do komputera.
+  const VALUE_KEY = { 'otworz-aplikacje': 'nazwa', 'przelacz-okno': 'tytul', 'pisz-tekst': 'tekst', 'schowek-zapis': 'tekst' };
+  const REMOTE_OK = new Set([...BUTTONS.map((b) => b[0]), ...POWER.map((b) => b[0]), 'zrzut-i-opisz', 'lista-okien', 'lista-procesow', 'schowek-odczyt', 'schowek-zapis', 'otworz-aplikacje', 'otworz-spotify', 'otworz-przegladarke', 'przelacz-okno', 'pisz-tekst']);
+  const NEEDS_OK = new Set(['restart-komputera', 'wylacz-komputer', 'uspij-komputer']);
+
+  UI.clientActions['pilot-pc'] = async (p) => {
+    const action = String(p?.akcja || '').trim();
+    if (!REMOTE_OK.has(action)) return toast('Nie znam takiej akcji pilota: ' + action);
+    const params = p?.wartosc && VALUE_KEY[action] ? { [VALUE_KEY[action]]: String(p.wartosc) } : {};
+    if (D()) return UI.runDeviceAction(action, params);
+    if (NEEDS_OK.has(action) && !window.confirm('Na pewno: ' + action + ' na komputerze?')) return;
+    try {
+      const r = await sendRemote(action, params, NEEDS_OK.has(action));
+      if (!r.ok) return toast(r.error || 'Komputer nie wykonal: ' + action);
+      toast('Wykonano na komputerze: ' + action, 'ok');
+      if (r.imageBase64) {
+        const d = UI.pushSaid('jv', ' ');
+        const im = el('img');
+        im.src = 'data:' + (r.mimeType || 'image/png') + ';base64,' + r.imageBase64;
+        im.style.maxWidth = '100%';
+        d.appendChild(im);
+      }
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+
   const def = {
     title: 'PILOT KOMPUTERA',
     glyph: '⌘',
