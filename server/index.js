@@ -230,6 +230,9 @@ app.get('/api/health', (req, res) => {
     ownerUser: ownerUserName(),
     role: roleFromRequest(req),
     cloneVoiceConfigured: tts.cloneStatus().enabled,
+    // Tylko flagi - zadnych wartosci kluczy.
+    spotifyConfigured: Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
+    edithOwnKey: Boolean(process.env.EDITH_GEMINI_API_KEY),
     liveClonedVoiceDefault: LIVE_CLONED_VOICE_REQUESTED,
   });
 });
