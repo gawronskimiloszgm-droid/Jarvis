@@ -2697,9 +2697,18 @@ function isNativeShell() {
 // PO KOLEI (nie Promise.all) z krotka przerwa miedzy nimi, bo niektore akcje
 // (np. otworz-aplikacje -> potem klawisz medialny) potrzebuja chwili, zeby
 // druga strona zdazyla zareagowac, zanim przyjdzie kolejny krok.
-async function runRoutineSteps(steps) {
+// Krok moze miec parametry (nagrane makro); {{arg}} w tekscie to argument
+// podany przy uruchomieniu trybu.
+function fillArg(params, arg) {
+  if (!params) return undefined;
+  const out = {};
+  for (const [k, v] of Object.entries(params)) out[k] = typeof v === 'string' ? v.split('{{arg}}').join(arg || '') : v;
+  return out;
+}
+
+async function runRoutineSteps(steps, arg) {
   for (const step of steps || []) {
-    if (step?.akcja) await runDeviceAction(step.akcja);
+    if (step?.akcja) await runDeviceAction(step.akcja, fillArg(step.params, arg));
     await new Promise((r) => setTimeout(r, 500));
   }
 }
@@ -3046,8 +3055,9 @@ async function sendTyped(text) {
         const key = `tryb:${m[1]}`;
         if (!done.has(key)) {
           done.add(key);
-          api(`/api/routines/${encodeURIComponent(m[1].trim())}`)
-            .then((r) => runRoutineSteps(r.steps))
+          const [trybName, trybArg] = m[1].split('|').map((s) => s.trim());
+          api(`/api/routines/${encodeURIComponent(trybName)}`)
+            .then((r) => runRoutineSteps(r.steps, trybArg))
             .catch(() => toast(`Nie znam trybu: ${m[1].trim()}`));
         }
       }
@@ -3608,7 +3618,7 @@ async function liveStart() {
     } else if (m.type === 'heard') window.JarvisUI?.heard?.(m.text);
     else if (m.type === 'dnd') window.dispatchEvent(new Event('jarvis:dnd'));
     else if (m.type === 'appAction') runAppAction(m.action, m.text);
-    else if (m.type === 'runRoutine') runRoutineSteps(m.steps);
+    else if (m.type === 'runRoutine') runRoutineSteps(m.steps, m.arg);
     else if (m.type === 'fileAction') handleFileAction(m);
     else if (m.type === 'error') {
       toast(`Rozmowa: ${m.message}`);
@@ -4140,6 +4150,7 @@ window.JarvisUI = {
   $, el, api, toast, authHeaders, store, isOwner, logEvent, speak, pushSaid,
   setCoreState, openWindow, runDeviceAction, deaccent, sendTyped,
   toggleListening: () => liveToggle(),
+  runRoutine: (steps, arg) => runRoutineSteps(steps, arg),
   // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
   // Akcje po stronie klienta: { nazwa: async (params) => ... } - patrz runDeviceActionNow.
   clientActions: {},

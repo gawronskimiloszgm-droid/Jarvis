@@ -8,6 +8,7 @@ import agent from './agent.js';
 import approvals from './approvals.js';
 import textops from './textops.js';
 import voiceux from './voiceux.js';
+import macros from './macros.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

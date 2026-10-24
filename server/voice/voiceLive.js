@@ -540,10 +540,10 @@ const ALL_TOOLS = [
   },
   {
     name: 'uruchom_tryb',
-    description: 'Odtworz wczesniej zapisany tryb po nazwie - wykonuje jego kroki jeden po drugim na urzadzeniu.',
+    description: 'Odtworz wczesniej zapisany tryb po nazwie - wykonuje jego kroki jeden po drugim na urzadzeniu. Opcjonalny argument zastepuje {{arg}} w krokach nagranych makr.',
     parameters: {
       type: 'object',
-      properties: { nazwa: { type: 'string' } },
+      properties: { nazwa: { type: 'string' }, argument: { type: 'string' } },
       required: ['nazwa'],
     },
   },
@@ -1106,7 +1106,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 if (!routine) {
                   result = { error: 'nie znam trybu o tej nazwie' };
                 } else {
-                  safeSend(JSON.stringify({ type: 'runRoutine', steps: routine.steps }));
+                  safeSend(JSON.stringify({ type: 'runRoutine', steps: routine.steps, arg: (call.args || {}).argument || '' }));
                   result = { ok: true, kroki: routine.steps.length };
                 }
               } else if (call.name === 'plik') {
