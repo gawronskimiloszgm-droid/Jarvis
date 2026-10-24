@@ -2719,6 +2719,18 @@ function askConfirm(name, params, warning) {
   // odbiera i wykonuje.
   const msg = `E.D.I.T.H.: ${warning || 'Ta operacja wymaga potwierdzenia.'} Napisz „tak" w czacie, zeby to wykonac.`;
   pushSaid('jv', msg);
+  // Rownolegle prosba o zgode idzie na telefon (push z przyciskami) - kto
+  // pierwszy odpowie, ten decyduje; lokalne "tak" zamyka prosbe na telefonie.
+  const mine = pendingConfirm;
+  mine.remote = window.JarvisUI?.remoteApproval?.begin(`${warning || name}`, (allow) => {
+    if (pendingConfirm !== mine) return;
+    pendingConfirm = null;
+    if (allow) runDeviceAction(name, params, { confirmedByEdith: true });
+    else {
+      pushSaid('jv', 'Odrzucone z telefonu - nie robie tego.');
+      setCoreState('GOTOWY');
+    }
+  });
   // speak() dziala niezaleznie od trybu (czat pisany czy rozmowa na zywo) -
   // bez tego w rozmowie glosowej prosba o potwierdzenie byla widoczna
   // tylko na ekranie, a uzytkownik jej nie slyszal.
@@ -2738,11 +2750,13 @@ function tryConsumeConfirmation(text) {
   const norm = deaccent(String(text || '').trim());
   const { name, params } = pendingConfirm;
   if (/^(tak|potwierdzam|rob to|zrob to|wykonaj|ok|zgoda)\b/.test(norm)) {
+    pendingConfirm.remote?.close(true);
     pendingConfirm = null;
     runDeviceAction(name, params, { confirmedByEdith: true });
     return true;
   }
   if (/^(nie|anuluj|stop|przerwij)\b/.test(norm)) {
+    pendingConfirm.remote?.close(false);
     pendingConfirm = null;
     pushSaid('jv', 'Dobrze, nie robię tego.');
     setCoreState('GOTOWY');
@@ -2893,6 +2907,7 @@ async function handleFileAction(msg) {
     const result = await window.jarvisDesktop.runAction(msg.action, {
       nazwa: msg.nazwa,
       tresc: msg.tresc,
+      ...(msg.params || {}),
     });
     if (result?.ok && msg.action === 'zapisz-plik') toast(`Zapisano: ${msg.nazwa}`, 'ok');
     reply(result);
@@ -2976,6 +2991,18 @@ function paramsForAction(name, raw) {
   }
   if (name === 'wczytaj-plik-pc') return { sciezka: raw };
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
+  if (name === 'schowek-ai') return { operacja: raw };
+  if (name === 'szukaj-plikow') return { zapytanie: raw };
+  if (name === 'ukladaj-okno') return { tryb: raw };
+  if (name === 'zawies-proces' || name === 'wznow-proces') return { nazwa: raw };
+  if (name === 'zadania-dodaj') {
+    // "17:00; pt,pn; skan-bezpieczenstwa" albo "08:30; codziennie; polecenie; komenda"
+    const [godzina, dni, akcja, ...rest] = raw.split(';').map((s) => s.trim());
+    const dayList = !dni || /^codzien/i.test(dni) ? [] : dni.split(',').map((d) => d.trim());
+    const parametry = akcja === 'polecenie' ? { tresc: rest.join(';') } : rest[0] ? { nazwa: rest[0] } : {};
+    return { godzina, dni: dayList, akcja, nazwa: akcja, parametry };
+  }
+  if (name === 'zadania-usun') return { nazwa: raw };
   if (name === 'kliknij-element') return { nazwa: raw };
   if (name === 'wpisz-w-element') {
     const i = raw.indexOf('=>');
@@ -4102,7 +4129,8 @@ if ('serviceWorker' in navigator) {
 // wywolane synchronicznie przy ladowaniu zdaza dopisac modul do docka.
 window.JarvisUI = {
   $, el, api, toast, authHeaders, store, isOwner, logEvent, speak, pushSaid,
-  setCoreState, openWindow, runDeviceAction, deaccent,
+  setCoreState, openWindow, runDeviceAction, deaccent, sendTyped,
+  toggleListening: () => liveToggle(),
   // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
   // Akcje po stronie klienta: { nazwa: async (params) => ... } - patrz runDeviceActionNow.
   clientActions: {},

@@ -102,6 +102,133 @@
     if (n) n.textContent = text;
   }
 
+  // --- zakladka "Komputer": tryby uprawnien, wyniki skanu, narzedzia ---
+  const D = () => window.jarvisDesktop;
+  const toolOut = () => root.querySelector('#edithToolOut');
+
+  function li(text, sub) {
+    const n = document.createElement('li');
+    if (sub) {
+      const s = document.createElement('span');
+      s.className = 'when';
+      s.textContent = sub;
+      n.appendChild(s);
+    }
+    n.appendChild(document.createTextNode(text));
+    return n;
+  }
+
+  async function paintModes() {
+    const box = root.querySelector('#edithModes');
+    if (!box) return;
+    const cur = D() ? await D().getSetting('permissionMode') : null;
+    box.querySelectorAll('[data-mode]').forEach((b) => {
+      b.disabled = !D();
+      b.classList.toggle('solid', b.dataset.mode === cur);
+      b.classList.toggle('ghost', b.dataset.mode !== cur);
+    });
+    const note = root.querySelector('#edithModeNote');
+    if (note && !D()) note.textContent = 'Tryby uprawnien dzialaja tylko w aplikacji desktopowej.';
+  }
+
+  root.querySelectorAll('[data-mode]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!D()) return;
+      await D().setSetting('permissionMode', b.dataset.mode);
+      paintModes();
+    })
+  );
+
+  // Akcja na podejrzanym procesie - przez ta sama polityke (zamkniecie i
+  // zawieszenie wymagaja potwierdzenia, ktore tu pokazuje okno przegladarki).
+  async function procAction(action, name) {
+    if (!D()) return;
+    let r = await D().runAction(action, { nazwa: name });
+    if (r?.requiresEdithConfirmation) {
+      if (!window.confirm('E.D.I.T.H.: ' + (r.warning || r.reason) + '\nWykonac?')) return;
+      r = await D().runAction(action, { nazwa: name }, { confirmedByEdith: true });
+    }
+    fetch('/api/audit', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: action, detail: name, verdict: r?.ok ? 'ok' : 'failed', source: 'edith-panel', note: r?.error || '' }),
+    }).catch(() => {});
+    window.alert(r?.ok ? 'Gotowe.' : r?.error || 'Nie udalo sie.');
+  }
+
+  function paintFindings(result) {
+    const ul = root.querySelector('#edithFindings');
+    if (!ul || !result) return;
+    ul.innerHTML = '';
+    (result.suspiciousProcesses || []).forEach((p) => {
+      const n = li('Podejrzanie wysokie zuzycie CPU: ' + p, 'proces');
+      const box = document.createElement('div');
+      box.className = 'edith-actions';
+      [['Zawies', 'zawies-proces'], ['Zamknij', 'zamknij-proces']].forEach(([label, act]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ghost';
+        b.textContent = label;
+        b.addEventListener('click', () => procAction(act, p));
+        box.appendChild(b);
+      });
+      n.appendChild(box);
+      ul.appendChild(n);
+    });
+    (result.killedThreats || []).forEach((p) => ul.appendChild(li('Odcieto: ' + p, 'zagrozenie zneutralizowane')));
+    (result.startupNew || []).forEach((i) => ul.appendChild(li(i.name + ' - ' + i.command, 'nowy wpis autostartu')));
+    (result.listeningNew || []).forEach((l) => ul.appendChild(li(l.process + ':' + l.port, 'nowy nasluch w sieci')));
+    (result.defenderThreats || []).forEach((t) => ul.appendChild(li(t.threat + (t.remediated ? ' (usuniete)' : ' (NIEUSUNIETE)'), 'wykrycie Defendera')));
+    if (!ul.children.length) ul.appendChild(li(result.summary || 'Nic podejrzanego.'));
+  }
+
+  const TOOLS = {
+    'defender-status': async () => {
+      const r = await D().runAction('defender-status');
+      if (!r?.ok) return [li(r?.error || 'Nie udalo sie.')];
+      const s = r.status || {};
+      return [
+        li('Antywirus: ' + (s.antivirus ? 'wlaczony' : 'WYLACZONY') + ' · ochrona na zywo: ' + (s.realtime ? 'tak' : 'NIE') + ' · sygnatury: ' + s.signatures + ' (' + s.signatureAge + ' dni)', 'stan'),
+        ...(r.threats || []).map((t) => li(t.threat + (t.remediated ? ' (usuniete)' : ' (nieusuniete)'), t.at)),
+      ];
+    },
+    'defender-szybki': async () => [li((await D().runAction('defender-skan', { rodzaj: 'szybki' })).ok ? 'Szybki skan Defendera uruchomiony w tle.' : 'Nie udalo sie uruchomic skanu.')],
+    'defender-pelny': async () => [li((await D().runAction('defender-skan', { rodzaj: 'pelny' })).ok ? 'Pelny skan Defendera uruchomiony w tle (potrwa).' : 'Nie udalo sie uruchomic skanu.')],
+    autostart: async () => {
+      const r = await D().runAction('skan-autostartu');
+      return r?.ok ? r.items.map((i) => li(i.name + ' - ' + i.command, i.where)) : [li(r?.error || 'Nie udalo sie.')];
+    },
+    siec: async () => {
+      const r = await D().runAction('polaczenia-sieciowe');
+      if (!r?.ok) return [li(r?.error || 'Nie udalo sie.')];
+      return [
+        ...r.listening.map((l) => li(l.process + ' nasluchuje na porcie ' + l.port, 'nasluch')),
+        ...r.established.slice(0, 40).map((c) => li(c.process + ' -> ' + c.remote, 'polaczenie')),
+      ];
+    },
+  };
+
+  root.querySelectorAll('[data-tool]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const out = toolOut();
+      if (!out) return;
+      out.innerHTML = '';
+      if (!D()) {
+        out.appendChild(li('To dziala tylko w aplikacji desktopowej.'));
+        return;
+      }
+      out.appendChild(li('Sprawdzam...'));
+      try {
+        const items = await TOOLS[b.dataset.tool]();
+        out.innerHTML = '';
+        items.forEach((n) => out.appendChild(n));
+      } catch (e) {
+        out.innerHTML = '';
+        out.appendChild(li('Blad: ' + e.message));
+      }
+    })
+  );
+
   async function scanNow(silent) {
     const scan = root.querySelector('#edithScan');
     if (!window.jarvisDesktop) {
@@ -111,6 +238,7 @@
     if (scan && !silent) scan.textContent = 'Skanuje...';
     try {
       const result = await window.jarvisDesktop.runAction('skan-bezpieczenstwa');
+      paintFindings(result);
       await fetch('/api/edith/scan', {
         method: 'POST',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -248,6 +376,7 @@
   }
 
   root.querySelector('#edithScanBtn')?.addEventListener('click', () => scanNow(false));
+  root.querySelector('#edithScan2Btn')?.addEventListener('click', () => scanNow(false));
   root.querySelector('#edithReportBtn')?.addEventListener('click', reportNow);
   root.querySelector('#edithMicBtn')?.addEventListener('click', micToggle);
   root.querySelector('#edithClose')?.addEventListener('click', () => window.Edith.close());
@@ -264,6 +393,7 @@
       root.hidden = false;
       showTab('rozmowa');
       refresh();
+      paintModes();
       if (!coreStarted) {
         coreStarted = true;
         const canvas = root.querySelector('#edithCore');

@@ -7,6 +7,7 @@ const uia = require('./uia');
 const settings = require('./settings');
 const pcTools = require('./pcTools');
 const taskScheduler = require('./scheduler');
+const { patrol } = require('./patrol');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -379,12 +380,18 @@ try { $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Na
     const av = parsed.defender && parsed.defender.AntivirusEnabled;
     const fwOn = Array.isArray(parsed.firewall) && parsed.firewall.every((p) => p.Enabled !== false);
     const threats = await scanProcessThreats().catch(() => ({ killed: [], suspicious: [] }));
+    const extra = await patrol(runPowerShell).catch(() => null);
     const summary = [
       av === false ? 'E.D.I.T.H.: Antywirus wyłączony!' : 'Antywirus aktywny.',
       rt === false ? 'E.D.I.T.H.: Ochrona w czasie rzeczywistym wyłączona!' : 'Ochrona na żywo aktywna.',
       fwOn ? 'Zapora sieciowa aktywna.' : 'E.D.I.T.H.: Zapora ma wyłączony profil!',
       threats.killed.length ? `E.D.I.T.H.: odcięto rozpoznane zagrożenie: ${threats.killed.join(', ')}.` : '',
       threats.suspicious.length ? `Do przejrzenia (bardzo wysokie zużycie procesora): ${threats.suspicious.join(', ')}.` : '',
+      extra?.startupNew.length ? `Nowe wpisy autostartu: ${extra.startupNew.map((i) => i.name).join(', ')}.` : '',
+      extra?.listeningNew.length ? `Nowe procesy nasłuchujące w sieci: ${extra.listeningNew.map((l) => `${l.process}:${l.port}`).join(', ')}.` : '',
+      extra?.defenderThreats.length ? `Defender wykrył: ${extra.defenderThreats.map((t) => t.threat).join(', ')}.` : '',
+      extra?.defenderSignatureAgeDays > 7 ? `Sygnatury Defendera mają ${extra.defenderSignatureAgeDays} dni.` : '',
+      extra?.baselineCreated ? 'Zapisano stan wyjściowy komputera - kolejne skany będą zgłaszać tylko zmiany.' : '',
     ].filter(Boolean).join(' ');
     return {
       ok: true,
@@ -393,6 +400,10 @@ try { $fw = @(Get-NetFirewallProfile | ForEach-Object { [ordered]@{ Name = $_.Na
       firewall: parsed.firewall,
       killedThreats: threats.killed,
       suspiciousProcesses: threats.suspicious,
+      startupNew: extra?.startupNew || [],
+      listeningNew: extra?.listeningNew || [],
+      defenderThreats: extra?.defenderThreats || [],
+      defenderSignatureAgeDays: extra?.defenderSignatureAgeDays ?? null,
     };
   } catch {
     return { ok: false, error: 'Błąd przetwarzania raportu bezpieczeństwa.', output: result.output.slice(0, 300) };

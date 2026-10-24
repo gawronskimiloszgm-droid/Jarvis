@@ -153,6 +153,7 @@
       <div class="edith-tabs">
         <button type="button" data-tab="rozmowa" class="on">Rozmowa</button>
         <button type="button" data-tab="zagrozenia">Zagrozenia</button>
+        <button type="button" data-tab="komputer">Komputer</button>
       </div>
       <button type="button" class="edith-close" id="edithClose" title="Wroc do Jarvisa">&times;</button>
     </header>
@@ -169,6 +170,41 @@
           <input id="edithInput" placeholder="Napisz do E.D.I.T.H...." autocomplete="off" />
           <button type="submit">&rarr;</button>
         </form>
+      </section>
+
+      <section class="edith-panel" data-panel="komputer">
+        <div class="edith-card">
+          <h2>Uprawnienia Jarvisa</h2>
+          <p id="edithModeNote">Co wolno Jarvisowi robic na tym komputerze.</p>
+          <div class="edith-actions" id="edithModes">
+            <button type="button" class="ghost" data-mode="podglad">Tylko podglad</button>
+            <button type="button" class="ghost" data-mode="pytaj">Pytaj o kazda zmiane</button>
+            <button type="button" class="ghost" data-mode="zaufany">Zaufany</button>
+          </div>
+        </div>
+        <div class="edith-card">
+          <h2>Wyniki ostatniego skanu</h2>
+          <ul class="edith-list" id="edithFindings"><li>Brak danych - uruchom skan.</li></ul>
+          <div class="edith-actions">
+            <button type="button" class="solid" id="edithScan2Btn">Skanuj teraz</button>
+          </div>
+        </div>
+        <div class="edith-card">
+          <h2>Windows Defender</h2>
+          <div class="edith-actions">
+            <button type="button" class="ghost" data-tool="defender-status">Stan i historia</button>
+            <button type="button" class="ghost" data-tool="defender-szybki">Szybki skan</button>
+            <button type="button" class="ghost" data-tool="defender-pelny">Pelny skan</button>
+          </div>
+        </div>
+        <div class="edith-card">
+          <h2>Podglad systemu</h2>
+          <div class="edith-actions">
+            <button type="button" class="ghost" data-tool="autostart">Autostart</button>
+            <button type="button" class="ghost" data-tool="siec">Polaczenia sieciowe</button>
+          </div>
+          <ul class="edith-list" id="edithToolOut"></ul>
+        </div>
       </section>
 
       <section class="edith-panel" data-panel="zagrozenia">

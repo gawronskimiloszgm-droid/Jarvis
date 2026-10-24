@@ -1,4 +1,4 @@
-const CACHE = 'jarvis-shell-v4';
+const CACHE = 'jarvis-shell-v5';
 const SHELL = ['/', '/style.css', '/app.js', '/live-audio-processor.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -40,12 +40,24 @@ self.addEventListener('push', (event) => {
       body: payload.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
+      tag: payload.tag,
+      requireInteraction: Boolean(payload.requireInteraction),
+      actions: payload.actions || [],
+      data: payload.data || {},
     })
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  // Przyciski "Zatwierdz"/"Odrzuc" (prosby E.D.I.T.H.): decyzja leci prosto do
+  // serwera z jednorazowym tokenem z powiadomienia - bez otwierania aplikacji.
+  const d = event.notification.data || {};
+  const url = event.action === 'allow' ? d.allowUrl : event.action === 'deny' ? d.denyUrl : null;
+  if (url) {
+    event.waitUntil(fetch(url).catch(() => {}));
+    return;
+  }
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clients) => {
       if (clients.length > 0) return clients[0].focus();

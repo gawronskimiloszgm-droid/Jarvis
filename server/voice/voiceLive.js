@@ -212,6 +212,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
+- szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
 - zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
 - Dlugie pliki i dokumenty: wczytaj_plik (sciezka na dysku) albo uzytkownik wrzuca plik w panelu Analiza; potem na KAZDE pytanie o ich tresc uzywaj zapytaj_dokument i odpowiadaj na podstawie wyniku - nie zgaduj. Do patrzenia na ekran jest co_na_ekranie.
 - zamknij_proces ZAWSZE wymaga wyraznego potwierdzenia uzytkownika (E.D.I.T.H. o nie zapyta na ekranie/w czacie) - powiedz uzytkownikowi, ze to zrobiles i czeka na jego "tak", nie obiecuj ze juz jest zamkniete.
@@ -277,6 +278,37 @@ const ALL_TOOLS = [
     name: 'wylacz_kamere',
     description: 'Wylacz kamere.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'szukaj_plikow',
+    description: 'Wyszukaj pliki na dysku komputera wlasciciela po nazwie i TRESCI (indeks Windows Search). Zwraca liste sciezek, najnowsze pierwsze. Potem mozesz je otworzyc albo wczytac_plik.',
+    parameters: {
+      type: 'object',
+      properties: {
+        zapytanie: { type: 'string', description: 'Slowa kluczowe, np. "umowa najmu".' },
+        dni: { type: 'number', description: 'Opcjonalnie: tylko pliki zmienione w ostatnich N dniach.' },
+        rozszerzenie: { type: 'string', description: 'Opcjonalnie: pdf, docx, xlsx...' },
+      },
+      required: ['zapytanie'],
+    },
+  },
+  {
+    name: 'przetworz_schowek',
+    description: 'Przetworz tekst ze SCHOWKA komputera i wstaw wynik z powrotem do schowka: streszcz, punkty, popraw, formalizuj, wyjasnij, tlumacz-en, tlumacz-pl.',
+    parameters: {
+      type: 'object',
+      properties: { operacja: { type: 'string', enum: ['streszcz', 'punkty', 'popraw', 'formalizuj', 'wyjasnij', 'tlumacz-en', 'tlumacz-pl'] } },
+      required: ['operacja'],
+    },
+  },
+  {
+    name: 'uloz_okno',
+    description: 'Przyciagnij aktywne okno / przelacz pulpity wirtualne.',
+    parameters: {
+      type: 'object',
+      properties: { tryb: { type: 'string', enum: ['lewo', 'prawo', 'maksymalizuj', 'minimalizuj', 'przeglad', 'pulpit-nowy', 'pulpit-nastepny', 'pulpit-poprzedni'] } },
+      required: ['tryb'],
+    },
   },
   {
     name: 'zrob_na_ekranie',
@@ -943,6 +975,22 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } else {
                   result = { error: 'nieznana akcja' };
                 }
+              } else if (call.name === 'szukaj_plikow') {
+                const { zapytanie, dni, rozszerzenie } = call.args || {};
+                try {
+                  const reply = await requestFromClient({ type: 'fileAction', action: 'szukaj-plikow', params: { zapytanie, dni, rozszerzenie, limit: 12 } }, 20000);
+                  result = reply?.ok
+                    ? { zrodlo: reply.source, liczba: reply.count, pliki: (reply.files || []).map((f) => ({ sciezka: f.path, zmieniony: f.modified, rozmiar_kb: Math.round(f.size / 1024) })) }
+                    : { error: reply?.error || 'wyszukiwanie plikow dziala tylko w aplikacji desktopowej' };
+                } catch {
+                  result = { error: 'nie udalo sie przeszukac dysku' };
+                }
+              } else if (call.name === 'przetworz_schowek') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'schowek-ai', params: { operacja: (call.args || {}).operacja } }));
+                result = { ok: true, note: 'wynik laduje w schowku i w rozmowie - powiedz krotko, ze gotowe' };
+              } else if (call.name === 'uloz_okno') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'ukladaj-okno', params: { tryb: (call.args || {}).tryb } }));
+                result = { ok: true };
               } else if (call.name === 'zrob_na_ekranie') {
                 const { cel } = call.args || {};
                 if (!cel) {

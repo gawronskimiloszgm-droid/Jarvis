@@ -57,6 +57,10 @@ export function ingestScan(scan) {
     firewall: scan?.firewall || null,
     killedThreats: Array.isArray(scan?.killedThreats) ? scan.killedThreats.slice(0, 20) : [],
     suspiciousProcesses: Array.isArray(scan?.suspiciousProcesses) ? scan.suspiciousProcesses.slice(0, 20) : [],
+    startupNew: Array.isArray(scan?.startupNew) ? scan.startupNew.slice(0, 20) : [],
+    listeningNew: Array.isArray(scan?.listeningNew) ? scan.listeningNew.slice(0, 20) : [],
+    defenderThreats: Array.isArray(scan?.defenderThreats) ? scan.defenderThreats.slice(0, 20) : [],
+    defenderSignatureAgeDays: Number.isFinite(scan?.defenderSignatureAgeDays) ? scan.defenderSignatureAgeDays : null,
   };
   state.scans.unshift(entry);
   state.scans = state.scans.slice(0, 14);
@@ -82,6 +86,24 @@ export function ingestScan(scan) {
     state.alerts = state.alerts.slice(0, 80);
     remember();
     pushAlert('E.D.I.T.H. — zagrozenie odciete', reason);
+  }
+  const finding = (reason, title, level = 'warn') => {
+    state.alerts.unshift({ at: Date.now(), level, reason, command: '' });
+    state.alerts = state.alerts.slice(0, 80);
+    remember();
+    pushAlert(title, reason);
+  };
+  if (entry.defenderThreats.length) {
+    finding(`Windows Defender wykryl: ${entry.defenderThreats.map((t) => `${t.threat}${t.remediated ? ' (usuniete)' : ' (NIEUSUNIETE)'}`).join(', ')}.`, 'E.D.I.T.H. — wykrycie Defendera', 'block');
+  }
+  if (entry.startupNew.length) {
+    finding(`Nowe wpisy autostartu: ${entry.startupNew.map((i) => `${i.name} (${i.command})`).join('; ')}. Jesli to nie Ty - sprawdz.`, 'E.D.I.T.H. — nowy autostart');
+  }
+  if (entry.listeningNew.length) {
+    finding(`Nowe procesy nasluchujace w sieci: ${entry.listeningNew.map((l) => `${l.process}:${l.port}`).join(', ')}.`, 'E.D.I.T.H. — nowy nasluch w sieci');
+  }
+  if (entry.defenderSignatureAgeDays > 7) {
+    finding(`Sygnatury Defendera maja ${entry.defenderSignatureAgeDays} dni - zaktualizuj.`, 'E.D.I.T.H. — nieaktualne sygnatury');
   }
   if (entry.suspiciousProcesses.length) {
     const reason = `Do przejrzenia (bardzo wysokie zuzycie procesora): ${entry.suspiciousProcesses.join(', ')}.`;

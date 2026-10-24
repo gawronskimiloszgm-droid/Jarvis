@@ -12,6 +12,10 @@ const DEFAULTS = {
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',
   tasks: [], // zadania cykliczne - patrz scheduler.js
+  // Linie bazowe patrolu E.D.I.T.H. (patrz patrol.js): null = jeszcze nie zapisano.
+  startupBaseline: null,
+  listenBaseline: null,
+  defenderSeen: 0,
 };
 
 let cache = null;
