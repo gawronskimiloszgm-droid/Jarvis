@@ -1037,7 +1037,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 // zrozumiane / nadgorliwe wywolanie) i zrywal rozmowe z Jarvisem.
                 // Przelaczamy tylko, gdy w tej wypowiedzi padlo cos o Edith/ochronie.
                 const heardNow = userTranscript.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                if (akcja === 'wlacz-edith' && !/e+d+[iyj]+[tcdh]|edit|edyt|ochron|bezpiecz|antywir|wirus|zagro[zż]|skan|raport/i.test(heardNow)) {
+                if (akcja === 'pobudka' && !/pobudk|obud|wstawa|back in black/i.test(heardNow)) {
+                  result = { error: 'pobudka to tylko Back in Black na prosbe o pobudke. Do KAZDEJ innej muzyki uzyj narzedzia graj_muzyke z nazwa utworu/wykonawcy.' };
+                } else if (akcja === 'wlacz-edith' && !/e+d+[iyj]+[tcdh]|edit|edyt|ochron|bezpiecz|antywir|wirus|zagro[zż]|skan|raport/i.test(heardNow)) {
                   result = { error: 'uzytkownik nie prosil o E.D.I.T.H. w tej wypowiedzi - nie przelaczaj, odpowiedz normalnie' };
                 } else if (DEVICE_ACTIONS.includes(akcja)) {
                   safeSend(JSON.stringify({ type: 'deviceAction', action: akcja }));

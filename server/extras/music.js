@@ -10,7 +10,7 @@ import * as spotify from '../connect/spotify.js';
 const router = express.Router();
 
 // Linki, ktore wolno otwierac akcji "otworz-link" (desktop sprawdza to samo).
-export const LINK_RE = /^(spotify:(track|album|playlist|artist):[A-Za-z0-9]{10,30}|https:\/\/(open\.spotify\.com\/(track|album|playlist|artist)\/[A-Za-z0-9]+|www\.youtube\.com\/watch\?v=[\w-]{11}|music\.youtube\.com\/watch\?v=[\w-]{11}))/;
+export const LINK_RE = /^(spotify:(track|album|playlist|artist):[A-Za-z0-9]{10,30}(:play)?|https:\/\/(open\.spotify\.com\/(track|album|playlist|artist)\/[A-Za-z0-9]+|www\.youtube\.com\/watch\?v=[\w-]{11}|music\.youtube\.com\/watch\?v=[\w-]{11}))/;
 
 async function youtubeFirst(query) {
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`;
@@ -33,7 +33,7 @@ export async function resolveTrack(query, source = 'auto') {
   if (source !== 'youtube' && spotify.isConfigured()) {
     try {
       const t = await spotify.searchTrack(q);
-      if (t) return { url: t.uri, nazwa: `${t.nazwa} - ${t.artysta}`, zrodlo: 'spotify' };
+      if (t) return { url: t.uri + ':play', nazwa: `${t.nazwa} - ${t.artysta}`, zrodlo: 'spotify' };
     } catch {
       /* spadamy na YouTube */
     }
