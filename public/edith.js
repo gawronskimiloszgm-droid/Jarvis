@@ -340,7 +340,7 @@
   // Jarvisem": mowisz, ona odpowiada glosem.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let micRec = null;
-  function micToggle() {
+  function speechToggle() {
     const btn = root.querySelector('#edithMicBtn');
     if (!SR) {
       if (btn) btn.title = 'Rozpoznawanie mowy niedostepne w tej przegladarce.';
@@ -373,6 +373,139 @@
       micRec = null;
       btn?.classList.remove('on');
     }
+  }
+
+
+  // ---------- Rozmowa na zywo z E.D.I.T.H. (osobna sesja Gemini Live) ----------
+  // Wlasne polaczenie /ws/voice?persona=edith: jej klucz API, zenski glos,
+  // zero narzedzi. Nie dotyka sesji Jarvisa - jesli ta dziala, zamykamy ja
+  // na czas rozmowy z Edith.
+  let eLive = null;
+
+  function pcm16(f32) {
+    const buf = new ArrayBuffer(f32.length * 2);
+    const v = new DataView(buf);
+    for (let i = 0; i < f32.length; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]));
+      v.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  }
+
+  function down16k(f32, rate) {
+    if (rate === 16000) return f32;
+    const ratio = rate / 16000;
+    const out = new Float32Array(Math.floor(f32.length / ratio));
+    for (let i = 0; i < out.length; i++) {
+      const src = i * ratio;
+      const lo = Math.floor(src);
+      const hi = Math.min(lo + 1, f32.length - 1);
+      out[i] = f32[lo] * (1 - (src - lo)) + f32[hi] * (src - lo);
+    }
+    return out;
+  }
+
+  function stopEdithLive() {
+    const s = eLive;
+    eLive = null;
+    if (!s) return;
+    try { s.ws.send(JSON.stringify({ type: 'end' })); } catch { /* polaczenie moglo juz byc zamkniete */ }
+    try { s.ws.close(); } catch { /* j.w. */ }
+    s.sources.forEach((n) => { try { n.stop(); } catch { /* juz zatrzymane */ } });
+    try { s.node?.disconnect(); } catch { /* noop */ }
+    s.stream?.getTracks().forEach((t) => t.stop());
+    s.inCtx?.close().catch(() => {});
+    s.outCtx?.close().catch(() => {});
+    root.querySelector('#edithMicBtn')?.classList.remove('on');
+    setEdithState('GOTOWA');
+  }
+
+  async function startEdithLive() {
+    const UI = window.JarvisUI;
+    if (UI?.store?.live) UI.toggleListening(); // Jarvis milknie na czas rozmowy z Edith
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const p = new URLSearchParams({ persona: 'edith' });
+    if (UI?.store?.token) p.set('token', UI.store.token);
+    const ws = new WebSocket(proto + '//' + location.host + '/ws/voice?' + p.toString());
+    ws.binaryType = 'arraybuffer';
+    const s = { ws, stream, sources: [], at: 0, outCtx: new (window.AudioContext || window.webkitAudioContext)(), inCtx: null, node: null, ready: false };
+    eLive = s;
+    root.querySelector('#edithMicBtn')?.classList.add('on');
+    setEdithState('LACZE');
+
+    ws.onopen = async () => {
+      s.inCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = s.inCtx.createMediaStreamSource(stream);
+      const onFrame = (f32) => {
+        if (eLive !== s || ws.readyState !== WebSocket.OPEN || !s.ready) return;
+        ws.send(pcm16(down16k(f32, s.inCtx.sampleRate)));
+      };
+      try {
+        await s.inCtx.audioWorklet.addModule('/live-audio-processor.js');
+        s.node = new AudioWorkletNode(s.inCtx, 'live-audio-processor');
+        s.node.port.onmessage = (e) => onFrame(e.data);
+        src.connect(s.node);
+      } catch {
+        s.node = s.inCtx.createScriptProcessor(4096, 1, 1);
+        const g = s.inCtx.createGain();
+        g.gain.value = 0;
+        src.connect(s.node);
+        s.node.connect(g);
+        g.connect(s.inCtx.destination);
+        s.node.onaudioprocess = (e) => onFrame(e.inputBuffer.getChannelData(0));
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      if (eLive !== s) return;
+      if (ev.data instanceof ArrayBuffer) {
+        // Surowe PCM 24 kHz 16-bit mono od Gemini.
+        const i16 = new Int16Array(ev.data);
+        const f32 = new Float32Array(i16.length);
+        for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 0x8000;
+        const buf = s.outCtx.createBuffer(1, f32.length, 24000);
+        buf.copyToChannel(f32, 0);
+        const node = s.outCtx.createBufferSource();
+        node.buffer = buf;
+        node.connect(s.outCtx.destination);
+        s.at = Math.max(s.at, s.outCtx.currentTime + 0.05);
+        node.start(s.at);
+        s.at += buf.duration;
+        s.sources.push(node);
+        node.onended = () => { s.sources = s.sources.filter((x) => x !== node); };
+        setEdithState('MOWI');
+        return;
+      }
+      let m;
+      try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === 'ready') { s.ready = true; setEdithState('SLUCHA'); }
+      else if (m.type === 'interrupted') {
+        s.sources.forEach((n) => { try { n.stop(); } catch { /* noop */ } });
+        s.sources = [];
+        s.at = 0;
+      } else if (m.type === 'heard') setEdithState('SLUCHA');
+      else if (m.type === 'turnComplete') {
+        if (m.userText) addLine('me', m.userText);
+        if (m.assistantText) addLine('her', m.assistantText);
+        setEdithState('SLUCHA');
+      } else if (m.type === 'error') {
+        addLine('her', 'Rozmowa na zywo nie dziala: ' + (m.message || 'blad'));
+        stopEdithLive();
+      }
+    };
+    ws.onclose = () => { if (eLive === s) stopEdithLive(); };
+    ws.onerror = () => { if (eLive === s) stopEdithLive(); };
+  }
+
+  function micToggle() {
+    if (eLive) return stopEdithLive();
+    if (window.JarvisUI?.store?.token && navigator.mediaDevices?.getUserMedia) {
+      startEdithLive().catch(() => {
+        stopEdithLive();
+        speechToggle();
+      });
+    } else speechToggle();
   }
 
   root.querySelector('#edithScanBtn')?.addEventListener('click', () => scanNow(false));
@@ -414,6 +547,7 @@
     close() {
       root.hidden = true;
       if (micRec) micRec.stop();
+      stopEdithLive();
     },
     noteBlock() {
       this.open();

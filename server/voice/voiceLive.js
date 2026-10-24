@@ -12,6 +12,7 @@
 import { askCurrent } from '../extras/documents.js';
 import { aliasBlock } from '../extras/voiceux.js';
 import { isDnd } from '../extras/dnd.js';
+import { EDITH_VOICE, edithApiKey, buildReport as edithReport } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
 import { getWeather, getWeatherByCoords } from '../core/weather.js';
@@ -647,7 +648,14 @@ async function executeTool(name, args, coords) {
   }
 }
 
-export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null) {
+const EDITH_LIVE_VOICE = process.env.EDITH_LIVE_VOICE || 'Kore';
+
+// persona 'edith' = osobna rozmowa na zywo z E.D.I.T.H.: wlasny klucz API, zenski
+// glos, jej charakter, ZADNYCH narzedzi (nie steruje komputerem) i zadnego
+// zapisu do pamieci/historii Jarvisa. Tylko dla wlasciciela.
+export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null) {
+  const edith = persona === 'edith' && isOwner;
+  const client = edith ? new GoogleGenAI({ apiKey: edithApiKey() }) : ai;
   let liveSession = null;
   let closed = false;
   let assistantTranscript = '';
@@ -661,7 +669,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   // Ustawieniach) ma pierwszenstwo nad domyslna wartoscia z .env, gdy go
   // jawnie poda - wantClone===null oznacza "klient nie mial zdania",
   // wiec wtedy decyduje wylacznie env.
-  const clonedVoice = (wantClone ?? LIVE_CLONED_VOICE_REQUESTED) && tts.cloneStatus().enabled;
+  const clonedVoice = !edith && (wantClone ?? LIVE_CLONED_VOICE_REQUESTED) && tts.cloneStatus().enabled;
   // Bufor tekstu miedzy dwoma znakami konca zdania i "pokolenie" syntezy -
   // gdy uzytkownik przerywa (interrupted), pokolenie rosnie i kazda synteza
   // zlecona wczesniej ladujaca po fakcie jest po prostu odrzucana, zamiast
@@ -775,7 +783,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   const scheduleProactive = () => {
     // Tryb "nie przeszkadzac": Jarvis sam z siebie sie nie odzywa.
     if (isDnd()) return;
-    if (!isOwner || closed) return;
+    if (edith || !isOwner || closed) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       if (closed || !liveSession) return;
@@ -818,7 +826,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   let reconnectAttempts = 0;
 
   async function openSession() {
-    return ai.live.connect({
+    return client.live.connect({
       model: LIVE_MODEL,
       config: {
         // UWAGA - sprawdzone na zywym API: ten model ODRZUCA
@@ -835,10 +843,12 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         // (sprawdzone: 16 kawalkow na jedna odpowiedz), wiec sentencje
         // mozna oddawac do syntezy na biezaco, tak samo jak przy TEXT.
         responseModalities: [Modality.AUDIO],
-        systemInstruction: buildLiveSystemInstruction(Boolean(coords), isOwner),
-        tools: toolsForRole(isOwner),
+        systemInstruction: edith
+          ? `${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\nAktualny stan: ${edithReport().text}`
+          : buildLiveSystemInstruction(Boolean(coords), isOwner),
+        ...(edith ? {} : { tools: toolsForRole(isOwner) }),
         outputAudioTranscription: {},
-        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } } }),
+        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : VOICE_NAME } } } }),
         inputAudioTranscription: {},
         // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
         // wracamy do tej samej rozmowy zamiast zaczynac od zera.
@@ -1243,8 +1253,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             if (clonedVoice) flushSentences({ all: true });
             const userText = userTranscript.trim();
             const assistantText = assistantTranscript.trim();
-            if (isOwner && userText) memory.appendHistory('user', userText);
-            if (isOwner && assistantText) memory.appendHistory('assistant', assistantText);
+            if (isOwner && !edith && userText) memory.appendHistory('user', userText);
+            if (isOwner && !edith && assistantText) memory.appendHistory('assistant', assistantText);
             safeSend(JSON.stringify({ type: 'turnComplete', userText, assistantText }));
             userTranscript = '';
             assistantTranscript = '';

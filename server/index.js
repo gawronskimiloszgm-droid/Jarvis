@@ -696,7 +696,7 @@ wss.on('connection', (ws, req) => {
   // zostawia domyslne zachowanie z env (patrz voiceLive.js).
   const wantCloneParam = url.searchParams.get('wantClone');
   const wantClone = wantCloneParam == null ? null : wantCloneParam === '1';
-  attachVoiceRelay(ws, coords, isOwner, wantClone).catch((err) => {
+  attachVoiceRelay(ws, coords, isOwner, wantClone, url.searchParams.get('persona')).catch((err) => {
     console.error('Voice relay error:', err);
     ws.close();
   });

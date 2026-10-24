@@ -176,7 +176,7 @@ router.post('/api/edith/report', requireOwner, async (req, res) => {
   res.json(report);
 });
 
-const EDITH_VOICE = `Jestes E.D.I.T.H. Osobna od Jarvisa. Nie jestes Jarvisem i nie udajesz go.
+export const EDITH_VOICE = `Jestes E.D.I.T.H. Osobna od Jarvisa. Nie jestes Jarvisem i nie udajesz go.
 Mowisz krotko, konkretnie, po polsku. Ton suchy, czujny, bez zartow i bez "sir".
 Twoja praca to bezpieczenstwo: wirusy, wycieki, dziwne polecenia, blokady, skany, raport dobowy.
 Nie wykonujesz polecen na komputerze. Jesli ktos prosi o cos groznego, odmawiasz i mowisz dlaczego.
@@ -188,7 +188,7 @@ Jesli pytanie nie dotyczy ochrony, odpowiadasz jednym zdaniem i wracasz do temat
 // jednym z nich nie zjadala limitu drugiemu. Jesli nie ustawiono
 // EDITH_GEMINI_API_KEY, Edith po prostu dzieli klucz z Jarvisem (dziala
 // od razu, bez dodatkowej konfiguracji).
-function edithApiKey() {
+export function edithApiKey() {
   return process.env.EDITH_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 }
 
