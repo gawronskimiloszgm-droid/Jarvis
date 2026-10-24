@@ -5,7 +5,7 @@
 import { registerBriefSection } from '../core/briefing.js';
 import * as calendar from '../connect/calendar.js';
 import { buildReport } from '../security/edith.js';
-import { cachedTriage } from './mailtriage.js';
+import { ensureTriage } from './mailtriage.js';
 
 function warsawDate(d) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(d);
@@ -29,7 +29,7 @@ registerBriefSection(async (kind) => {
 });
 
 registerBriefSection(async () => {
-  const items = cachedTriage();
+  const items = await ensureTriage();
   const urgent = items.filter((x) => x.kategoria === 'pilny');
   if (!urgent.length) return null;
   return `Pilne maile (${urgent.length}): ${urgent

@@ -20,6 +20,13 @@ export function cachedTriage() {
   return Date.now() - cache.at < 6 * 60 * 60 * 1000 ? cache.items : [];
 }
 
+/** Swiezy przeglad na potrzeby odprawy (tylko gdy Gmail polaczony i cache starszy niz TTL). */
+export async function ensureTriage() {
+  if (!gmailClient.isOAuthConfigured() || !gmailClient.isConnected()) return [];
+  if (Date.now() - cache.at >= TTL) cache = { at: Date.now(), items: await triage(10) };
+  return cache.items;
+}
+
 async function triage(limit) {
   const messages = await gmailClient.listRecentInboxMessages(limit);
   if (!messages.length) return [];
