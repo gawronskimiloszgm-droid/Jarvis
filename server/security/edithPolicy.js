@@ -1,6 +1,6 @@
-// Wspolna polityka E.D.I.T.H. Trzyma sie z dala od powloki: albo przepuszcza,
-// albo twardo blokuje. Te same zasady sa powtorzone w desktop/edithPolicy.js
-// (aplikacja komputerowa nie moze polegac tylko na serwerze).
+// Kopia desktop/edithPolicy.js w ESM (serwer nie moze importowac CommonJS
+// z aplikacji desktopowej). Utrzymywane recznie - patrz tests/policy.test.mjs,
+// ktory pilnuje, zeby obie listy akcji i reguly sie nie rozjechaly.
 
 export const SAFE_ACTIONS = new Set([
   'otworz-spotify',
@@ -12,6 +12,7 @@ export const SAFE_ACTIONS = new Set([
   'otworz-slack',
   'otworz-vscode',
   'otworz-eksplorator',
+  'otworz-aplikacje',
   'zablokuj-ekran',
   'glosniej',
   'ciszej',
@@ -22,8 +23,12 @@ export const SAFE_ACTIONS = new Set([
   'zrzut-ekranu',
   'zrzut-i-opisz',
   'zamknij-okno',
+  'zamknij-proces',
+  'lista-procesow',
   'pokaz-pulpit',
   'uspij-komputer',
+  'restart-komputera',
+  'wylacz-komputer',
   'zapisz-plik',
   'dopisz-do-pliku',
   'czytaj-plik',
@@ -32,44 +37,112 @@ export const SAFE_ACTIONS = new Set([
   'wlacz-edith',
   'wlacz-jarvis',
   'skan-bezpieczenstwa',
+  'sterowanie-siecia',
+  'pisz-tekst',
+  'skrot-klawiszowy',
+  'kliknij-na-ekranie',
+  'lista-okien',
+  'przelacz-okno'
 ]);
 
-const BLOCK_RULES = [
-  { re: /\bformat\s+[a-z]:/i, reason: 'Proba formatowania dysku.' },
-  { re: /\bdiskpart\b|\bclean\s+all\b/i, reason: 'Proba czyszczenia dysku.' },
-  { re: /\brm\s+(-[a-z]*f[a-z]*\s+)?(-[a-z]*r[a-z]*\s+)?\/(\s|$)/i, reason: 'Proba kasowania calego systemu.' },
-  { re: /remove-item[\s\S]{0,80}-recurse[\s\S]{0,40}[a-z]:\\/i, reason: 'Proba rekursywnego kasowania dysku.' },
-  { re: /\b(del|erase)\s+\/[a-z]*s[a-z]*\s+[a-z]:\\/i, reason: 'Proba masowego kasowania plikow.' },
-  { re: /\brmdir\s+\/s\b|\brd\s+\/s\b/i, reason: 'Proba kasowania calych folderow systemowych.' },
-  { re: /\bcipher\s+\/w\b/i, reason: 'Proba trwalego wycierania dysku.' },
-  { re: /\bbcdedit\b|\bbootrec\b/i, reason: 'Proba zmiany uruchamiania systemu.' },
-  { re: /disable(realtimemonitoring)?|set-mppreference[\s\S]{0,80}-disable/i, reason: 'Proba wylaczenia ochrony antywirusowej.' },
-  { re: /netsh\s+advfirewall[\s\S]{0,40}\boff\b/i, reason: 'Proba wylaczenia zapory.' },
-  { re: /\breg\s+delete\s+hklm\b/i, reason: 'Proba kasowania rejestru systemu.' },
-  { re: /\b(invoke-expression|iex)\b/i, reason: 'Proba uruchomienia ukrytego skryptu.' },
-  { re: /(iwr|invoke-webrequest|curl|wget)[\s\S]{0,120}\|\s*(iex|invoke-expression|bash|sh|powershell)\b/i, reason: 'Proba pobrania i od razu uruchomienia kodu z internetu.' },
-  { re: /\b(mimikatz|sekurlsa|procdump|lazagne)\b/i, reason: 'Proba kradziezy hasel.' },
-  { re: /\b(shutdown|restart-computer|stop-computer)\b/i, reason: 'Proba wylaczenia albo restartu komputera.' },
-  { re: /\bmkfs\b|\bdd\s+if=/i, reason: 'Proba nadpisania dysku.' },
-  { re: /:\(\)\s*\{/, reason: 'Proba zapetlenia systemu.' },
-  { re: /[a-z]:\\windows|[a-z]:\\program files|\/etc\/|\/usr\/|\/bin\/|\/system\b/i, reason: 'Polecenie dotyka plikow systemu, nie Twoich.' },
+// Akcje, ktore zawsze wymagaja wyraznego potwierdzenia ("tak"/"potwierdzam"
+// od uzytkownika), nawet gdy sa na liscie dozwolonych - bo sa nieodwracalne
+// albo latwo je wywolac przez pomylke/przeslyszenie (np. zle zrozumiana
+// nazwa procesu). Zasilanie bylo tu juz wczesniej; dolaczamy zabicie
+// procesu (moze ubic cos innego niz uzytkownik mial na mysli) i wylaczenie
+// sieci (odcina tez Jarvisa/Edith od swiata, dopoki ktos tego nie wlaczy
+// z powrotem recznie).
+const CONFIRM_ALWAYS = new Set(['wylacz-komputer', 'restart-komputera', 'zamknij-proces']);
+
+function describeAction(name, params = {}) {
+  if (name === 'zamknij-proces') return `Zamkniecie procesu "${params.nazwa || params.process || '?'}"`;
+  if (name === 'sterowanie-siecia') return 'Wylaczenie karty sieciowej';
+  return `Wykonanie: ${name}`;
+}
+
+// Krytyczne reguły blokowania destrukcyjnych akcji systemowych
+const CRITICAL_BLOCK_RULES = [
+  { re: /\bformat\s+[a-z]:/i, reason: 'E.D.I.T.H.: Wykryto próbę sformatowania partycji dyskowej.' },
+  { re: /\bdiskpart\b|\bclean\s+all\b/i, reason: 'E.D.I.T.H.: Wykryto próbę czyszczenia struktury dysków.' },
+  { re: /\brm\s+(-[a-z]*f[a-z]*\s+)?(-[a-z]*r[a-z]*\s+)?\/(\s|$)/i, reason: 'E.D.I.T.H.: Wykryto próbę usunięcia katalogu głównego systemu.' },
+  { re: /remove-item[\s\S]{0,80}-recurse[\s\S]{0,40}[a-z]:\\/i, reason: 'E.D.I.T.H.: Rekursywne kasowanie struktur dyskowych zablokowane.' },
+  { re: /\b(del|erase)\s+\/[a-z]*s[a-z]*\s+[a-z]:\\/i, reason: 'E.D.I.T.H.: Masowe wymazywanie plików wstrzymane.' },
+  { re: /\brmdir\s+\/s\b|\brd\s+\/s\b/i, reason: 'E.D.I.T.H.: Wykryto próbę usunięcia folderów systemowych.' },
+  { re: /\bcipher\s+\/w\b/i, reason: 'E.D.I.T.H.: Trwałe czyszczenie wolnej przestrzeni dyskowej zablokowane.' },
+  { re: /\bbcdedit\b|\bbootrec\b/i, reason: 'E.D.I.T.H.: Wykryto próbę modyfikacji sektora rozruchowego (BCD/MBR).' },
+  { re: /disable(realtimemonitoring)?|set-mppreference[\s\S]{0,80}-disable/i, reason: 'E.D.I.T.H.: Ochrona antywirusowa Windows Defender nie może zostać wyłączona.' },
+  { re: /netsh\s+advfirewall[\s\S]{0,40}\boff\b/i, reason: 'E.D.I.T.H.: Wyłączenie zapory sieciowej zablokowane.' },
+  { re: /\breg\s+delete\s+hklm\b/i, reason: 'E.D.I.T.H.: Modyfikacja kluczy rejestru systemowego HKLM zablokowana.' },
+  { re: /\b(mimikatz|sekurlsa|procdump|lazagne)\b/i, reason: 'E.D.I.T.H.: Wykryto narzędzie zagrażające poświadczeniom systemowym.' },
+  { re: /:\(\)\s*\{/, reason: 'E.D.I.T.H.: Wykryto próbę wykonania bomby widelcowej (fork bomb).' }
 ];
 
-export function judge(action, command) {
+// Reguły wymagające potwierdzenia użytkownika przez protokół E.D.I.T.H.
+const SENSITIVE_COMMAND_PATTERNS = [
+  { re: /\b(shutdown|restart-computer|stop-computer)\b/i, warning: 'Wyłączenie lub restart systemu' },
+  { re: /\bStop-Process\b|\btaskkill\b/i, warning: 'Wymuszone zamknięcie procesu' },
+  { re: /Remove-Item\b|\bdel\b|\berase\b/i, warning: 'Usunięcie określonych plików' },
+  { re: /Set-ExecutionPolicy\b/i, warning: 'Zmiana polityki wykonywania skryptów' }
+];
+
+export function judge(action, command = '', options = {}, params = {}) {
   const name = String(action || '').trim();
+  const text = String(command || '').trim();
+  const confirmedByEdith = Boolean(options.confirmedByEdith);
+
+  // 1. Sprawdzenie nazwanej akcji
   if (name && name !== 'polecenie') {
-    if (SAFE_ACTIONS.has(name)) return { allow: true, action: name };
-    return { allow: false, action: name, reason: 'Nieznana akcja. E.D.I.T.H. ja zablokowala.' };
+    if (!SAFE_ACTIONS.has(name)) {
+      return { allow: false, action: name, reason: 'E.D.I.T.H.: Nieznana lub niezarejestrowana akcja systemowa.' };
+    }
+
+    // Nieodwracalne albo latwe do pomylenia przez przeslyszenie - zawsze
+    // pytamy, nawet jesli sama nazwa akcji jest na liscie dozwolonych.
+    // "sterowanie-siecia" tylko przy WYLACZANIU - wlaczenie z powrotem nie
+    // szkodzi, a bez tego wyjatku Jarvis nie moglby sam odblokowac sieci,
+    // ktora wczesniej na prosbe wylaczyl.
+    const needsConfirm =
+      CONFIRM_ALWAYS.has(name) || (name === 'sterowanie-siecia' && params.wlacz === false);
+
+    if (needsConfirm && !confirmedByEdith) {
+      return {
+        allow: false,
+        requiresConfirmation: true,
+        action: name,
+        warning: describeAction(name, params),
+        reason: 'E.D.I.T.H. wymaga wyraznego potwierdzenia tej operacji.'
+      };
+    }
+
+    return { allow: true, action: name };
   }
 
-  const text = String(command || '').trim();
-  if (!text) return { allow: false, action: 'polecenie', reason: 'Puste polecenie.' };
-  if (text.length > 2000) return { allow: false, action: 'polecenie', reason: 'Polecenie jest za dlugie.' };
+  // 2. Sprawdzenie dowolego polecenia systemowego
+  if (!text) return { allow: false, action: 'polecenie', reason: 'E.D.I.T.H.: Otrzymano puste polecenie.' };
+  if (text.length > 4000) return { allow: false, action: 'polecenie', reason: 'E.D.I.T.H.: Polecenie przekracza bezpieczny limit długości.' };
 
-  for (const rule of BLOCK_RULES) {
+  // Weryfikacja pod kątem komend zabronionych
+  for (const rule of CRITICAL_BLOCK_RULES) {
     if (rule.re.test(text)) {
       return { allow: false, action: 'polecenie', reason: rule.reason, command: text.slice(0, 240) };
     }
   }
+
+  // Weryfikacja akcji wrażliwych - wymagających potwierdzenia
+  if (!confirmedByEdith) {
+    for (const pattern of SENSITIVE_COMMAND_PATTERNS) {
+      if (pattern.re.test(text)) {
+        return {
+          allow: false,
+          requiresConfirmation: true,
+          action: 'polecenie',
+          warning: pattern.warning,
+          reason: `E.D.I.T.H.: Wykryto potencjalnie wrażliwą komendę (${pattern.warning}). Wymagana autoryzacja.`
+        };
+      }
+    }
+  }
+
   return { allow: true, action: 'polecenie' };
 }
+

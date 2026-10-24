@@ -640,3 +640,12 @@ body[data-posture='threat']::after {
 body[data-posture='design'] { --blue: #4fd2ff; --ice: #b6ecff; }
 body[data-posture='focus'] { --blue: #ffb648; --ice: #ffd992; }
 body[data-posture='recovery'] { --blue: #3dffb0; --ice: #a7f0e7; }
+
+/* --- Rozszerzenia: doktor, baner ostrzezen --- */
+.banner-warn { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 280; display: flex; align-items: center; gap: 10px; max-width: min(760px, 94vw); padding: 10px 14px; background: rgba(40, 24, 4, .94); border: 1px solid var(--amber); border-radius: var(--r-md); color: var(--txt); font-size: 12px; box-shadow: 0 0 24px rgba(255, 182, 72, .25); }
+.banner-warn b { color: var(--amber); margin-right: 6px; }
+.doc-dot { width: 18px; text-align: center; font-size: 11px; }
+.doc-dot.ok { color: var(--good); }
+.doc-dot.warn { color: var(--amber); }
+.doc-dot.bad { color: var(--red); }
+.doc-fix { margin-top: 3px; font-size: 11px; color: var(--amber); }

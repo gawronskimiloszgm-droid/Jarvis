@@ -116,6 +116,7 @@ import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken
 import { startUpkeep } from './core/upkeep.js';
 import { startTravelSchedulers } from './travel/scheduler.js';
 import edithRouter from './security/edith.js';
+import { extraRouters, SERVER_VERSION, MIN_DESKTOP_VERSION } from './extras/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -177,6 +178,7 @@ app.use('/api/security-log', securityLogRoutes);
 app.use('/api/vacation', vacationModeRoutes);
 app.use('/api/login-watch', loginWatchRoutes);
 app.use(edithRouter);
+extraRouters.forEach((r) => app.use(r));
 
 // --- wizja / kamera ---
 app.use('/api/vision2', vision2Router);
@@ -210,6 +212,8 @@ app.use('/api/meta', metaRouter);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'online',
+    version: SERVER_VERSION,
+    minDesktopVersion: MIN_DESKTOP_VERSION,
     ttsConfigured: tts.isConfigured(),
     pushConfigured: push.isConfigured(),
     authConfigured: isAuthConfigured(),

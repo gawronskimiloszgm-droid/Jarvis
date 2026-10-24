@@ -6,4 +6,10 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   // E.D.I.T.H. - main.js juz to przyjmowal, ale ten bridge go gubil.
   runAction: (name, params, options) => ipcRenderer.invoke('jarvis-action', name, params, options),
   onWakeWord: (callback) => ipcRenderer.on('wake-word-detected', () => callback()),
+  // Wersja POWLOKI (nie strony) - serwer porownuje ja z minDesktopVersion.
+  version: ipcRenderer.sendSync('jarvis-version'),
+  updateStatus: () => ipcRenderer.invoke('jarvis-update-status'),
+  checkForUpdate: () => ipcRenderer.invoke('jarvis-update-check'),
+  installUpdate: () => ipcRenderer.invoke('jarvis-update-install'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
 });

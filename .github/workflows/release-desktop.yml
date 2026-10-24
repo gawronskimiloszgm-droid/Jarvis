@@ -1,0 +1,21 @@
+name: Wydanie aplikacji desktopowej
+# Tag desktop-v0.2.1 -> buduje instalator Windows i publikuje go w GitHub
+# Releases. Zainstalowane aplikacje same pobiora aktualizacje (electron-updater).
+on:
+  push:
+    tags: ['desktop-v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Instalacja i budowa
+        working-directory: desktop
+        run: |
+          npm install
+          npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { runAction } = require('./actions');
+const { initUpdater } = require('./updater');
+
+let mainWindow = null;
 
 const configPath = path.join(__dirname, 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -81,6 +84,7 @@ function createWindow() {
     },
   });
 
+  mainWindow = win;
   win.loadURL(JARVIS_URL);
   startWakeWordListener(win);
 }
@@ -88,6 +92,10 @@ function createWindow() {
 // Zaktualizowany handler IPC przekazujacy opcje weryfikacji i autoryzacji E.D.I.T.H.
 ipcMain.handle('jarvis-action', (event, name, params, options = {}) => {
   return runAction(name, params, options);
+});
+
+ipcMain.on('jarvis-version', (event) => {
+  event.returnValue = app.getVersion();
 });
 
 app.whenReady().then(() => {
@@ -99,6 +107,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  initUpdater(() => mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Osobisty asystent AI w stylu J.A.R.V.I.S.",
   "main": "server/index.js",
   "type": "module",
@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "list-voices": "node scripts/list-voices.js"
+    "list-voices": "node scripts/list-voices.js",
+    "test": "node --test tests/"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",

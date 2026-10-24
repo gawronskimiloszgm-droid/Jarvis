@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Skladnia plikow (serwer, klient, desktop)
+        run: |
+          find server modules scripts desktop public -name '*.js' -not -path '*/node_modules/*' -not -path '*/dist/*' | while read f; do node --check "$f" 2>/dev/null || { echo "BLAD SKLADNI: $f"; node --check "$f"; exit 1; }; done
+      - run: npm test

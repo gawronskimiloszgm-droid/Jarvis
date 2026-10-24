@@ -3868,6 +3868,7 @@ async function boot() {
     const health = await res.json();
     store.cloneVoiceConfigured = Boolean(health.cloneVoiceConfigured);
     store.liveClonedVoiceDefault = Boolean(health.liveClonedVoiceDefault);
+    window.__health = health;
     applyRole(health.role || 'guest');
     if (!health.authConfigured) {
       toast('Serwer nie ma ustawionego OWNER_PASSWORD - dziala tylko tryb goscia.', 'ok');
@@ -3894,6 +3895,7 @@ async function boot() {
   restoreBoard();
   refreshHeadStats();
   drawIdleCards();
+  window.dispatchEvent(new CustomEvent('jarvis:ready', { detail: window.__health || {} }));
 
   tickClock();
   setInterval(refreshLink, 60000);
@@ -4053,5 +4055,33 @@ if (isNativeShell() && window.Capacitor.Plugins.Geolocation) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
+
+// ---------- API rozszerzen ----------
+//
+// Nowe funkcje (public/extras/*.js) dolaczaja sie do interfejsu przez ten
+// obiekt zamiast edytowac app.js. Skrypty rozszerzen laduja sie PO app.js,
+// ale boot() buduje dok dopiero po animacji startowej - wiec register()
+// wywolane synchronicznie przy ladowaniu zdaza dopisac modul do docka.
+window.JarvisUI = {
+  $, el, api, toast, authHeaders, store, isOwner, logEvent, speak, pushSaid,
+  setCoreState, openWindow, runDeviceAction, deaccent,
+  // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
+  register(def) {
+    if (MODULES.some((m) => m.id === def.id)) return;
+    const panelIds = Object.keys(def.panels || {});
+    MODULES.push({ id: def.id, title: def.title, sub: def.sub || '', owner: Boolean(def.owner), panels: panelIds });
+    MODULE_ICONS[def.id] = def.icon || '◇';
+    Object.assign(PANEL_DEFS, def.panels || {});
+  },
+  // Dopisuje panele do ISTNIEJACEGO modulu (np. kopia zapasowa w Ustawieniach).
+  extend(moduleId, panels) {
+    const mod = MODULES.find((m) => m.id === moduleId);
+    if (!mod) return;
+    for (const [pid, def] of Object.entries(panels)) {
+      if (!mod.panels.includes(pid)) mod.panels.push(pid);
+      PANEL_DEFS[pid] = def;
+    }
+  },
+};
 
 boot();

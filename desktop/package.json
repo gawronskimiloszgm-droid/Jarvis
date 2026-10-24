@@ -1,6 +1,6 @@
 {
   "name": "jarvis-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "J.A.R.V.I.S. jako aplikacja desktopowa (Windows/Mac/Linux)",
   "main": "main.js",
   "type": "commonjs",
@@ -15,7 +15,11 @@
   "build": {
     "appId": "com.jarvis.desktop",
     "productName": "J.A.R.V.I.S.",
-    "files": ["main.js", "preload.js", "actions.js", "edithPolicy.js", "files.js", "config.json"],
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!node_modules/.cache/**"
+    ],
     "win": {
       "target": "nsis"
     },
@@ -24,6 +28,21 @@
     },
     "mac": {
       "target": "dmg"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gawronskimiloszgm-droid",
+        "repo": "Jarvis"
+      }
+    ],
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }
