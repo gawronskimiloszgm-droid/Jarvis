@@ -10,6 +10,7 @@
 import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
 import * as bus from './bus.js';
+import { isDnd } from '../extras/dnd.js';
 import { getWeather } from './weather.js';
 import { snapshot as telemetrySnapshot } from '../home/telemetry.js';
 
@@ -104,6 +105,6 @@ export async function maybeSendBriefing() {
   const title = sent === 'morning' ? 'Odprawa poranna' : 'Odprawa wieczorna';
   memory.markBriefingSent(sent);
   bus.publish('briefing', `${sent}.sent`, body, { level: 'info', speak: false });
-  if (push.isConfigured()) await push.sendToAll({ title, body });
+  if (push.isConfigured() && !isDnd()) await push.sendToAll({ title, body });
   return { sent: true, kind: sent, body };
 }

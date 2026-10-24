@@ -10,6 +10,7 @@
 import * as bus from '../core/bus.js';
 import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
+import { isDnd } from '../extras/dnd.js';
 import * as calendar from '../connect/calendar.js';
 import { getWeatherByCoords } from '../core/weather.js';
 import express from 'express';
@@ -56,7 +57,7 @@ async function speakUp(message, { level = 'info', force = false } = {}) {
   const data = store();
   if (isDndActive() && !(force && data.proactive.dnd.allowAlerts && level === 'alert')) return;
   bus.publish('proactive', 'nudge', message, { level, speak: true });
-  await push.sendToAll({ title: 'J.A.R.V.I.S.', body: message }).catch(() => {});
+  if (!isDnd()) await push.sendToAll({ title: 'J.A.R.V.I.S.', body: message }).catch(() => {});
 }
 
 // --- #11/#12: konflikty w kalendarzu + ostrzezenie o wyjsciu na czas ---

@@ -10,6 +10,8 @@
 // narzedzi, do ktorych rola nie ma prawa.
 
 import { askCurrent } from '../extras/documents.js';
+import { aliasBlock } from '../extras/voiceux.js';
+import { isDnd } from '../extras/dnd.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
 import { getWeather, getWeatherByCoords } from '../core/weather.js';
@@ -212,6 +214,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
+- nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
 - zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
 - Dlugie pliki i dokumenty: wczytaj_plik (sciezka na dysku) albo uzytkownik wrzuca plik w panelu Analiza; potem na KAZDE pytanie o ich tresc uzywaj zapytaj_dokument i odpowiadaj na podstawie wyniku - nie zgaduj. Do patrzenia na ekran jest co_na_ekranie.
@@ -231,7 +234,8 @@ ${weatherLine}
 ${searchLine}
 
 Teraz: ${nowStr}.
-${ctx}`;
+${ctx}
+${aliasBlock()}`;
 }
 
 const GUEST_TOOL_NAMES = ['sprawdz_pogode', 'wyszukaj_w_sieci'];
@@ -278,6 +282,15 @@ const ALL_TOOLS = [
     name: 'wylacz_kamere',
     description: 'Wylacz kamere.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'nie_przeszkadzac',
+    description: 'Wlacz tryb "nie przeszkadzac" na podana liczbe minut (0 = wylacz): Jarvis sam sie nie odzywa, powiadomienia o przypomnieniach/briefingu wstrzymane.',
+    parameters: {
+      type: 'object',
+      properties: { minuty: { type: 'number', description: 'Na ile minut; 0 wylacza tryb.' } },
+      required: ['minuty'],
+    },
   },
   {
     name: 'szukaj_plikow',
@@ -760,6 +773,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   }
 
   const scheduleProactive = () => {
+    // Tryb "nie przeszkadzac": Jarvis sam z siebie sie nie odzywa.
+    if (isDnd()) return;
     if (!isOwner || closed) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
@@ -975,6 +990,13 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } else {
                   result = { error: 'nieznana akcja' };
                 }
+              } else if (call.name === 'nie_przeszkadzac') {
+                const minuty = Number((call.args || {}).minuty) || 0;
+                const d = memory.load();
+                d.dnd = minuty > 0 ? { until: Date.now() + Math.min(minuty, 1440) * 60000, textOnly: true } : { until: null, textOnly: false };
+                memory.save(d);
+                safeSend(JSON.stringify({ type: 'dnd', minutes: minuty }));
+                result = { ok: true, minuty };
               } else if (call.name === 'szukaj_plikow') {
                 const { zapytanie, dni, rozszerzenie } = call.args || {};
                 try {
@@ -1206,6 +1228,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           }
           if (msg.serverContent?.inputTranscription?.text) {
             userTranscript += msg.serverContent.inputTranscription.text;
+            // Na zywo na ekran: "slysze: ..." - widac od razu, co model uslyszal.
+            safeSend(JSON.stringify({ type: 'heard', text: userTranscript }));
           }
           if (msg.serverContent?.interrupted) {
             // Kazda synteza zlecona PRZED tym momentem staje sie

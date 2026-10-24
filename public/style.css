@@ -667,3 +667,12 @@ body[data-posture='recovery'] { --blue: #3dffb0; --ice: #a7f0e7; }
 .agent-step.done { border-color: var(--good); color: var(--good); }
 .agent-step.ask { border-color: var(--amber); color: var(--amber); }
 .agent-ask { padding: 10px; border: 1px solid var(--amber); border-radius: var(--r-sm); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* --- Glos: "slysze", bramka, ustawienia --- */
+.heard { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%) translateY(8px); z-index: 270; max-width: min(640px, 92vw); padding: 7px 14px; background: rgba(6, 16, 22, .88); border: 1px solid var(--line-3); border-radius: 999px; color: var(--dim); font-family: var(--mono); font-size: 11.5px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.heard.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+.voice-gate { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 285; display: grid; grid-template-columns: 1fr auto auto; gap: 8px 10px; align-items: center; width: min(520px, 94vw); padding: 12px 14px; background: rgba(6, 16, 22, .96); border: 1px solid var(--amber); border-radius: var(--r-md); box-shadow: 0 0 28px rgba(255, 182, 72, .22); }
+.vg-text { grid-column: 1 / -1; font-size: 13px; color: var(--bright); }
+.vg-bar { grid-column: 1; height: 3px; background: var(--line-2); border-radius: 2px; overflow: hidden; }
+.vg-bar i { display: block; height: 100%; background: var(--amber); transform-origin: left; animation: vg-shrink linear forwards; }
+@keyframes vg-shrink { from { transform: scaleX(1) } to { transform: scaleX(0) } }

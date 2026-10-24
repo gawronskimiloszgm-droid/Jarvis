@@ -2991,6 +2991,7 @@ function paramsForAction(name, raw) {
   }
   if (name === 'wczytaj-plik-pc') return { sciezka: raw };
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
+  if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'szukaj-plikow') return { zapytanie: raw };
   if (name === 'ukladaj-okno') return { tryb: raw };
@@ -3097,6 +3098,9 @@ async function sendTyped(text) {
 
 async function speak(text) {
   if (!text) return;
+  // Tryb "nie przeszkadzac": zadnego glosu (potwierdzenia E.D.I.T.H. tez nie
+  // sa wtedy mowione - sa i tak widoczne na ekranie i na telefonie).
+  if (window.JarvisUI?.dnd?.active) return;
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
@@ -3597,7 +3601,12 @@ async function liveStart() {
     } else if (m.type === 'startCamera') camOn();
     else if (m.type === 'stopCamera') camOff();
     else if (m.type === 'showSearch') showSearch(m.query, m.results || []);
-    else if (m.type === 'deviceAction') runDeviceAction(m.action, m.params);
+    else if (m.type === 'deviceAction') {
+      // Z glosu: najpierw pokazujemy, co zrozumielismy, i dajemy chwile na anulowanie.
+      const gate = window.JarvisUI?.voiceGate;
+      (gate ? gate(m.action, m.params) : Promise.resolve(true)).then((ok) => ok && runDeviceAction(m.action, m.params));
+    } else if (m.type === 'heard') window.JarvisUI?.heard?.(m.text);
+    else if (m.type === 'dnd') window.dispatchEvent(new Event('jarvis:dnd'));
     else if (m.type === 'appAction') runAppAction(m.action, m.text);
     else if (m.type === 'runRoutine') runRoutineSteps(m.steps);
     else if (m.type === 'fileAction') handleFileAction(m);
