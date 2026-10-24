@@ -214,7 +214,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
-- "wlacz-edith" w steruj_urzadzeniem KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
+- "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
@@ -1011,7 +1011,13 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 }
               } else if (call.name === 'steruj_urzadzeniem') {
                 const akcja = (call.args || {}).akcja;
-                if (DEVICE_ACTIONS.includes(akcja)) {
+                // Model potrafil sam przelaczyc na Edith po pierwszym slowie (zle
+                // zrozumiane / nadgorliwe wywolanie) i zrywal rozmowe z Jarvisem.
+                // Przelaczamy tylko, gdy w tej wypowiedzi padlo cos o Edith/ochronie.
+                const heardNow = userTranscript.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (akcja === 'wlacz-edith' && !/e+d+[iyj]+[tcdh]|edit|edyt|ochron|bezpiecz|antywir|wirus|zagro[zż]|skan|raport/i.test(heardNow)) {
+                  result = { error: 'uzytkownik nie prosil o E.D.I.T.H. w tej wypowiedzi - nie przelaczaj, odpowiedz normalnie' };
+                } else if (DEVICE_ACTIONS.includes(akcja)) {
                   safeSend(JSON.stringify({ type: 'deviceAction', action: akcja }));
                   result = { ok: true };
                 } else {

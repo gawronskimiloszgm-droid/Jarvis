@@ -3051,6 +3051,8 @@ async function sendTyped(text) {
         if (!done.has(m[1])) {
           done.add(m[1]);
           const [rawName, rawParam] = m[1].split('|').map((s) => s.trim());
+          // Do Edith przelaczamy tylko na wyrazna prosbe - model nie moze sam zrywac rozmowy.
+          if (rawName === 'wlacz-edith' && !/e+d+[iyj]+[tcdh]|edit|edyt|ochron|bezpiecz|antywir|wirus|zagro[zż]|skan|raport/i.test(deaccent(text))) continue;
           runDeviceAction(rawName, paramsForAction(rawName, rawParam));
         }
       }
