@@ -48,6 +48,8 @@
   // Pyta uzytkownika o zgode w panelu i czeka na decyzje (albo STOP).
   function askUser(text, positive = 'ZGADZAM SIE') {
     return new Promise((resolve) => {
+      // Panel agenta moze nie byc zbudowany (agent odpalony glosem) - wtedy pytamy oknem przegladarki.
+      if (!ui) return resolve(window.confirm(text));
       const box = el('div', 'agent-ask');
       box.appendChild(el('div', null, text));
       const yes = el('button', 'btn primary', positive);

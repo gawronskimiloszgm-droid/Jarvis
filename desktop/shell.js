@@ -63,7 +63,10 @@ function registerHotkey() {
 
 function applyAutostart() {
   try {
-    app.setLoginItemSettings({ openAtLogin: Boolean(settings.get('autostart')), args: ['--hidden'] });
+    // Uruchomiony z kodu (bez instalatora) electron.exe musi dostac sciezke do aplikacji,
+    // inaczej autostart odpala "golego" Electrona z jego domyslnym oknem.
+    const launch = app.isPackaged ? { args: ['--hidden'] } : { path: process.execPath, args: [app.getAppPath(), '--hidden'] };
+    app.setLoginItemSettings({ openAtLogin: Boolean(settings.get('autostart')), ...launch });
   } catch {
     /* nie wszedzie dostepne */
   }

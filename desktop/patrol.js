@@ -61,7 +61,6 @@ function riskFindings(items, def, rdp) {
   for (const i of items || []) {
     const exe = exeOf(i.command);
     const missing = exe && !fs.existsSync(exe);
-    const label = i.name + (missing ? ' (pliku juz nie ma)' : '');
     if (MINER_RE.test(i.name) || MINER_RE.test(String(i.command))) {
       out.push(missing
         ? { key: 'miner:' + i.name, level: 'info', text: 'Wpis w autostarcie wskazuje na program do kopania kryptowalut (' + i.name + '), ale pliku juz nie ma, wiec nic nie kopie. Warto usunac sam wpis.' }

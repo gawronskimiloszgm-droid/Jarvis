@@ -120,6 +120,11 @@ import { extraRouters, SERVER_VERSION, MIN_DESKTOP_VERSION } from './extras/inde
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Jeden zgubiony blad w obietnicy (np. w trasie async albo w kolejce pushy) nie moze
+// wywrocic calego serwera - na Renderze oznaczaloby to restart i utrate pamieci.
+process.on('unhandledRejection', (err) => console.error('Nieobsluzone odrzucenie obietnicy:', err));
+process.on('uncaughtException', (err) => console.error('Nieprzechwycony wyjatek:', err));
+
 const app = express();
 app.use(cors());
 // Wczytywanie plikow i zrzutow ekranu (server/extras/documents.js) ma wlasny,

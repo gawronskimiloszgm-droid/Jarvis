@@ -110,7 +110,17 @@ ipcMain.on('jarvis-version', (event) => {
   event.returnValue = app.getVersion();
 });
 
+// Tylko jedna kopia aplikacji: dwie naraz oznaczalyby podwojne zadania cykliczne, dwa
+// nasluchy slowa "Jarvis", dwa zasobniki i dwa piloty wypierajace sie nawzajem.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => shell.showWindow());
+}
+
 app.whenReady().then(() => {
+  if (!gotLock) return;
   // Zezwalaj automatycznie na kamere/mikrofon/powiadomienia dla wlasnej aplikacji
   // (to Twoje wlasne okno, nie obca strona - nie ma powodu pytac za kazdym razem).
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {

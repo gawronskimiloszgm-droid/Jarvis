@@ -87,7 +87,7 @@
   // Ograniczenie klatek: opakowujemy requestAnimationFrame. Petle w app.js
   // wolaja je za kazdym razem z globalnego obiektu, wiec zmiana trybu dziala
   // od razu. Kazde wywolanie jest opozniane o stala przerwe (oszczedny ~50 ms,
-  // wylaczony ~1 s), a cancelAnimationFrame obsluguje oba rodzaje uchwytow.
+  // wylaczony ~200 ms), a cancelAnimationFrame obsluguje oba rodzaje uchwytow.
   const nativeRaf = window.requestAnimationFrame.bind(window);
   const nativeCancel = window.cancelAnimationFrame.bind(window);
   const pending = new Map();
@@ -102,7 +102,7 @@
         pending.delete(id);
         cb(ts);
       });
-    }, mode === 'low' ? 50 : 1000);
+    }, mode === 'low' ? 50 : 200);
     pending.set(id, entry);
     return id;
   };

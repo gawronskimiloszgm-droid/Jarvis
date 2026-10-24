@@ -2818,6 +2818,8 @@ async function runDeviceActionNow(name, params, options) {
   if (clientAction) {
     try {
       await clientAction(params || {}, options || {});
+      // Jak przy akcjach z komputera: daje znac nasluchujacym (np. nagrywarce makr).
+      window.dispatchEvent(new CustomEvent('jarvis:action-result', { detail: { name, params, result: { ok: true, client: true } } }));
     } catch (err) {
       toast(err?.message || `Nie udalo sie: ${name}`);
     }
@@ -2968,6 +2970,9 @@ function pushSaid(who, text) {
 // ---------- Czat pisany ----------
 
 const IMG_RE = /\[\[IMG:([^\]]+)\]\]/;
+// Znacznik modelu 3D z serwera (server/core/jarvis.js: onChunk `[[CAD:id]]`).
+// Nigdy nie byl zdefiniowany, a czat pisany (stripActionTags) sie do niego odwolywal.
+const CAD_RE = /\[\[CAD:([^\]]+)\]\]/;
 const ACT_RE = /\[AKCJA:\s*([^\]]+)\]/g;
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/g;
 // [POLECENIE: komenda] - jedyny "wentyl bezpieczenstwa" dla wszystkiego,

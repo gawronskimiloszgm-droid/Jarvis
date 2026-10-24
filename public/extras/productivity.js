@@ -212,7 +212,7 @@
     glyph: '⟳',
     wide: true,
     build(body) {
-      tasksBody = body;
+      tasksBody = body; // rysuje refresh() zaraz po zbudowaniu panelu
     },
     refresh: drawTasks,
   };

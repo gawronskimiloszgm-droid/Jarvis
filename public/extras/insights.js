@@ -86,7 +86,6 @@
       body.innerHTML = '';
       const box = el('div');
       body.appendChild(box);
-      const colors = { cpu: 'var(--cyan, #4fd8ff)', ram: '#9b8cff', disk: '#ffb648' };
       async function draw() {
         if (!isOwner()) return;
         try {
