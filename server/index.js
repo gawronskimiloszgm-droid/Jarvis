@@ -112,6 +112,7 @@ import {
   sweep as sweepSentinelNow,
 } from './home/sentinel.js';
 import { attachVoiceRelay, LIVE_CLONED_VOICE_REQUESTED } from './voice/voiceLive.js';
+import { keyStatus } from './core/keycheck.js';
 import { isAuthConfigured, verifyPassword, verifyUser, ownerUserName, issueToken, isOwnerToken, roleFromRequest, requireOwner } from './core/auth.js';
 import { startUpkeep } from './core/upkeep.js';
 import { startTravelSchedulers } from './travel/scheduler.js';
@@ -233,6 +234,7 @@ app.get('/api/health', (req, res) => {
     // Tylko flagi - zadnych wartosci kluczy.
     spotifyConfigured: Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
     edithOwnKey: Boolean(process.env.EDITH_GEMINI_API_KEY),
+    ...keyStatus(),
     liveClonedVoiceDefault: LIVE_CLONED_VOICE_REQUESTED,
   });
 });
