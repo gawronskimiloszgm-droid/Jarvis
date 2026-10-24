@@ -9,6 +9,7 @@ const path = require('path');
 const DEFAULTS = {
   permissionMode: 'zaufany', // podglad | pytaj | zaufany
   clipboardHistory: false,
+  worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',
   tasks: [], // zadania cykliczne - patrz scheduler.js

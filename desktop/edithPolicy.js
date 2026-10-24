@@ -59,7 +59,10 @@ const SAFE_ACTIONS = new Set([
   'schowek-historia',
   'zadania-lista',
   'zadania-dodaj',
-  'zadania-usun'
+  'zadania-usun',
+  'telemetria',
+  'czas-pracy',
+  'czas-pracy-ustaw'
 ]);
 
 // Akcje, ktore niczego nie zmieniaja w systemie (tylko czytaja/patrza/liczą).
@@ -67,7 +70,7 @@ const SAFE_ACTIONS = new Set([
 const READ_ONLY = new Set([
   'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
   'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
-  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'wlacz-edith', 'wlacz-jarvis'
+  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'wlacz-edith', 'wlacz-jarvis'
 ]);
 
 const MODES = ['podglad', 'pytaj', 'zaufany'];

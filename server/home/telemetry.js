@@ -39,14 +39,36 @@ function bumpStreak(key, over) {
 // dziennik zalalby sie tym samym komunikatem co kilkanascie sekund.
 const announced = new Set();
 
+// Dziennik alarmow i historia odczytow (do wykresow w panelu Maszyna).
+const HISTORY_MAX = 360;
+const historyByMachine = new Map();
+const alertLog = [];
+
+function logAlert(key, kind) {
+  alertLog.unshift({ at: Date.now(), key, kind });
+  if (alertLog.length > 60) alertLog.length = 60;
+}
+
+export function history(machine) {
+  return historyByMachine.get(machine) || [];
+}
+
+export function alerts() {
+  return alertLog;
+}
+
+export const THRESHOLDS = { cpu: CPU_WARN, ram: RAM_WARN, disk: DISK_WARN };
+
 function announceOnce(key, fn) {
   if (announced.has(key)) return;
   announced.add(key);
+  logAlert(key, 'trip');
   fn();
 }
 
 function clearAnnouncement(key) {
   announced.delete(key);
+  logAlert(key, 'recover');
 }
 
 /**
@@ -73,6 +95,10 @@ export function ingest(reading) {
     top: Array.isArray(reading.top) ? reading.top.slice(0, 5) : [],
   };
   machines.set(machine, entry);
+  const hist = historyByMachine.get(machine) || [];
+  hist.push({ at: entry.at, cpu: entry.cpu, ram: entry.ramUsedPct, disk: entry.diskUsedPct });
+  if (hist.length > HISTORY_MAX) hist.shift();
+  historyByMachine.set(machine, hist);
 
   checkThreshold(`${machine}:cpu`, entry.cpu > CPU_WARN, () => {
     const worst = entry.top[0];

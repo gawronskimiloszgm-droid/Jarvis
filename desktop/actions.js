@@ -7,6 +7,7 @@ const uia = require('./uia');
 const settings = require('./settings');
 const pcTools = require('./pcTools');
 const taskScheduler = require('./scheduler');
+const insights = require('./insights');
 const { patrol } = require('./patrol');
 
 function runWindowsCommand(cmd) {
@@ -122,6 +123,7 @@ const FILE_ACTIONS = {
 const DYNAMIC_SYSTEM_ACTIONS = {
   ...pcTools.make({ runPowerShell }),
   ...taskScheduler.make(),
+  ...insights.make({ runPowerShell }),
   // Uruchamianie dowolnych aplikacji systemowych (np. "notepad", "calc", "chrome", "steam")
   'otworz-aplikacje': async (params) => {
     const appName = String(params.nazwa || params.app || '').trim();

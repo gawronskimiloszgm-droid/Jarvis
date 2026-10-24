@@ -9,6 +9,9 @@ import approvals from './approvals.js';
 import textops from './textops.js';
 import voiceux from './voiceux.js';
 import macros from './macros.js';
+import mailtriage from './mailtriage.js';
+import './briefplus.js';
+import insights from './insights.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

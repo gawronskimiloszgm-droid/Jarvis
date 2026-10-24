@@ -43,6 +43,13 @@ function sameDay(tsMs, dateStr) {
 // Eksportowane takze do wywolania NA ZADANIE (poza oknem harmonogramu) -
 // patrz narzedzie "odprawa" w voiceLive.js/jarvis.js, ktore pozwala
 // zapytac o to samo w dowolnym momencie, nie tylko rano/wieczorem.
+// Dodatkowe sekcje odprawy rejestrowane przez moduly (kalendarz, poczta,
+// bezpieczenstwo...). Kazda dostaje 'morning'|'evening' i zwraca zdanie albo null.
+const briefSections = [];
+export function registerBriefSection(fn) {
+  briefSections.push(fn);
+}
+
 export async function buildBrief(kind) {
   const lines = [];
 
@@ -77,6 +84,15 @@ export async function buildBrief(kind) {
   const hot = telemetrySnapshot().filter((m) => m.online && (m.cpu > 85 || m.ramUsedPct > 85));
   if (hot.length) {
     lines.push(`Uwaga na maszynie: ${hot.map((m) => `${m.machine} (CPU ${m.cpu}%, RAM ${m.ramUsedPct}%)`).join(', ')}.`);
+  }
+
+  for (const section of briefSections) {
+    try {
+      const line = await section(kind);
+      if (line) lines.push(line);
+    } catch {
+      /* sekcja dodatkowa - jej blad nie psuje odprawy */
+    }
   }
 
   if (!lines.length) lines.push('Nic nowego do zameldowania.');
