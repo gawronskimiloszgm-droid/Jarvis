@@ -130,6 +130,7 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
   - analizuj-ekran | pytanie - robi zrzut ekranu i analizuje go (co widac, odczytaj tekst, gdzie kliknac). Pytanie jest opcjonalne. Wynik pojawi sie osobno - nie zgaduj, co jest na ekranie.
   - wykonaj-na-ekranie | cel - samodzielny AGENT: patrzy na ekran, klika nazwane elementy, wpisuje tekst i sprawdza efekt az do skutku (np. [AKCJA: wykonaj-na-ekranie | otworz Kalkulator i policz 12 razy 34]). Uzyj do zadan WIELOETAPOWYCH w aplikacjach; kazdy krok idzie przez E.D.I.T.H. WYMAGA parametru.
   - nie-przeszkadzac | minuty - tryb ciszy: bez Twoich odzywek, bez glosu w czacie, bez przypomnien push; 0 wylacza (np. [AKCJA: nie-przeszkadzac | 60]). WYMAGA parametru.
+  - profil | nazwa - przelacza profil ustawien (motyw, animacje, uprawnienia, cisza, tryb), np. [AKCJA: profil | praca]. Domyslne profile: praca, dom, noc. WYMAGA parametru.
   - powiadom-telefon | tresc - wysyla powiadomienie push na telefon uzytkownika (np. [AKCJA: powiadom-telefon | Kompilacja gotowa]). WYMAGA parametru.
   - powiadom-gdy-proces | nazwa - gdy dany proces na komputerze sie zakonczy, wysyla o tym push na telefon (np. [AKCJA: powiadom-gdy-proces | ffmpeg]). WYMAGA parametru.
   - schowek-ai | operacja - przetwarza tresc SCHOWKA i wkleja wynik z powrotem do schowka. Operacje: streszcz, punkty, popraw, formalizuj, wyjasnij, tlumacz-en, tlumacz-pl (np. [AKCJA: schowek-ai | tlumacz-en]). WYMAGA parametru.

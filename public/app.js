@@ -3002,6 +3002,7 @@ function paramsForAction(name, raw) {
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
   if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'schowek-ai') return { operacja: raw };
+  if (name === 'profil') return { nazwa: raw };
   if (name === 'powiadom-telefon') return { tresc: raw };
   if (name === 'powiadom-gdy-proces') return { nazwa: raw };
   if (name === 'szukaj-plikow') return { zapytanie: raw };

@@ -12,6 +12,7 @@
 import { askCurrent } from '../extras/documents.js';
 import { aliasBlock } from '../extras/voiceux.js';
 import { isDnd } from '../extras/dnd.js';
+import { profileBlock } from '../extras/profiles.js';
 import { EDITH_VOICE, edithApiKey, buildReport as edithReport } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
@@ -236,7 +237,8 @@ ${searchLine}
 
 Teraz: ${nowStr}.
 ${ctx}
-${aliasBlock()}`;
+${aliasBlock()}
+${profileBlock()}`;
 }
 
 const GUEST_TOOL_NAMES = ['sprawdz_pogode', 'wyszukaj_w_sieci'];
@@ -305,6 +307,11 @@ const ALL_TOOLS = [
       },
       required: ['zapytanie'],
     },
+  },
+  {
+    name: 'ustaw_profil',
+    description: 'Przelacz profil ustawien (np. praca, dom, noc): motyw, animacje, uprawnienia na komputerze, cisza i opcjonalny tryb.',
+    parameters: { type: 'object', properties: { nazwa: { type: 'string' } }, required: ['nazwa'] },
   },
   {
     name: 'powiadom_telefon',
@@ -1027,6 +1034,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'ustaw_profil') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'profil', params: { nazwa: String((call.args || {}).nazwa || '') } }));
+                result = { ok: true, note: 'profil sie przelacza; potwierdz krotko' };
               } else if (call.name === 'powiadom_telefon') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'powiadom-telefon', params: { tresc: String((call.args || {}).tresc || '') } }));
                 result = { ok: true };

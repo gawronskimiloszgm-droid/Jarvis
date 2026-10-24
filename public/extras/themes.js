@@ -146,5 +146,15 @@
       body.appendChild(el('div', 'sub', 'Rdzen i tlo przyjmuja nowy kolor po odswiezeniu strony. Tryb oszczedny zmniejsza zuzycie baterii i procesora.'));
     },
   };
+  UI.appearance = {
+    setTheme(name) {
+      put('jarvis.theme', name);
+      applyTheme(name);
+    },
+    setMotion(mode) {
+      put('jarvis.motion', mode);
+      applyTheme(get('jarvis.theme', 'cyjan'));
+    },
+  };
   UI.extend('set', { appearance: def });
 })();
