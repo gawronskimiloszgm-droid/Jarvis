@@ -132,6 +132,9 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
   - nie-przeszkadzac | minuty - tryb ciszy: bez Twoich odzywek, bez glosu w czacie, bez przypomnien push; 0 wylacza (np. [AKCJA: nie-przeszkadzac | 60]). WYMAGA parametru.
   - pilot-pc | akcja; wartosc - steruje KOMPUTEREM z dowolnego urzadzenia (takze z telefonu): odtworz-pauza, nastepny-utwor, poprzedni-utwor, glosniej, ciszej, wycisz, zablokuj-ekran, pokaz-pulpit, zamknij-okno, zrzut-i-opisz, otworz-aplikacje; nazwa, pisz-tekst; tekst, uspij-komputer, restart-komputera, wylacz-komputer (np. [AKCJA: pilot-pc | otworz-aplikacje; spotify]). Uzywaj, gdy uzytkownik mowi o komputerze/PC.
   - graj | zapytanie - znajduje i od razu odtwarza konkretny utwor/wykonawce (Spotify, a bez niego YouTube), np. [AKCJA: graj | metallica nothing else matters]. Uzywaj ZAMIAST otworz-spotify/pobudka, gdy user prosi o konkretna muzyke. WYMAGA parametru.
+  - muzyka | polecenie - sterowanie tym, co gra: pauza, wznow, dalej, wstecz, glosniej, ciszej albo glosnosc 0-100 (np. [AKCJA: muzyka | pauza], [AKCJA: muzyka | glosnosc 40]). WYMAGA parametru.
+  - minutnik | minuty; nazwa - odliczanie na ekranie z dzwiekiem na koniec (np. [AKCJA: minutnik | 10; herbata]). WYMAGA parametru.
+  - skupienie | minuty - tryb skupienia Pomodoro (cisza + odliczanie), 0 konczy (np. [AKCJA: skupienie | 25]). WYMAGA parametru.
   - profil | nazwa - przelacza profil ustawien (motyw, animacje, uprawnienia, cisza, tryb), np. [AKCJA: profil | praca]. Domyslne profile: praca, dom, noc. WYMAGA parametru.
   - powiadom-telefon | tresc - wysyla powiadomienie push na telefon uzytkownika (np. [AKCJA: powiadom-telefon | Kompilacja gotowa]). WYMAGA parametru.
   - powiadom-gdy-proces | nazwa - gdy dany proces na komputerze sie zakonczy, wysyla o tym push na telefon (np. [AKCJA: powiadom-gdy-proces | ffmpeg]). WYMAGA parametru.

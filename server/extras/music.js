@@ -90,6 +90,27 @@ router.get('/callback', async (req, res) => {
   }
 });
 
+router.get('/api/spotify/now', requireOwner, async (req, res) => {
+  if (!player.isConnected()) return res.json({ connected: false });
+  try {
+    res.json({ connected: true, ...(await player.nowPlaying()) });
+  } catch (err) {
+    res.json({ connected: true, playing: false, error: err.message });
+  }
+});
+
+const CONTROL = new Set(['play', 'pause', 'next', 'prev', 'volume', 'up', 'down']);
+router.post('/api/spotify/control', requireOwner, async (req, res) => {
+  const cmd = String(req.body?.cmd || '');
+  if (!CONTROL.has(cmd)) return res.status(400).json({ error: 'Nieznane polecenie.' });
+  if (!player.isConnected()) return res.status(409).json({ error: 'Spotify nie jest polaczone.', notConnected: true });
+  try {
+    res.json({ ok: true, ...((await player.control(cmd, req.body?.value)) || {}) });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 router.post('/api/spotify/disconnect', requireOwner, (req, res) => {
   player.disconnect();
   res.json({ ok: true });

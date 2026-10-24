@@ -13,6 +13,7 @@ import { askCurrent } from '../extras/documents.js';
 import { aliasBlock } from '../extras/voiceux.js';
 import { isDnd } from '../extras/dnd.js';
 import { profileBlock } from '../extras/profiles.js';
+import * as spotifyPlayer from '../connect/spotifyPlayer.js';
 import { EDITH_VOICE, edithApiKey, buildReport as edithReport } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
@@ -217,6 +218,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
+- muzyka / co_gra: sterowanie tym, co gra (pauza, dalej, glosnosc) i pytanie co leci. minutnik: odliczanie na ekranie (zamiast przypomnienia, gdy chodzi o kilka-kilkadziesiat minut). skupienie: tryb Pomodoro.
 - pilot_pc: sterowanie KOMPUTEREM zdalnie (takze gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, zrzut ekranu, otwieranie aplikacji, wpisywanie tekstu. Uzywaj gdy user mowi o komputerze/PC/laptopie i jest poza nim.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
 - zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
@@ -308,6 +310,37 @@ const ALL_TOOLS = [
       },
       required: ['zapytanie'],
     },
+  },
+  {
+    name: 'muzyka',
+    description: 'Steruj tym, co gra: pauza, wznow, dalej (nastepny utwor), wstecz, glosniej, ciszej, glosnosc (wartosc 0-100).',
+    parameters: {
+      type: 'object',
+      properties: {
+        polecenie: { type: 'string', enum: ['pauza', 'wznow', 'dalej', 'wstecz', 'glosniej', 'ciszej', 'glosnosc'] },
+        wartosc: { type: 'number', description: 'Tylko dla glosnosc: 0-100.' },
+      },
+      required: ['polecenie'],
+    },
+  },
+  {
+    name: 'co_gra',
+    description: 'Sprawdz, jaki utwor teraz gra na Spotify uzytkownika (tytul, wykonawca, urzadzenie).',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'minutnik',
+    description: 'Ustaw minutnik odliczajacy na ekranie (z dzwiekiem i powiadomieniem na koniec), np. "minutnik 10 minut na herbate".',
+    parameters: {
+      type: 'object',
+      properties: { minuty: { type: 'number' }, nazwa: { type: 'string', description: 'Na co (krotko), opcjonalnie.' } },
+      required: ['minuty'],
+    },
+  },
+  {
+    name: 'skupienie',
+    description: 'Tryb skupienia (Pomodoro): odliczanie pracy z wylaczonymi powiadomieniami i Twoimi odzywkami, potem przerwa. minuty=0 konczy tryb.',
+    parameters: { type: 'object', properties: { minuty: { type: 'number', description: 'Dlugosc bloku pracy, domyslnie 25.' } } },
   },
   {
     name: 'graj_muzyke',
@@ -1064,6 +1097,44 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'muzyka') {
+                const { polecenie, wartosc } = call.args || {};
+                const MAP = { pauza: 'pause', wznow: 'play', dalej: 'next', wstecz: 'prev', glosniej: 'up', ciszej: 'down', glosnosc: 'volume' };
+                const KEYS = { pauza: 'odtworz-pauza', wznow: 'odtworz-pauza', dalej: 'nastepny-utwor', wstecz: 'poprzedni-utwor', glosniej: 'glosniej', ciszej: 'ciszej' };
+                if (!MAP[polecenie]) {
+                  result = { error: 'nieznane polecenie' };
+                } else if (spotifyPlayer.isConnected()) {
+                  try {
+                    result = { ok: true, ...((await spotifyPlayer.control(MAP[polecenie], wartosc)) || {}) };
+                  } catch (e) {
+                    result = { error: e.message };
+                  }
+                } else if (KEYS[polecenie]) {
+                  // Bez polaczonego Spotify: klawisze multimedialne na komputerze (dziala z kazdym odtwarzaczem).
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: KEYS[polecenie] }));
+                  result = { ok: true };
+                } else {
+                  result = { error: 'ustawienie konkretnej glosnosci wymaga polaczonego Spotify' };
+                }
+              } else if (call.name === 'co_gra') {
+                if (!spotifyPlayer.isConnected()) {
+                  result = { error: 'Spotify nie jest polaczone - nie wiem, co gra' };
+                } else {
+                  try {
+                    const n = await spotifyPlayer.nowPlaying();
+                    result = n.track ? { gra: n.playing, utwor: n.track, wykonawca: n.artist, urzadzenie: n.device } : { gra: false };
+                  } catch (e) {
+                    result = { error: e.message };
+                  }
+                }
+              } else if (call.name === 'minutnik') {
+                const { minuty, nazwa } = call.args || {};
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'minutnik', params: { minuty: Number(minuty) || 0, nazwa: String(nazwa || '') } }));
+                result = { ok: true };
+              } else if (call.name === 'skupienie') {
+                const m = (call.args || {}).minuty;
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'skupienie', params: { minuty: m == null ? 25 : Number(m) } }));
+                result = { ok: true };
               } else if (call.name === 'graj_muzyke') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'graj', params: { zapytanie: String((call.args || {}).zapytanie || '') } }));
                 result = { ok: true, note: 'szukam i odpalam; powiedz krotko co puszczasz' };

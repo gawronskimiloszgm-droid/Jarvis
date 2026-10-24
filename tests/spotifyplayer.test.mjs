@@ -62,3 +62,32 @@ test('spotify: zly state w callbacku jest odrzucany', async () => {
   assert.ok(url.includes('user-modify-playback-state'));
   assert.ok(url.includes(encodeURIComponent('https://example.com/callback')));
 });
+
+test('spotify: sterowanie - dalej i glosniej, a bez aktywnego urzadzenia wybiera komputer', async () => {
+  let first = true;
+  const calls = mockFetch((url, opts) => {
+    if (url.includes('accounts.spotify.com')) return json(200, { access_token: 'tok', expires_in: 3600 });
+    if (url.includes('/me/player/next')) {
+      if (first && !url.includes('device_id')) {
+        first = false;
+        return json(404, { error: { message: 'No active device', reason: 'NO_ACTIVE_DEVICE' } });
+      }
+      return { status: 204, ok: true, json: async () => ({}) };
+    }
+    if (url.endsWith('/me/player/devices')) return json(200, { devices: [{ id: 'pc', name: 'PC', type: 'Computer', is_active: false }] });
+    if (url.includes('/me/player?')) return json(200, { is_playing: true, device: { name: 'PC', volume_percent: 40 }, item: { name: 'One', artists: [{ name: 'Metallica' }], duration_ms: 1000 } });
+    if (url.includes('/me/player/volume')) return { status: 204, ok: true, json: async () => ({}) };
+    return json(404, {});
+  });
+  await player.control('next');
+  const nexts = calls.filter((c) => c.url.includes('/me/player/next'));
+  assert.equal(nexts.length, 2);
+  assert.ok(nexts[1].url.includes('device_id=pc'));
+  const r = await player.control('up', 15);
+  assert.equal(r.volume, 55);
+  assert.ok(calls.some((c) => c.url.includes('volume_percent=55')));
+  const now = await player.nowPlaying();
+  assert.equal(now.track, 'One');
+  assert.equal(now.artist, 'Metallica');
+  await assert.rejects(() => player.control('xyz'), /Nieznane/);
+});

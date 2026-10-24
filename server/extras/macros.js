@@ -36,7 +36,7 @@ export function cleanSteps(kroki) {
 }
 
 router.post('/api/macros', requireOwner, (req, res) => {
-  const nazwa = String(req.body?.nazwa || '').trim().toLowerCase().slice(0, 40);
+  const nazwa = (typeof req.body?.nazwa === 'string' ? req.body.nazwa : '').trim().toLowerCase().slice(0, 40);
   const steps = cleanSteps(req.body?.kroki);
   if (!nazwa || !steps.length) return res.status(400).json({ error: 'Podaj nazwe i co najmniej jeden krok.' });
   memory.saveRoutine(nazwa, steps);

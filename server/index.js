@@ -235,6 +235,8 @@ app.get('/api/health', (req, res) => {
     spotifyConfigured: Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
     edithOwnKey: Boolean(process.env.EDITH_GEMINI_API_KEY),
     ...keyStatus(),
+    calendarConnected: calendar.isConnected(),
+    memoryPersistent: Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN),
     liveClonedVoiceDefault: LIVE_CLONED_VOICE_REQUESTED,
   });
 });

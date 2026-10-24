@@ -34,8 +34,9 @@ export function aliasBlock() {
 router.get('/api/aliases', requireOwner, (req, res) => res.json({ aliases: aliases() }));
 
 router.post('/api/aliases', requireOwner, (req, res) => {
-  const fraza = String(req.body?.fraza || '').trim().slice(0, 80);
-  const znaczenie = String(req.body?.znaczenie || '').trim().slice(0, 300);
+  const txt = (v) => (typeof v === 'string' ? v : '');
+  const fraza = txt(req.body?.fraza).trim().slice(0, 80);
+  const znaczenie = txt(req.body?.znaczenie).trim().slice(0, 300);
   if (!fraza || !znaczenie) return res.status(400).json({ error: 'Podaj fraze i jej znaczenie.' });
   const list = aliases();
   const i = list.findIndex((a) => a.fraza.toLowerCase() === fraza.toLowerCase());

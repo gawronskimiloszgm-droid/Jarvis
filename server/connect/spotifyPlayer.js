@@ -27,6 +27,9 @@ export function isConnected() {
   return Boolean(refreshToken());
 }
 
+// Ostatni token dostepu (zyje ok. godziny).
+let cached = null;
+
 const states = new Map();
 const STATE_TTL = 10 * 60 * 1000;
 
@@ -72,8 +75,6 @@ export function disconnect() {
   memory.save(d);
   cached = null;
 }
-
-let cached = null;
 
 async function userToken() {
   if (cached && Date.now() < cached.exp - 30_000) return cached.token;
@@ -133,4 +134,71 @@ export async function playUri(uri) {
     throw e;
   }
   return { device: target.name };
+}
+
+/** Co teraz gra (albo null, gdy nic). */
+export async function nowPlaying() {
+  const d = await api('GET', '/me/player?additional_types=track,episode');
+  if (!d || !d.item) return { playing: false, device: d?.device?.name || null };
+  const it = d.item;
+  return {
+    playing: Boolean(d.is_playing),
+    track: it.name,
+    artist: (it.artists || []).map((a) => a.name).join(', ') || it.show?.name || '',
+    album: it.album?.name || '',
+    image: it.album?.images?.[it.album.images.length > 1 ? 1 : 0]?.url || null,
+    progressMs: d.progress_ms || 0,
+    durationMs: it.duration_ms || 0,
+    device: d.device?.name || null,
+    volume: d.device?.volume_percent ?? null,
+    uri: it.uri,
+  };
+}
+
+async function withDevice(fn) {
+  try {
+    return await fn('');
+  } catch (e) {
+    // Brak aktywnego urzadzenia - wybieramy komputer albo pierwsze z listy i ponawiamy.
+    if (e.status !== 404) throw e;
+    const list = await devices();
+    if (!list.length) throw new Error('Spotify nie jest uruchomione na zadnym urzadzeniu.');
+    const target = list.find((d) => d.type === 'Computer') || list[0];
+    return fn(`device_id=${encodeURIComponent(target.id)}`);
+  }
+}
+
+/** Sterowanie: play | pause | next | prev | volume (value 0-100) | up | down. */
+export async function control(cmd, value) {
+  const q = (extra, more) => [extra, more].filter(Boolean).join('&');
+  try {
+    switch (cmd) {
+      case 'play':
+        return await withDevice((dev) => api('PUT', `/me/player/play${dev ? `?${dev}` : ''}`));
+      case 'pause':
+        return await withDevice((dev) => api('PUT', `/me/player/pause${dev ? `?${dev}` : ''}`));
+      case 'next':
+        return await withDevice((dev) => api('POST', `/me/player/next${dev ? `?${dev}` : ''}`));
+      case 'prev':
+        return await withDevice((dev) => api('POST', `/me/player/previous${dev ? `?${dev}` : ''}`));
+      case 'up':
+      case 'down':
+      case 'volume': {
+        let v = Number(value);
+        if (cmd !== 'volume') {
+          const now = await nowPlaying().catch(() => null);
+          const cur = Number.isFinite(now?.volume) ? now.volume : 50;
+          v = cur + (cmd === 'up' ? 1 : -1) * (Number(value) || 15);
+        }
+        v = Math.max(0, Math.min(100, Math.round(v)));
+        await withDevice((dev) => api('PUT', `/me/player/volume?${q(`volume_percent=${v}`, dev)}`));
+        return { volume: v };
+      }
+      default:
+        throw new Error('Nieznane polecenie odtwarzacza.');
+    }
+  } catch (e) {
+    if (e.status === 403) throw new Error('Spotify odmawia sterowania - wymaga konta Premium (albo nic nie jest wybrane do grania).');
+    throw e;
+  }
 }

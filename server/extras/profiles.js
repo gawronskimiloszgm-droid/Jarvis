@@ -21,10 +21,12 @@ const SEED = [
 function state() {
   const d = memory.load();
   if (!d.profiles || !Array.isArray(d.profiles.list) || !d.profiles.list.length) d.profiles = { list: SEED.map((p) => ({ ...p })), active: 'dom' };
+  if (!d.profiles.list.some((p) => p.name === d.profiles.active)) d.profiles.active = d.profiles.list[0].name;
   return d.profiles;
 }
 
-const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+// Tylko tekst i liczby - obiekt z zapytania nie moze zamienic sie w nazwe "[object Object]".
+const clip = (v, n) => (typeof v === 'string' || typeof v === 'number' ? String(v) : '').trim().slice(0, n);
 
 function clean(p) {
   const name = clip(p?.name, 30).toLowerCase();

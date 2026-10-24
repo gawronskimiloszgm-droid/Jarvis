@@ -107,6 +107,15 @@ const MODULE_ICONS = {
   find: '●', dev: '⬡', agent: '◇', set: '⚙', logs: '≡',
 };
 
+// Grupy w szynie nawigacji - przy dwudziestu kilku modulach plaska lista
+// przestala sie miescic. Dodatki podaja grupe w JarvisUI.register({ group }).
+const DOCK_GROUPS = ['Glowne', 'Komputer', 'Wiedza', 'Dom', 'System'];
+const MODULE_GROUP = {
+  dash: 'Glowne', tasks: 'Glowne', know: 'Wiedza', money: 'Dom', eye: 'Dom', perimeter: 'Dom',
+  machine: 'Komputer', sentinel: 'Wiedza', cad: 'Dom', find: 'Wiedza', dev: 'Komputer', agent: 'Wiedza',
+  set: 'System', logs: 'System', sys: 'System',
+};
+
 const LIVE_PANELS = new Set();
 const panelLive = (id) => LIVE_PANELS.has(id);
 const moduleById = (id) => MODULES.find((m) => m.id === id);
@@ -211,17 +220,48 @@ function closeWindow(id) {
   if (activeModule === id) openWindow('dash');
 }
 
+function railCollapsed() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('jarvis.railCollapsed') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
 function buildDock() {
   const dock = $('#dock');
   dock.innerHTML = '';
-  MODULES.forEach((m) => {
-    const b = el('button', 'dock-btn');
-    b.type = 'button';
-    b.dataset.mod = m.id;
-    b.title = m.title;
-    b.append(el('span', 'dock-ico', MODULE_ICONS[m.id] || '◇'), el('span', 'dock-lbl', m.title));
-    b.addEventListener('click', () => openWindow(m.id));
-    dock.appendChild(b);
+  const collapsed = railCollapsed();
+  const groups = [...DOCK_GROUPS, ...new Set(MODULES.map((m) => MODULE_GROUP[m.id] || 'Inne'))].filter((g, i, a) => a.indexOf(g) === i);
+  groups.forEach((g) => {
+    const mods = MODULES.filter((m) => (MODULE_GROUP[m.id] || 'Inne') === g);
+    if (!mods.length) return;
+    const sec = el('div', 'dock-group');
+    sec.dataset.group = g;
+    if (collapsed.has(g)) sec.classList.add('collapsed');
+    const head = el('button', 'dock-group-head', g);
+    head.type = 'button';
+    head.addEventListener('click', () => {
+      sec.classList.toggle('collapsed');
+      const now = railCollapsed();
+      sec.classList.contains('collapsed') ? now.add(g) : now.delete(g);
+      try {
+        localStorage.setItem('jarvis.railCollapsed', JSON.stringify([...now]));
+      } catch {
+        /* bez localStorage grupy po prostu nie pamietaja stanu */
+      }
+    });
+    sec.appendChild(head);
+    mods.forEach((m) => {
+      const b = el('button', 'dock-btn');
+      b.type = 'button';
+      b.dataset.mod = m.id;
+      b.title = m.sub ? `${m.title} - ${m.sub}` : m.title;
+      b.append(el('span', 'dock-ico', MODULE_ICONS[m.id] || '◇'), el('span', 'dock-lbl', m.title));
+      b.addEventListener('click', () => openWindow(m.id));
+      sec.appendChild(b);
+    });
+    dock.appendChild(sec);
   });
   syncDock();
 }
@@ -229,8 +269,13 @@ function buildDock() {
 function syncDock() {
   document.querySelectorAll('.dock-btn').forEach((b) => {
     const m = moduleById(b.dataset.mod);
-    b.classList.toggle('on', activeModule === b.dataset.mod);
+    const on = activeModule === b.dataset.mod;
+    b.classList.toggle('on', on);
     b.classList.toggle('off', Boolean(m?.owner) && !isOwner());
+    if (on) b.closest('.dock-group')?.classList.add('has-active');
+  });
+  document.querySelectorAll('.dock-group').forEach((g) => {
+    if (!g.querySelector('.dock-btn.on')) g.classList.remove('has-active');
   });
 }
 
@@ -570,6 +615,7 @@ let paletteSel = 0;
 
 function openPalette() {
   $('#palette').hidden = false;
+  window.dispatchEvent(new Event('jarvis:palette-open'));
   const input = $('#paletteInput');
   input.value = '';
   drawPalette('');
@@ -585,6 +631,8 @@ function drawPalette(query) {
   paletteItems = paletteCommands().filter(
     (c) => !q || c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q)
   );
+  // Wyszukiwanie globalne (zadania, notatki, dokumenty, pamiec...) - patrz extras/search.js.
+  if (q) paletteItems = paletteItems.concat(window.JarvisUI?.paletteSearch?.(q) || []);
   paletteSel = 0;
   const list = $('#paletteList');
   list.innerHTML = '';
@@ -3012,6 +3060,15 @@ function paramsForAction(name, raw) {
   if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };
+  if (name === 'muzyka') {
+    const [polecenie, wartosc] = String(raw || '').trim().split(/\s+/);
+    return { polecenie, wartosc };
+  }
+  if (name === 'minutnik') {
+    const [m, ...rest] = String(raw || '').split(';');
+    return { minuty: parseFloat(m) || 0, nazwa: rest.join(';').trim() };
+  }
+  if (name === 'skupienie') return { minuty: raw == null || raw === '' ? 25 : parseFloat(raw) };
   if (name === 'profil') return { nazwa: raw };
   if (name === 'pilot-pc') {
     const [akcja, ...rest] = String(raw || '').split(';');
@@ -4174,6 +4231,16 @@ window.JarvisUI = {
   // Z WNETRZA akcji klienckiej (clientActions) uzywaj tego, nie runDeviceAction - ta
   // druga ustawia sie w kolejce ZA akcja, ktora wlasnie trwa.
   runDeviceActionNow: (name, params, options) => runDeviceActionNow(name, params, options),
+  events: () => EVENTS,
+  paramsForAction: (name, raw) => paramsForAction(name, raw),
+  // Podmienia liste paneli modulu (np. nowy Pulpit z widzetami zamiast starych kart).
+  setPanels(moduleId, panels) {
+    const mod = MODULES.find((m) => m.id === moduleId);
+    if (mod) mod.panels = panels.filter((p) => PANEL_DEFS[p]);
+  },
+  setGroup(moduleId, group) {
+    MODULE_GROUP[moduleId] = group;
+  },
   // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
   // Akcje po stronie klienta: { nazwa: async (params) => ... } - patrz runDeviceActionNow.
   clientActions: {},
@@ -4181,6 +4248,7 @@ window.JarvisUI = {
     if (MODULES.some((m) => m.id === def.id)) return;
     const panelIds = Object.keys(def.panels || {});
     MODULES.push({ id: def.id, title: def.title, sub: def.sub || '', owner: Boolean(def.owner), panels: panelIds });
+    if (def.group) MODULE_GROUP[def.id] = def.group;
     MODULE_ICONS[def.id] = def.icon || '◇';
     Object.assign(PANEL_DEFS, def.panels || {});
   },
