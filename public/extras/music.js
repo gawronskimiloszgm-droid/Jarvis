@@ -18,7 +18,7 @@
   }
 
   async function openLink(found) {
-    if (D()) return UI.runDeviceAction('otworz-link', { url: found.url });
+    if (D()) return UI.runDeviceActionNow('otworz-link', { url: found.url });
     if (await hostOnline()) return UI.clientActions['pilot-pc']?.({ akcja: 'otworz-link', wartosc: found.url });
     // Bez komputera: otwieramy na tym urzadzeniu (spotify:... uruchomi aplikacje Spotify).
     window.open(found.url, '_blank') || (location.href = found.url);

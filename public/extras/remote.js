@@ -162,7 +162,7 @@
     const action = String(p?.akcja || '').trim();
     if (!REMOTE_OK.has(action)) return toast('Nie znam takiej akcji pilota: ' + action);
     const params = p?.wartosc && VALUE_KEY[action] ? { [VALUE_KEY[action]]: String(p.wartosc) } : {};
-    if (D()) return UI.runDeviceAction(action, params);
+    if (D()) return UI.runDeviceActionNow(action, params);
     if (NEEDS_OK.has(action) && !window.confirm('Na pewno: ' + action + ' na komputerze?')) return;
     try {
       const r = await sendRemote(action, params, NEEDS_OK.has(action));

@@ -2816,13 +2816,17 @@ async function runDeviceActionNow(name, params, options) {
   // ekranu, ktora sama pobiera zrzut i wysyla go do serwera.
   const clientAction = window.JarvisUI?.clientActions?.[name];
   if (clientAction) {
-    try {
-      await clientAction(params || {}, options || {});
-      // Jak przy akcjach z komputera: daje znac nasluchujacym (np. nagrywarce makr).
-      window.dispatchEvent(new CustomEvent('jarvis:action-result', { detail: { name, params, result: { ok: true, client: true } } }));
-    } catch (err) {
-      toast(err?.message || `Nie udalo sie: ${name}`);
-    }
+    const run = Promise.resolve()
+      .then(() => clientAction(params || {}, options || {}))
+      .then(() => {
+        // Jak przy akcjach z komputera: daje znac nasluchujacym (np. nagrywarce makr).
+        window.dispatchEvent(new CustomEvent('jarvis:action-result', { detail: { name, params, result: { ok: true, client: true } } }));
+      })
+      .catch((err) => toast(err?.message || `Nie udalo sie: ${name}`));
+    // Kolejka NIE czeka w nieskonczonosc na akcje po stronie strony: agent ekranu trwa
+    // minutami, a akcja kliencka, ktora sama zleca kolejna akcje przez kolejke, czekalaby
+    // na nia w nieskonczonosc (zakleszczenie - wtedy nic juz sie nie otwieralo).
+    await Promise.race([run, new Promise((res) => setTimeout(res, 8000))]);
     return;
   }
   // "wlacz-edith"/"wlacz-jarvis" sa czysto klienckie (przelaczaja widok),
@@ -4167,6 +4171,9 @@ window.JarvisUI = {
   setCoreState, openWindow, runDeviceAction, deaccent, sendTyped,
   toggleListening: () => liveToggle(),
   runRoutine: (steps, arg) => runRoutineSteps(steps, arg),
+  // Z WNETRZA akcji klienckiej (clientActions) uzywaj tego, nie runDeviceAction - ta
+  // druga ustawia sie w kolejce ZA akcja, ktora wlasnie trwa.
+  runDeviceActionNow: (name, params, options) => runDeviceActionNow(name, params, options),
   // Dodaje caly nowy modul: { id, title, sub, icon, owner, panels: { id: panelDef } }
   // Akcje po stronie klienta: { nazwa: async (params) => ... } - patrz runDeviceActionNow.
   clientActions: {},
