@@ -12,6 +12,7 @@ import macros from './macros.js';
 import mailtriage from './mailtriage.js';
 import './briefplus.js';
 import insights from './insights.js';
+import remote from './remote.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

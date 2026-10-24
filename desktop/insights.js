@@ -44,6 +44,10 @@ const TOP_SCRIPT = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $top = Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { @{ name = $_.ProcessName; pid = $_.Id; cpu = 0; memMb = [math]::Round($_.WorkingSet64 / 1MB) } }
 @{ top = @($top) } | ConvertTo-Json -Compress -Depth 4`;
 
+const BATTERY_SCRIPT = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($b) { @{ has = $true; percent = [int]$b.EstimatedChargeRemaining; charging = ($b.BatteryStatus -eq 2 -or $b.BatteryStatus -ge 6) } | ConvertTo-Json -Compress } else { '{"has":false}' }`;
+
 function dayKey(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -177,6 +181,24 @@ function make({ runPowerShell }) {
         }
       }
       return entry;
+    },
+    bateria: async () => {
+      try {
+        return { ok: true, ...JSON.parse((await runPowerShell(BATTERY_SCRIPT)).output) };
+      } catch {
+        return { ok: false, error: 'Nie udalo sie odczytac baterii.' };
+      }
+    },
+    'proces-dziala': async (p) => {
+      const name = String((p && (p.nazwa || p.name)) || '').replace(/[^\p{L}\p{N}._ -]/gu, '').replace(/\.exe$/i, '');
+      if (!name) return { ok: false, error: 'Podaj nazwe procesu.' };
+      try {
+        const out = JSON.parse((await runPowerShell(`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+@{ n = @(Get-Process -Name '${name}' -ErrorAction SilentlyContinue).Count } | ConvertTo-Json -Compress`)).output);
+        return { ok: true, dziala: out.n > 0, ile: out.n };
+      } catch {
+        return { ok: false, error: 'Nie udalo sie sprawdzic procesu.' };
+      }
     },
     'czas-pracy': async (p) => {
       flush();

@@ -124,7 +124,7 @@ const app = express();
 app.use(cors());
 // Wczytywanie plikow i zrzutow ekranu (server/extras/documents.js) ma wlasny,
 // wiekszy limit na poziomie trasy - globalny 8 MB odcialby je wczesniej.
-const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/step', '/api/notes/audio', '/api/backup/restore']);
+const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/step', '/api/notes/audio', '/api/backup/restore', '/api/remote/result']);
 const BIG_BODY = (req) => req.method === 'POST' && BIG_BODY_PATHS.has(req.path);
 const smallJson = express.json({ limit: '8mb' });
 app.use((req, res, next) => (BIG_BODY(req) ? next() : smallJson(req, res, next)));

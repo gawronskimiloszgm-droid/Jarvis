@@ -3002,6 +3002,8 @@ function paramsForAction(name, raw) {
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
   if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'schowek-ai') return { operacja: raw };
+  if (name === 'powiadom-telefon') return { tresc: raw };
+  if (name === 'powiadom-gdy-proces') return { nazwa: raw };
   if (name === 'szukaj-plikow') return { zapytanie: raw };
   if (name === 'ukladaj-okno') return { tryb: raw };
   if (name === 'zawies-proces' || name === 'wznow-proces') return { nazwa: raw };

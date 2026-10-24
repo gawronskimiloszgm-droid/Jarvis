@@ -307,6 +307,16 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'powiadom_telefon',
+    description: 'Wyslij powiadomienie push na telefon uzytkownika.',
+    parameters: { type: 'object', properties: { tresc: { type: 'string' } }, required: ['tresc'] },
+  },
+  {
+    name: 'powiadom_gdy_proces',
+    description: 'Gdy podany proces na komputerze sie zakonczy (np. render, kompilacja, pobieranie), wyslij o tym push na telefon.',
+    parameters: { type: 'object', properties: { nazwa: { type: 'string', description: 'Nazwa procesu bez .exe, np. ffmpeg' } }, required: ['nazwa'] },
+  },
+  {
     name: 'przetworz_schowek',
     description: 'Przetworz tekst ze SCHOWKA komputera i wstaw wynik z powrotem do schowka: streszcz, punkty, popraw, formalizuj, wyjasnij, tlumacz-en, tlumacz-pl.',
     parameters: {
@@ -1017,6 +1027,12 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'powiadom_telefon') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'powiadom-telefon', params: { tresc: String((call.args || {}).tresc || '') } }));
+                result = { ok: true };
+              } else if (call.name === 'powiadom_gdy_proces') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'powiadom-gdy-proces', params: { nazwa: String((call.args || {}).nazwa || '') } }));
+                result = { ok: true, note: 'obserwuje proces; powiedz krotko, ze dasz znac na telefonie' };
               } else if (call.name === 'przetworz_schowek') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'schowek-ai', params: { operacja: (call.args || {}).operacja } }));
                 result = { ok: true, note: 'wynik laduje w schowku i w rozmowie - powiedz krotko, ze gotowe' };

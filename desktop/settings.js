@@ -9,6 +9,7 @@ const path = require('path');
 const DEFAULTS = {
   permissionMode: 'zaufany', // podglad | pytaj | zaufany
   clipboardHistory: false,
+  remoteControl: false, // czy ten komputer przyjmuje polecenia z telefonu (domyslnie NIE)
   worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',
