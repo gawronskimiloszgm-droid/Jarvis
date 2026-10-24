@@ -70,3 +70,23 @@ export async function searchPlaylists(query, limit = 5) {
     opis: pl.description || '',
   }));
 }
+
+/**
+ * Najlepiej pasujacy UTWOR do zapytania ("metallica nothing else matters").
+ * Zwraca URI do otwarcia w aplikacji Spotify (spotify:track:ID) - ten sam
+ * schemat, ktorym juz dziala "pobudka", wiec utwor od razu zaczyna grac.
+ * @returns {Promise<{uri:string, nazwa:string, artysta:string}|null>}
+ */
+export async function searchTrack(query) {
+  const q = String(query || '').trim();
+  if (!q) return null;
+  const token = await getAppToken();
+  const p = new URLSearchParams({ q, type: 'track', limit: '3', market: 'PL' });
+  const res = await fetch(`https://api.spotify.com/v1/search?${p.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
+  const t = (data.tracks?.items || []).filter(Boolean)[0];
+  return t ? { uri: t.uri, nazwa: t.name, artysta: (t.artists || []).map((a) => a.name).join(', ') } : null;
+}

@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { requireOwner } from '../core/auth.js';
 import * as push from '../connect/push.js';
 import { isDnd } from './dnd.js';
+import { LINK_RE } from './music.js';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ export const REMOTE_ALLOWED = new Set([
   'odtworz-pauza', 'nastepny-utwor', 'poprzedni-utwor', 'glosniej', 'ciszej', 'wycisz',
   'zablokuj-ekran', 'uspij-komputer', 'pokaz-pulpit', 'zamknij-okno',
   'zrzut-i-opisz', 'lista-okien', 'lista-procesow', 'schowek-odczyt', 'schowek-zapis',
-  'otworz-aplikacje', 'otworz-spotify', 'otworz-przegladarke', 'przelacz-okno', 'pisz-tekst',
+  'otworz-aplikacje', 'otworz-link', 'otworz-spotify', 'otworz-przegladarke', 'przelacz-okno', 'pisz-tekst',
   'restart-komputera', 'wylacz-komputer',
 ]);
 // Te dwie wymagaja jawnego potwierdzenia na telefonie (confirmed:true).
@@ -47,6 +48,9 @@ router.post('/api/remote/command', requireOwner, (req, res) => {
   if (!REMOTE_ALLOWED.has(action)) return res.status(400).json({ error: 'Ta akcja nie jest dostepna zdalnie.' });
   if (NEEDS_CONFIRM.has(action) && req.body?.confirmed !== true) {
     return res.status(400).json({ error: 'Ta akcja wymaga potwierdzenia (confirmed:true).' });
+  }
+  if (action === 'otworz-link' && !LINK_RE.test(String(req.body?.params?.url || ''))) {
+    return res.status(400).json({ error: 'Ten link nie jest dozwolony.' });
   }
   if (Date.now() - lastSeen > 45000) return res.status(409).json({ error: 'Komputer jest offline albo zdalne sterowanie jest wylaczone.' });
   if (queue.length >= 20) return res.status(429).json({ error: 'Za duzo oczekujacych polecen.' });

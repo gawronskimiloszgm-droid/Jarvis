@@ -86,6 +86,14 @@ const ACTIONS = {
     await shell.openExternal(`spotify:track:${WAKE_TRACK_ID}`).catch(() => shell.openExternal(`https://open.spotify.com/track/${WAKE_TRACK_ID}`));
     return { ok: true };
   },
+  // Otwiera TYLKO linki do utworow (Spotify / YouTube) - nic innego.
+  'otworz-link': async (params) => {
+    const url = String((params && (params.url || params.link)) || '').trim();
+    const ok = /^spotify:(track|album|playlist|artist):[A-Za-z0-9]{10,30}$/.test(url) || /^https:\/\/(open\.spotify\.com\/(track|album|playlist|artist)\/[A-Za-z0-9]+|www\.youtube\.com\/watch\?v=[\w-]{11}|music\.youtube\.com\/watch\?v=[\w-]{11})([?&#][\w=&%.-]*)?$/.test(url);
+    if (!ok) return { ok: false, error: 'Ten link nie jest dozwolony (tylko utwory Spotify/YouTube).' };
+    await shell.openExternal(url);
+    return { ok: true };
+  },
   'otworz-youtube-music': async () => { await shell.openExternal('https://music.youtube.com'); return { ok: true }; },
   'otworz-przegladarke': async () => { await shell.openExternal('https://google.com'); return { ok: true }; },
   'otworz-discord': async () => { await shell.openExternal('discord:').catch(() => shell.openExternal('https://discord.com/app')); return { ok: true }; },

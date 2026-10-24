@@ -14,6 +14,7 @@ import './briefplus.js';
 import insights from './insights.js';
 import remote from './remote.js';
 import profiles from './profiles.js';
+import music from './music.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

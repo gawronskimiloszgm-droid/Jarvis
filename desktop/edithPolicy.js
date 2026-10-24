@@ -3,6 +3,7 @@
 
 const SAFE_ACTIONS = new Set([
   'otworz-spotify',
+  'otworz-link',
   'pobudka',
   'otworz-youtube-music',
   'otworz-przegladarke',

@@ -213,7 +213,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
-- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke/muzyke na dzien dobry. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
+- steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej WYLACZNIE gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke. Przy KAZDEJ innej prosbie o muzyke (konkretny utwor, wykonawca, gatunek) uzyj graj_muzyke - nigdy pobudki. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
@@ -306,6 +306,15 @@ const ALL_TOOLS = [
         dni: { type: 'number', description: 'Opcjonalnie: tylko pliki zmienione w ostatnich N dniach.' },
         rozszerzenie: { type: 'string', description: 'Opcjonalnie: pdf, docx, xlsx...' },
       },
+      required: ['zapytanie'],
+    },
+  },
+  {
+    name: 'graj_muzyke',
+    description: 'Znajdz i OD RAZU odtworz konkretny utwor albo wykonawce (Spotify, a gdy niedostepne - YouTube). Uzywaj przy KAZDEJ prosbie o konkretna muzyke ("pusc Metallice", "zagraj Nothing Else Matters"). Zapytanie: wykonawca + tytul.',
+    parameters: {
+      type: 'object',
+      properties: { zapytanie: { type: 'string', description: 'np. "metallica nothing else matters"' } },
       required: ['zapytanie'],
     },
   },
@@ -1053,6 +1062,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'graj_muzyke') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'graj', params: { zapytanie: String((call.args || {}).zapytanie || '') } }));
+                result = { ok: true, note: 'szukam i odpalam; powiedz krotko co puszczasz' };
               } else if (call.name === 'pilot_pc') {
                 const { akcja, wartosc } = call.args || {};
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'pilot-pc', params: { akcja: String(akcja || ''), wartosc: String(wartosc || '') } }));

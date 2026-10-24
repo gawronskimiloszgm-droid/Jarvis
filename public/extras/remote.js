@@ -154,8 +154,8 @@
 
   // Glos / czat: "Jarvis, wycisz komputer" z telefonu. Na samym komputerze
   // akcja idzie normalnie lokalnie, na telefonie - przez serwer do komputera.
-  const VALUE_KEY = { 'otworz-aplikacje': 'nazwa', 'przelacz-okno': 'tytul', 'pisz-tekst': 'tekst', 'schowek-zapis': 'tekst' };
-  const REMOTE_OK = new Set([...BUTTONS.map((b) => b[0]), ...POWER.map((b) => b[0]), 'zrzut-i-opisz', 'lista-okien', 'lista-procesow', 'schowek-odczyt', 'schowek-zapis', 'otworz-aplikacje', 'otworz-spotify', 'otworz-przegladarke', 'przelacz-okno', 'pisz-tekst']);
+  const VALUE_KEY = { 'otworz-aplikacje': 'nazwa', 'przelacz-okno': 'tytul', 'pisz-tekst': 'tekst', 'schowek-zapis': 'tekst', 'otworz-link': 'url' };
+  const REMOTE_OK = new Set([...BUTTONS.map((b) => b[0]), ...POWER.map((b) => b[0]), 'zrzut-i-opisz', 'lista-okien', 'lista-procesow', 'schowek-odczyt', 'schowek-zapis', 'otworz-aplikacje', 'otworz-link', 'otworz-spotify', 'otworz-przegladarke', 'przelacz-okno', 'pisz-tekst']);
   const NEEDS_OK = new Set(['restart-komputera', 'wylacz-komputer', 'uspij-komputer']);
 
   UI.clientActions['pilot-pc'] = async (p) => {
