@@ -109,6 +109,33 @@
       air({ t0: t, dur: 0.1, peak: 0.1, hp: 2200 });
     },
 
+    // Otwarcie modulu - krotki "holo" sweep z blyskiem na koncu.
+    open(t) {
+      voice({ type: 'sine', from: 440, to: 1760, t0: t, dur: 0.14, peak: 0.32, cutoff: 4800 });
+      voice({ type: 'triangle', from: 2640, to: 3520, t0: t + 0.09, dur: 0.07, peak: 0.08 });
+      air({ t0: t, dur: 0.06, peak: 0.08, hp: 3800 });
+    },
+
+    // Wykonana akcja na komputerze - cichy, krotki "tik" potwierdzenia.
+    done(t) {
+      voice({ type: 'sine', from: 1568, to: 1568, t0: t, dur: 0.06, peak: 0.22 });
+      voice({ type: 'sine', from: 2349, to: 2349, t0: t + 0.05, dur: 0.09, peak: 0.16 });
+    },
+
+    // Alarm (E.D.I.T.H., ostrzezenie) - dwa niskie impulsy, czytelne, ale bez paniki.
+    alert(t) {
+      voice({ type: 'square', from: 523, to: 523, t0: t, dur: 0.12, peak: 0.16, cutoff: 1800 });
+      voice({ type: 'square', from: 523, to: 523, t0: t + 0.18, dur: 0.12, peak: 0.16, cutoff: 1800 });
+      voice({ type: 'sine', from: 1046, to: 1046, t0: t, dur: 0.3, peak: 0.08 });
+    },
+
+    // Slowo "Jarvis" uslyszane - jasne narastanie, zanim wlaczy sie rozmowa.
+    wake(t) {
+      voice({ type: 'sine', from: 660, to: 1320, t0: t, dur: 0.18, peak: 0.4, cutoff: 5000 });
+      voice({ type: 'sine', from: 990, to: 1980, t0: t + 0.06, dur: 0.18, peak: 0.18, detune: 7 });
+      air({ t0: t, dur: 0.08, peak: 0.09, hp: 3000 });
+    },
+
     // Mikrofon wylaczony - to samo w druga strone, krocej.
     micOff(t) {
       voice({ type: 'sine', from: 880, to: 280, t0: t, dur: 0.24, peak: 0.45, cutoff: 3400 });

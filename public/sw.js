@@ -1,4 +1,4 @@
-const CACHE = 'jarvis-shell-v5';
+const CACHE = 'jarvis-shell-v6';
 const SHELL = ['/', '/style.css', '/app.js', '/live-audio-processor.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -18,6 +18,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (event.request.url.includes('/api/')) return;
+  // Pliki z innych domen (np. silnik i model slowa 'Jarvis', ~45 MB) nie trafiaja do
+  // pamieci aplikacji - maja wlasna pamiec podreczna, a tu tylko by sie dublowaly.
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     fetch(event.request)
       .then((res) => {

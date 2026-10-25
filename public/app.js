@@ -3191,6 +3191,8 @@ async function speak(text) {
   // Tryb "nie przeszkadzac": zadnego glosu (potwierdzenia E.D.I.T.H. tez nie
   // sa wtedy mowione - sa i tak widoczne na ekranie i na telefonie).
   if (window.JarvisUI?.dnd?.active) return;
+  // Wlasny glos (lokalny serwer mowy) - gdy wlaczony, czyta zamiast /api/tts.
+  if (window.JarvisUI?.localSpeak && (await window.JarvisUI.localSpeak(text))) return;
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
@@ -3417,6 +3419,8 @@ function wsUrl() {
   if (clonePref != null) p.set('wantClone', clonePref);
   const voicePref = localStorage.getItem('jarvis.voice');
   if (voicePref) p.set('voice', voicePref);
+  // Wlasny glos z lokalnego serwera mowy (extras/localvoice.js) - serwer przysyla wtedy tekst.
+  if (window.JarvisUI?.localVoiceLive?.()) p.set('localVoice', '1');
   const qs = p.toString();
   return `${proto}//${location.host}/ws/voice${qs ? `?${qs}` : ''}`;
 }
@@ -3676,7 +3680,13 @@ async function liveStart() {
       playEncodedChunk(m.data, m.mimeType);
       setCoreState('MOWIE');
     }
-    else if (m.type === 'interrupted') stopOut();
+    else if (m.type === 'interrupted') {
+      stopOut();
+      window.JarvisUI?.localSayStop?.();
+    } else if (m.type === 'say') {
+      window.JarvisUI?.localSay?.(m.text);
+      setCoreState('MOWIE');
+    }
     else if (m.type === 'turnComplete') {
       if (m.userText) pushSaid('me', m.userText);
       if (m.assistantText) pushSaid('jv', m.assistantText);
@@ -4242,6 +4252,10 @@ window.JarvisUI = {
   $, el, api, toast, authHeaders, store, isOwner, logEvent, speak, pushSaid,
   setCoreState, openWindow, runDeviceAction, deaccent, sendTyped,
   toggleListening: () => liveToggle(),
+  // Start rozmowy bez przelaczania (slowo budzace nie moze jej przypadkiem wylaczyc).
+  startListening: () => {
+    if (!store.live) liveStart();
+  },
   runRoutine: (steps, arg) => runRoutineSteps(steps, arg),
   // Z WNETRZA akcji klienckiej (clientActions) uzywaj tego, nie runDeviceAction - ta
   // druga ustawia sie w kolejce ZA akcja, ktora wlasnie trwa.

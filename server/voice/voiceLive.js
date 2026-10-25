@@ -760,7 +760,7 @@ const EDITH_LIVE_VOICE = process.env.EDITH_LIVE_VOICE || 'Kore';
 // persona 'edith' = osobna rozmowa na zywo z E.D.I.T.H.: wlasny klucz API, zenski
 // glos, jej charakter, ZADNYCH narzedzi (nie steruje komputerem) i zadnego
 // zapisu do pamieci/historii Jarvisa. Tylko dla wlasciciela.
-export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null, voice = null) {
+export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null, voice = null, wantLocal = false) {
   const edith = persona === 'edith' && isOwner;
   // Glos wybrany w Ustawieniach (tylko z listy). Gdy model go nie przyjmie, wracamy do domyslnego.
   let voiceOverride = !edith && typeof voice === 'string' && tts.GEMINI_VOICES.includes(voice) ? voice : null;
@@ -779,7 +779,11 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   // Ustawieniach) ma pierwszenstwo nad domyslna wartoscia z .env, gdy go
   // jawnie poda - wantClone===null oznacza "klient nie mial zdania",
   // wiec wtedy decyduje wylacznie env.
-  const clonedVoice = !edith && (wantClone ?? LIVE_CLONED_VOICE_REQUESTED) && tts.cloneStatus().enabled;
+  // Lokalny glos: klient sam czyta odpowiedzi swoim serwerem mowy (np. XTTS na komputerze),
+  // wiec zamiast dzwieku Gemini wysylamy tekst zdanie po zdaniu ({type:'say'}).
+  const localVoice = !edith && Boolean(wantLocal);
+  const clonedVoice = !edith && !localVoice && (wantClone ?? LIVE_CLONED_VOICE_REQUESTED) && tts.cloneStatus().enabled;
+  const textMode = clonedVoice || localVoice;
   // Bufor tekstu miedzy dwoma znakami konca zdania i "pokolenie" syntezy -
   // gdy uzytkownik przerywa (interrupted), pokolenie rosnie i kazda synteza
   // zlecona wczesniej ladujaca po fakcie jest po prostu odrzucana, zamiast
@@ -794,6 +798,10 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   async function synthesizeAndSend(text, gen) {
     const t = text.trim();
     if (!t) return;
+    if (localVoice) {
+      if (!closed && gen === synthGen) safeSend(JSON.stringify({ type: 'say', text: t }));
+      return;
+    }
     try {
       const { buffer, contentType } = await tts.synthesize(t);
       if (closed || gen !== synthGen) return; // przerwane/nieaktualne - nie odzywamy sie po fakcie
@@ -985,7 +993,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
       callbacks: {
         onopen: () => {
           reconnectAttempts = 0;
-          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice }));
+          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice, localVoice }));
         },
         onmessage: async (msg) => {
           if (closed) return;
@@ -995,7 +1003,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           // sie tego wylaczyc - patrz komentarz przy responseModalities),
           // ale po prostu go nie przekazujemy dalej. Klient uslyszy zamiast
           // tego audio z synthesizeAndSend(), zlecone z transkrypcji nizej.
-          if (msg.data && !clonedVoice) {
+          if (msg.data && !textMode) {
             const buf = typeof msg.data === 'string' ? Buffer.from(msg.data, 'base64') : Buffer.from(msg.data);
             safeSend(buf);
           }
@@ -1425,7 +1433,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             // sprawdzone na zywym API, ze przychodzi wieloma kawalkami na
             // odpowiedz, wiec mozna oddawac zdania do syntezy na biezaco,
             // nie czekajac na koniec calej wypowiedzi.
-            if (clonedVoice) {
+            if (textMode) {
               sentenceBuffer += chunk;
               flushSentences();
             }
@@ -1444,7 +1452,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             safeSend(JSON.stringify({ type: 'interrupted' }));
           }
           if (msg.serverContent?.turnComplete) {
-            if (clonedVoice) flushSentences({ all: true });
+            if (textMode) flushSentences({ all: true });
             const userText = userTranscript.trim();
             const assistantText = assistantTranscript.trim();
             if (isOwner && !edith && userText) memory.appendHistory('user', userText);

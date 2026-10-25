@@ -135,6 +135,32 @@ const DYNAMIC_SYSTEM_ACTIONS = {
   ...insights.make({ runPowerShell }),
   // Lekki zrzut do strumienia 'ekran na zywo' i zaznaczanie fragmentu ekranu.
   'zrzut-maly': async (p) => region.smallShot(p.szerokosc, p.jakosc),
+  // Wlasny glos: tekst -> lokalny serwer mowy (XTTS / Piper / zgodny z OpenAI). Tylko adresy
+  // na tym komputerze - akcja nie moze sluzyc do odpytywania dowolnych stron.
+  'lokalny-tts': async (p) => {
+    let u;
+    try {
+      u = new URL(String(p.url || ''));
+    } catch {
+      return { ok: false, error: 'Nieprawidlowy adres serwera mowy.' };
+    }
+    if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname) || !/^https?:$/.test(u.protocol)) return { ok: false, error: 'Dozwolony tylko serwer na tym komputerze (localhost / 127.0.0.1).' };
+    const text = String(p.tekst || '').slice(0, 2000);
+    if (!text) return { ok: false, error: 'Brak tekstu.' };
+    const base = u.origin + u.pathname.replace(/\/$/, '');
+    let req;
+    if (p.format === 'openai') req = [base + '/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: p.model || 'tts-1', input: text, voice: p.glos || 'alloy', response_format: 'wav' }) }];
+    else if (p.format === 'xtts') req = [base + '/tts_to_audio/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, speaker_wav: p.glos || 'jarvis', language: p.jezyk || 'pl' }) }];
+    else req = [base + '/?text=' + encodeURIComponent(text), { method: 'GET' }];
+    try {
+      const res = await fetch(req[0], { ...req[1], signal: AbortSignal.timeout(30000) });
+      if (!res.ok) return { ok: false, error: 'Serwer mowy odpowiedzial ' + res.status + '.' };
+      const buf = Buffer.from(await res.arrayBuffer());
+      return { ok: true, audioBase64: buf.toString('base64'), mimeType: res.headers.get('content-type') || 'audio/wav' };
+    } catch (e) {
+      return { ok: false, error: 'Brak polaczenia z serwerem mowy: ' + (e.message || e) };
+    }
+  },
   'zaznacz-ekran': async () => region.selectRegion(),
   // Uruchamianie dowolnych aplikacji systemowych (np. "notepad", "calc", "chrome", "steam")
   'otworz-aplikacje': async (params) => {
