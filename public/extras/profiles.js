@@ -61,7 +61,8 @@
           const go = el('button', 'btn primary', 'WLACZ');
           go.addEventListener('click', async () => {
             try {
-              await activate(p.name);
+              // Przez akcje kliencka - automatyczne profile wiedza wtedy, ze to reczny wybor.
+              await UI.clientActions.profil({ nazwa: p.name });
               draw();
             } catch (e) {
               toast(e.message);

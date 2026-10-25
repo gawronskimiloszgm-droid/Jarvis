@@ -14,6 +14,7 @@ import { aliasBlock } from '../extras/voiceux.js';
 import { isDnd } from '../extras/dnd.js';
 import { profileBlock } from '../extras/profiles.js';
 import * as spotifyPlayer from '../connect/spotifyPlayer.js';
+import { findRecipe } from '../extras/agentlearn.js';
 import { EDITH_VOICE, edithApiKey, edithContext } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
@@ -225,6 +226,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
+- stan_komputera: temperatury GPU, obciazenie, trwajaca gra. uruchom_przepis: odtworzenie zadania, ktore uzytkownik raz pokazal.
 - ekran_na_zywo: gdy user chce, zebys patrzyl na jego ekran na biezaco. zaznacz_ekran: analiza wybranego fragmentu. pokaz_do_kamery: odczyt kartki/paragonu/pisma z aparatu.
 - muzyka / co_gra: sterowanie tym, co gra (pauza, dalej, glosnosc) i pytanie co leci. minutnik: odliczanie na ekranie (zamiast przypomnienia, gdy chodzi o kilka-kilkadziesiat minut). skupienie: tryb Pomodoro.
 - pilot_pc: sterowanie KOMPUTEREM zdalnie (takze gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, zrzut ekranu, otwieranie aplikacji, wpisywanie tekstu. Uzywaj gdy user mowi o komputerze/PC/laptopie i jest poza nim.
@@ -318,6 +320,16 @@ const ALL_TOOLS = [
       },
       required: ['zapytanie'],
     },
+  },
+  {
+    name: 'stan_komputera',
+    description: 'Sprawdz stan komputera: temperatura i obciazenie karty graficznej, procesor, pamiec, jaka gra trwa i jak dlugo.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'uruchom_przepis',
+    description: 'Wykonaj na komputerze zapamietany przepis (zadanie pokazane wczesniej przez uzytkownika) - agent ekranu zrobi to sam.',
+    parameters: { type: 'object', properties: { nazwa: { type: 'string' } }, required: ['nazwa'] },
   },
   {
     name: 'ekran_na_zywo',
@@ -1123,6 +1135,17 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                     : { error: reply?.error || 'wyszukiwanie plikow dziala tylko w aplikacji desktopowej' };
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
+                }
+              } else if (call.name === 'stan_komputera') {
+                const reply = await requestFromClient({ type: 'fileAction', action: 'stan-gry' }, 10000);
+                result = reply?.ok ? reply : { error: reply?.error || 'stan komputera dziala w aplikacji desktopowej' };
+              } else if (call.name === 'uruchom_przepis') {
+                const r = findRecipe((call.args || {}).nazwa);
+                if (!r) {
+                  result = { error: 'nie znam takiego przepisu - uzytkownik moze go nagrac w module Agent ekranu (Naucz sie z pokazu)' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'przepis', params: { nazwa: r.nazwa } }));
+                  result = { ok: true, przepis: r.nazwa, krokow: r.kroki.length };
                 }
               } else if (call.name === 'ekran_na_zywo') {
                 const wlacz = Boolean((call.args || {}).wlacz);

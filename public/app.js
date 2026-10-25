@@ -3062,6 +3062,7 @@ function paramsForAction(name, raw) {
   if (name === 'graj') return { zapytanie: raw };
   if (name === 'ekran-na-zywo') return { wlacz: !/^(wylacz|stop|off|nie|0)/i.test(deaccent(String(raw || 'wlacz'))) };
   if (name === 'skanuj-kamera') return { cel: raw || 'auto' };
+  if (name === 'przepis') return { nazwa: raw };
   if (name === 'muzyka') {
     const [polecenie, wartosc] = String(raw || '').trim().split(/\s+/);
     return { polecenie, wartosc };

@@ -37,8 +37,19 @@ if ($d -lt 0) { $d += 4294967296 }
 [uint32]$procId = 0
 [void][FG]::GetWindowThreadProcessId([FG]::GetForegroundWindow(), [ref]$procId)
 $name = ''
-try { $name = (Get-Process -Id $procId -ErrorAction Stop).ProcessName } catch {}
-@{ proc = $name; idleSec = [int]($d / 1000) } | ConvertTo-Json -Compress`;
+$exe = ''
+try { $p = Get-Process -Id $procId -ErrorAction Stop; $name = $p.ProcessName; $exe = [string]$p.Path } catch {}
+@{ proc = $name; idleSec = [int]($d / 1000); path = $exe } | ConvertTo-Json -Compress`;
+
+// Gry: po sciezce pliku (biblioteki sklepow) albo po znanej nazwie procesu.
+const GAME_PATH_RE = /[\\/](steamapps[\\/]common|Epic Games|Riot Games|EA Games|Electronic Arts|Ubisoft Game Launcher[\\/]games|GOG Galaxy[\\/]Games|Rockstar Games|XboxGames|Battle\.net)[\\/]/i;
+const GAME_PROCS = new Set(['cs2', 'csgo', 'valorant', 'valorant-win64-shipping', 'fortniteclient-win64-shipping', 'robloxplayerbeta', 'gta5', 'rdr2', 'eldenring', 'minecraft', 'javaw', 'leagueoflegends', 'league of legends', 'overwatch', 'r5apex', 'cod', 'dota2', 'rocketleague', 'fivem', 'gtav', 'witcher3', 'cyberpunk2077', 'deltaforceclient-win64-shipping', 'readyornot-win64-shipping', 'groundbranch-win64-shipping']);
+function isGame(sample) {
+  if (!sample || !sample.proc) return false;
+  const name = String(sample.proc).toLowerCase();
+  if (name === 'javaw') return /minecraft|tlauncher|feather|badlion/i.test(String(sample.path || ''));
+  return GAME_PROCS.has(name) || GAME_PATH_RE.test(String(sample.path || ''));
+}
 
 const TOP_SCRIPT = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $top = Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { @{ name = $_.ProcessName; pid = $_.Id; cpu = 0; memMb = [math]::Round($_.WorkingSet64 / 1MB) } }
@@ -129,17 +140,56 @@ function summarize(days) {
   return { days: keys.length, perDay, byDay, top, totalSec: Object.values(perDay).reduce((a, b) => a + b, 0) };
 }
 
+// Powiadamianie okna aplikacji (np. "zaczela sie gra") - ustawiane z main.js.
+let notify = () => {};
+function setNotifier(fn) {
+  notify = typeof fn === 'function' ? fn : () => {};
+}
+
+// Ostatnia probka "co jest na pierwszym planie" - wspolna dla licznika czasu pracy,
+// trybu gry, obecnosci i automatycznych profili (zeby nie odpalac PowerShella wielokrotnie).
+let lastSample = null;
+const game = { on: false, name: '', since: 0, offStreak: 0 };
+
 function make({ runPowerShell }) {
   let timer = null;
   let busy = false;
 
+  async function foreground(maxAgeMs = 0) {
+    if (maxAgeMs && lastSample && Date.now() - lastSample.at < maxAgeMs) return lastSample;
+    const res = await runPowerShell(FOREGROUND_SCRIPT);
+    const out = JSON.parse(res.output);
+    lastSample = { proc: out.proc || '', idleSec: Number(out.idleSec) || 0, path: out.path || '', at: Date.now() };
+    return lastSample;
+  }
+
+  function trackGame(s) {
+    if (!settings.get('gameMode')) return;
+    if (isGame(s)) {
+      game.offStreak = 0;
+      if (!game.on || game.name !== s.proc) {
+        game.on = true;
+        game.name = s.proc;
+        game.since = game.since && game.on ? game.since : Date.now();
+        notify({ type: 'game', on: true, name: s.proc });
+      }
+    } else if (game.on) {
+      // Krotkie wyjscie z gry (alt+tab) nie konczy trybu - dopiero ok. 3 minuty poza gra.
+      game.offStreak++;
+      if (game.offStreak * SAMPLE_S >= 180) {
+        notify({ type: 'game', on: false, name: game.name, minutes: Math.round((Date.now() - game.since) / 60000) });
+        Object.assign(game, { on: false, name: '', since: 0, offStreak: 0 });
+      }
+    }
+  }
+
   async function sample() {
-    if (busy || !settings.get('worktime')) return;
+    if (busy || (!settings.get('worktime') && !settings.get('gameMode'))) return;
     busy = true;
     try {
-      const res = await runPowerShell(FOREGROUND_SCRIPT);
-      const out = JSON.parse(res.output);
-      if (out.proc && out.idleSec < IDLE_S) {
+      const out = await foreground();
+      trackGame(out);
+      if (settings.get('worktime') && out.proc && out.idleSec < IDLE_S) {
         const today = (load()[dayKey()] ||= {});
         today[out.proc] = (today[out.proc] || 0) + SAMPLE_S;
         dirty = true;
@@ -160,6 +210,35 @@ function make({ runPowerShell }) {
   app.on('before-quit', flush);
 
   return {
+    // Co jest na pierwszym planie i ile sekund bez myszy/klawiatury (obecnosc, profile).
+    'aktywne-okno': async () => {
+      try {
+        const s = await foreground(25000);
+        return { ok: true, proc: s.proc, idleSec: s.idleSec, gra: isGame(s), graTrwa: game.on ? Math.round((Date.now() - game.since) / 60000) : 0 };
+      } catch {
+        return { ok: false, error: 'Nie udalo sie odczytac aktywnego okna.' };
+      }
+    },
+    // Stan na potrzeby gracza: GPU (nvidia-smi), CPU, RAM, aktualna gra.
+    'stan-gry': async () => {
+      const total = os.totalmem();
+      const out = { ok: true, cpu: cpuPercent(), ramUsedPct: Math.round(100 * (1 - os.freemem() / total)), gra: game.on ? game.name : null, minut: game.on ? Math.round((Date.now() - game.since) / 60000) : 0 };
+      await new Promise((resolve) => {
+        require('child_process').execFile(
+          'nvidia-smi',
+          ['--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
+          { timeout: 5000, windowsHide: true },
+          (err, stdout) => {
+            if (!err && stdout) {
+              const [name, temp, util, used, tot] = String(stdout).trim().split(/\s*,\s*/);
+              out.gpu = { nazwa: name, temperatura: Number(temp), obciazenie: Number(util), pamiecMb: Number(used), pamiecCalkowitaMb: Number(tot) };
+            }
+            resolve();
+          }
+        );
+      });
+      return out;
+    },
     telemetria: async (p) => {
       const total = os.totalmem();
       const free = os.freemem();
@@ -217,4 +296,4 @@ function make({ runPowerShell }) {
   };
 }
 
-module.exports = { make, dayKey, FOREGROUND_SCRIPT };
+module.exports = { make, dayKey, FOREGROUND_SCRIPT, setNotifier, isGame };

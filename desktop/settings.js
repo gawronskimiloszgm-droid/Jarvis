@@ -10,6 +10,7 @@ const DEFAULTS = {
   permissionMode: 'zaufany', // podglad | pytaj | zaufany
   clipboardHistory: false,
   remoteControl: false, // czy ten komputer przyjmuje polecenia z telefonu (domyslnie NIE)
+  gameMode: true, // tryb gry: wykrywanie gier i cisza na czas grania
   worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',

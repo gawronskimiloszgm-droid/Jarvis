@@ -17,11 +17,26 @@ const SEED = [
   { name: 'dom', theme: 'cyjan', motion: 'full', permissionMode: 'zaufany', dndMinutes: 0, routine: '', note: '' },
   { name: 'noc', theme: 'bursztyn', motion: 'off', permissionMode: 'pytaj', dndMinutes: 480, routine: '', note: 'Tryb nocny: mow cicho i krotko, nic nie wykonuj na komputerze bez pytania.' },
 ];
+const GAME_PROFILE = { name: 'gra', theme: 'zielony', motion: 'low', permissionMode: 'zaufany', dndMinutes: 240, routine: '', note: 'Tryb gry: odzywaj sie tylko gdy pytam, bardzo krotko, bez zaczepiania.' };
+
+// Reguly automatycznych profili: pierwsza pasujaca wygrywa (aplikacje/gra przed pora dnia).
+const DEFAULT_RULES = [
+  { typ: 'gra', profil: 'gra' },
+  { typ: 'aplikacja', proc: 'Code', profil: 'praca' },
+  { typ: 'czas', od: '23:00', do: '07:00', profil: 'noc' },
+];
 
 function state() {
   const d = memory.load();
   if (!d.profiles || !Array.isArray(d.profiles.list) || !d.profiles.list.length) d.profiles = { list: SEED.map((p) => ({ ...p })), active: 'dom' };
   if (!d.profiles.list.some((p) => p.name === d.profiles.active)) d.profiles.active = d.profiles.list[0].name;
+  // Jednorazowo dokladamy profil "gra" (tryb gry) i domyslne reguly (wylaczone, dopoki ich nie wlaczysz).
+  if (!d.profiles.gameAdded) {
+    d.profiles.gameAdded = true;
+    if (!d.profiles.list.some((p) => p.name === 'gra')) d.profiles.list.push({ ...GAME_PROFILE });
+  }
+  if (!Array.isArray(d.profiles.rules)) d.profiles.rules = DEFAULT_RULES.map((r) => ({ ...r }));
+  if (typeof d.profiles.auto !== 'boolean') d.profiles.auto = false;
   return d.profiles;
 }
 
@@ -70,6 +85,26 @@ router.delete('/api/profiles/:name', requireOwner, (req, res) => {
   if (s.list.length <= 1) return res.status(400).json({ error: 'Musi zostac co najmniej jeden profil.' });
   s.list = s.list.filter((x) => x.name !== name);
   if (s.active === name) s.active = s.list[0].name;
+  memory.save(memory.load());
+  res.json(s);
+});
+
+router.post('/api/profiles/rules', requireOwner, (req, res) => {
+  const s = state();
+  const HH = /^([01]?\d|2[0-3]):[0-5]\d$/;
+  const rules = (Array.isArray(req.body?.rules) ? req.body.rules : [])
+    .slice(0, 20)
+    .map((r) => {
+      const profil = clip(r?.profil, 30).toLowerCase();
+      if (!profil) return null;
+      if (r.typ === 'gra') return { typ: 'gra', profil };
+      if (r.typ === 'aplikacja' && clip(r.proc, 60)) return { typ: 'aplikacja', proc: clip(r.proc, 60), profil };
+      if (r.typ === 'czas' && HH.test(clip(r.od, 5)) && HH.test(clip(r.do, 5))) return { typ: 'czas', od: clip(r.od, 5), do: clip(r.do, 5), profil };
+      return null;
+    })
+    .filter(Boolean);
+  s.rules = rules;
+  s.auto = Boolean(req.body?.auto);
   memory.save(memory.load());
   res.json(s);
 });

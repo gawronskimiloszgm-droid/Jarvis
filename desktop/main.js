@@ -136,6 +136,10 @@ app.whenReady().then(() => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jarvis-command', { type: 'greet', reason });
   };
   powerMonitor.on('resume', () => greet('resume'));
+  // Tryb gry i inne sygnaly z probkowania pierwszego planu (insights.js).
+  require('./insights').setNotifier((cmd) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jarvis-command', cmd);
+  });
   powerMonitor.on('unlock-screen', () => greet('unlock'));
   shell.init({
     getWindow: () => mainWindow,
