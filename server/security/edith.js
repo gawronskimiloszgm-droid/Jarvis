@@ -271,4 +271,102 @@ router.post('/api/edith/chat', requireOwner, async (req, res) => {
   }
 });
 
+// ---------- Czujnik naglych zmian w zachowaniu Jarvisa ----------
+// Wolany przy kazdym wpisie do dziennika audytu. Kazda regula alarmuje najwyzej
+// raz na 30 minut, zeby jeden incydent nie zasypal telefonu powiadomieniami.
+const WATCH_GAP = 30 * 60 * 1000;
+const watchFired = new Map();
+
+function warsawHour(ts = Date.now()) {
+  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', hour: '2-digit', hour12: false }).format(new Date(ts)));
+}
+
+function watchAlert(key, reason) {
+  const last = watchFired.get(key) || 0;
+  if (Date.now() - last < WATCH_GAP) return false;
+  watchFired.set(key, Date.now());
+  const state = bag();
+  state.alerts.unshift({ at: Date.now(), level: 'warn', reason, command: '' });
+  state.alerts = state.alerts.slice(0, 80);
+  remember();
+  pushAlert('E.D.I.T.H. — nietypowe zachowanie', reason);
+  return true;
+}
+
+/** Sprawdza swiezo zapisany wpis audytu na tle ostatnich. Zwraca liste wywolanych regul. */
+export function watchAudit(entry, list) {
+  const fired = [];
+  const now = entry.at || Date.now();
+  const recent = (sec) => list.filter((e) => now - e.at <= sec * 1000 && e.source !== 'edith-panel');
+  // 1. Lawina akcji: 15+ w ciagu minuty (np. zapetlony agent albo cos steruje Jarvisem).
+  const burst = recent(60);
+  if (burst.length >= 15 && watchAlert('burst', `Jarvis wykonal ${burst.length} akcji w ciagu minuty (ostatnia: ${entry.name}). Jesli to nie Ty - sprawdz dziennik albo przelacz tryb na "pytaj".`)) fired.push('burst');
+  // 2. Seria blokad: 3+ zablokowane w 5 minut.
+  const blocked = recent(300).filter((e) => e.verdict === 'blocked');
+  if (blocked.length >= 3 && watchAlert('blocked', `Zablokowalam ${blocked.length} prob w ciagu 5 minut (${[...new Set(blocked.map((e) => e.name))].join(', ')}). Ktos albo cos probuje rzeczy niedozwolonych.`)) fired.push('blocked');
+  // 3. Noc: polecenia z telefonu albo polecenia systemowe miedzy 0:00 a 5:59.
+  const h = warsawHour(now);
+  if (h < 6 && entry.source === 'telefon' && watchAlert('night-remote', `Polecenie z telefonu w nocy (${String(h).padStart(2, '0')}:xx): ${entry.name}. Jesli to nie Ty - wylacz zdalne sterowanie na komputerze.`)) fired.push('night-remote');
+  if (h < 6 && entry.name === 'polecenie' && entry.verdict !== 'blocked' && watchAlert('night-command', `Polecenie systemowe w nocy: ${String(entry.detail || '').slice(0, 120)}`)) fired.push('night-command');
+  return fired;
+}
+
+// ---------- Raport tygodniowy z nadzoru ----------
+export function weeklyReport() {
+  const audit = Array.isArray(memory.load().audit) ? memory.load().audit : [];
+  const since = Date.now() - 7 * DAY;
+  const week = audit.filter((e) => e.at >= since);
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * DAY);
+    const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(d);
+    days.push({ day: key, ok: 0, failed: 0, blocked: 0, confirm: 0, denied: 0, total: 0 });
+  }
+  const byKey = Object.fromEntries(days.map((d) => [d.day, d]));
+  const actions = {};
+  const sources = {};
+  let night = 0;
+  for (const e of week) {
+    const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(new Date(e.at));
+    const d = byKey[key];
+    if (d) {
+      d.total++;
+      if (d[e.verdict] != null) d[e.verdict]++;
+    }
+    actions[e.name] = (actions[e.name] || 0) + 1;
+    sources[e.source || 'jarvis'] = (sources[e.source || 'jarvis'] || 0) + 1;
+    if (warsawHour(e.at) < 6) night++;
+  }
+  const top = Object.entries(actions).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, n]) => ({ name, n }));
+  const count = (v) => week.filter((e) => e.verdict === v).length;
+  const alerts = (bag().alerts || []).filter((a) => a.at >= since && a.level !== 'report');
+  const blockedList = week.filter((e) => e.verdict === 'blocked').slice(0, 5).map((e) => ({ at: e.at, name: e.name, note: e.note }));
+  const text =
+    `Tydzien nadzoru: Jarvis wykonal ${week.length} akcji (udane ${count('ok')}, nieudane ${count('failed')}, zablokowane ${count('blocked')}, z potwierdzeniem ${count('confirm')}).` +
+    (top.length ? ` Najczesciej: ${top.slice(0, 3).map((t) => `${t.name} (${t.n})`).join(', ')}.` : '') +
+    (night ? ` W nocy (0-6): ${night} akcji.` : '') +
+    (sources.telefon ? ` Z telefonu: ${sources.telefon}.` : '') +
+    ` Alarmy ochrony: ${alerts.length}.`;
+  return { at: Date.now(), days, top, sources, night, alerts: alerts.length, blocked: blockedList, total: week.length, text };
+}
+
+export async function maybeWeeklyReport() {
+  const state = bag();
+  const now = new Date();
+  const dow = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', weekday: 'short' }).format(now);
+  const h = warsawHour();
+  // Niedziela wieczorem, raz w tygodniu.
+  if (dow !== 'Sun' || h < 19 || h > 22) return null;
+  if (Date.now() - (state.lastWeeklyAt || 0) < 6 * DAY) return null;
+  state.lastWeeklyAt = Date.now();
+  const r = weeklyReport();
+  state.alerts.unshift({ at: Date.now(), level: 'report', reason: r.text, command: '' });
+  state.alerts = state.alerts.slice(0, 80);
+  remember();
+  pushAlert('E.D.I.T.H. — raport tygodnia', r.text);
+  return r;
+}
+
+router.get('/api/edith/weekly', requireOwner, (req, res) => res.json(weeklyReport()));
+
 export default router;

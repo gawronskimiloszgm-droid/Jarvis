@@ -130,6 +130,13 @@ app.whenReady().then(() => {
 
   createWindow();
   initUpdater(() => mainWindow);
+  // Powrot do komputera (wybudzenie, odblokowanie) - okno dostaje sygnal i Jarvis sie wita.
+  const { powerMonitor } = require('electron');
+  const greet = (reason) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jarvis-command', { type: 'greet', reason });
+  };
+  powerMonitor.on('resume', () => greet('resume'));
+  powerMonitor.on('unlock-screen', () => greet('unlock'));
   shell.init({
     getWindow: () => mainWindow,
     quit: () => {

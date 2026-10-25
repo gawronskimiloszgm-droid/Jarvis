@@ -86,8 +86,49 @@
     })
   );
 
+  // Raport tygodnia: slupki akcji na kazdy dzien (zielone - udane, czerwone - zablokowane,
+  // pomaranczowe - nieudane/do potwierdzenia) i najczestsze akcje.
+  async function refreshWeek() {
+    const box = root.querySelector('#edithWeek');
+    if (!box) return;
+    try {
+      const res = await fetch('/api/edith/weekly', { headers: window.authHeaders ? authHeaders() : {} });
+      if (!res.ok) return;
+      const w = await res.json();
+      root.querySelector('#edithWeekText').textContent = w.text;
+      const max = Math.max(1, ...w.days.map((d) => d.total));
+      box.innerHTML = '';
+      w.days.forEach((d) => {
+        const col = document.createElement('div');
+        col.className = 'edith-week-col';
+        const bar = document.createElement('div');
+        bar.className = 'edith-week-bar';
+        bar.style.height = Math.round((100 * d.total) / max) + '%';
+        bar.title = d.day + ': ' + d.total + ' akcji (zablokowane ' + d.blocked + ', nieudane ' + d.failed + ')';
+        [['ok', d.ok], ['bad', d.failed + d.confirm + d.denied], ['block', d.blocked]].forEach(([cls, n]) => {
+          if (!n) return;
+          const seg = document.createElement('i');
+          seg.className = cls;
+          seg.style.flex = String(n);
+          bar.appendChild(seg);
+        });
+        const lbl = document.createElement('span');
+        lbl.textContent = ['nd', 'pn', 'wt', 'sr', 'cz', 'pt', 'sb'][new Date(d.day + 'T12:00:00').getDay()];
+        col.append(bar, lbl);
+        box.appendChild(col);
+      });
+      const top = root.querySelector('#edithWeekTop');
+      top.innerHTML = '';
+      w.top.forEach((t) => top.appendChild(li(t.name + ' - ' + t.n + ' razy')));
+      w.blocked.forEach((b) => top.appendChild(li('ZABLOKOWANE: ' + b.name + (b.note ? ' - ' + b.note : ''), when(b.at))));
+    } catch {
+      /* raport to dodatek */
+    }
+  }
+
   async function refresh() {
     refreshAudit();
+    refreshWeek();
     try {
       const res = await fetch('/api/edith/state', { headers: window.authHeaders ? authHeaders() : {} });
       if (!res.ok) return;

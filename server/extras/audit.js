@@ -6,6 +6,7 @@
 import express from 'express';
 import * as memory from '../memory/memory.js';
 import { requireOwner } from '../core/auth.js';
+import { watchAudit } from '../security/edith.js';
 
 const router = express.Router();
 const CAP = 500;
@@ -30,6 +31,11 @@ export function recordAudit(entry) {
   });
   if (list.length > CAP) list.length = CAP;
   memory.save(memory.load());
+  try {
+    watchAudit(list[0], list);
+  } catch (err) {
+    console.error('Czujnik E.D.I.T.H.:', err.message);
+  }
 }
 
 router.post('/api/audit', requireOwner, (req, res) => {
