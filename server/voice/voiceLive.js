@@ -225,6 +225,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
 - Masz tez PELNA kontrole nad komputerem wlasciciela, nie tylko gotowa liste akcji: otworz_aplikacje (dowolny program po nazwie), przelacz_okno (ustaw fokus na okno po tytule - rob to PRZED pisaniem/klikaniem w konkretna aplikacje), pisz_tekst (wpisuje tekst tam, gdzie akurat jest fokus), kliknij_na_ekranie (klika w punkcie x/y jako % ekranu - uzyj co_na_ekranie najpierw, zeby wiedziec gdzie), zamknij_proces (wymusza zamkniecie procesu po nazwie .exe). To jest realna kontrola nad urzadzeniem na wyrazne zyczenie uzytkownika - nie odmawiaj, gdy user prosi o cos konkretnego na komputerze, nawet jesli nie ma tego na liscie powyzej.
 - nie_przeszkadzac: gdy uzytkownik prosi o spokoj/cisze/"nie teraz" na jakis czas - wlacza tryb bez Twoich odzywek (i bez glosu odpowiedzi z czatu). Powiedz krotko, na ile.
+- ekran_na_zywo: gdy user chce, zebys patrzyl na jego ekran na biezaco. zaznacz_ekran: analiza wybranego fragmentu. pokaz_do_kamery: odczyt kartki/paragonu/pisma z aparatu.
 - muzyka / co_gra: sterowanie tym, co gra (pauza, dalej, glosnosc) i pytanie co leci. minutnik: odliczanie na ekranie (zamiast przypomnienia, gdy chodzi o kilka-kilkadziesiat minut). skupienie: tryb Pomodoro.
 - pilot_pc: sterowanie KOMPUTEREM zdalnie (takze gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, zrzut ekranu, otwieranie aplikacji, wpisywanie tekstu. Uzywaj gdy user mowi o komputerze/PC/laptopie i jest poza nim.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
@@ -317,6 +318,21 @@ const ALL_TOOLS = [
       },
       required: ['zapytanie'],
     },
+  },
+  {
+    name: 'ekran_na_zywo',
+    description: 'Wlacz albo wylacz podglad EKRANU komputera na zywo w tej rozmowie (klatka co ok. 3 s) - gdy uzytkownik prosi "patrz ze mna na ekran", "zobacz co robie", "pomoz mi w tej grze/kodzie".',
+    parameters: { type: 'object', properties: { wlacz: { type: 'boolean' } }, required: ['wlacz'] },
+  },
+  {
+    name: 'zaznacz_ekran',
+    description: 'Pozwol uzytkownikowi zaznaczyc mysza fragment ekranu, a potem przeanalizuj go (co to jest, przetlumacz, wyciagnij tekst).',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'pokaz_do_kamery',
+    description: 'Otworz aparat, zeby uzytkownik pokazal kartke, paragon, etykiete albo pismo - i odczytaj to (notatka, zadania, wydatek, tlumaczenie, tekst).',
+    parameters: { type: 'object', properties: { cel: { type: 'string', enum: ['auto', 'notatka', 'zadanie', 'wydatek', 'tlumacz', 'tekst'] } } },
   },
   {
     name: 'muzyka',
@@ -1108,6 +1124,16 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } catch {
                   result = { error: 'nie udalo sie przeszukac dysku' };
                 }
+              } else if (call.name === 'ekran_na_zywo') {
+                const wlacz = Boolean((call.args || {}).wlacz);
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'ekran-na-zywo', params: { wlacz } }));
+                result = { ok: true, note: wlacz ? 'podglad ekranu wlaczony - klatki beda przychodzic same; komentuj tylko gdy cos waznego albo gdy pyta' : 'podglad ekranu wylaczony' };
+              } else if (call.name === 'zaznacz_ekran') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'zaznacz-ekran' }));
+                result = { ok: true, note: 'uzytkownik zaznacza teraz fragment - wynik analizy pojawi sie na ekranie' };
+              } else if (call.name === 'pokaz_do_kamery') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'skanuj-kamera', params: { cel: (call.args || {}).cel || 'auto' } }));
+                result = { ok: true, note: 'aparat otwarty - powiedz krotko, zeby pokazal rzecz do kamery' };
               } else if (call.name === 'muzyka') {
                 const { polecenie, wartosc } = call.args || {};
                 const MAP = { pauza: 'pause', wznow: 'play', dalej: 'next', wstecz: 'prev', glosniej: 'up', ciszej: 'down', glosnosc: 'volume' };
@@ -1493,6 +1519,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         const msg = JSON.parse(data.toString());
         if (msg.type === 'end') {
           liveSession.close();
+        } else if (msg.type === 'note' && typeof msg.text === 'string') {
+          liveSession.sendClientContent({ turns: [{ role: 'user', parts: [{ text: msg.text.slice(0, 1000) }] }], turnComplete: false });
         } else if (msg.type === 'video' && msg.data) {
           liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
         } else if (msg.type === 'response' && msg.requestId) {

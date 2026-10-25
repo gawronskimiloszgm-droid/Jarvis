@@ -97,7 +97,7 @@ import desktopAppsRouter from './connect/desktopApps.js';
 import entertainmentRouter from './connect/entertainment.js';
 import gamesRouter from './connect/games.js';
 import metaRouter from './core/meta.js';
-import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses } from './vision/cameras.js';
+import { handleFrame as handleCameraFrame, handleHeartbeat as handleCameraHeartbeat, cameraStatuses, cameraEvents, cameraEventImage } from './vision/cameras.js';
 import { ingest as ingestTelemetry, snapshot as telemetrySnapshot } from './home/telemetry.js';
 import { maybeSendBriefing } from './core/briefing.js';
 import * as printer from './home/printer.js';
@@ -130,7 +130,7 @@ const app = express();
 app.use(cors());
 // Wczytywanie plikow i zrzutow ekranu (server/extras/documents.js) ma wlasny,
 // wiekszy limit na poziomie trasy - globalny 8 MB odcialby je wczesniej.
-const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/step', '/api/notes/audio', '/api/backup/restore', '/api/remote/result']);
+const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/step', '/api/notes/audio', '/api/backup/restore', '/api/remote/result', '/api/vision/scan']);
 const BIG_BODY = (req) => req.method === 'POST' && BIG_BODY_PATHS.has(req.path);
 const smallJson = express.json({ limit: '8mb' });
 app.use((req, res, next) => (BIG_BODY(req) ? next() : smallJson(req, res, next)));
@@ -610,6 +610,18 @@ app.post('/api/cameras/frame', requireOwner, async (req, res) => {
 
 app.post('/api/cameras/heartbeat', requireOwner, (req, res) => {
   res.json(handleCameraHeartbeat({ camera: req.body?.camera }));
+});
+
+app.get('/api/cameras/events', requireOwner, (req, res) => {
+  res.json({ events: cameraEvents() });
+});
+
+app.get('/api/cameras/events/:id/image', requireOwner, (req, res) => {
+  const img = cameraEventImage(req.params.id);
+  if (!img) return res.status(404).json({ error: 'Brak zdjecia.' });
+  res.set('Content-Type', 'image/jpeg');
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.send(img);
 });
 
 app.get('/api/cameras', requireOwner, (req, res) => {

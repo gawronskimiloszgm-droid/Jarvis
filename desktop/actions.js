@@ -8,6 +8,7 @@ const settings = require('./settings');
 const pcTools = require('./pcTools');
 const taskScheduler = require('./scheduler');
 const insights = require('./insights');
+const region = require('./region');
 const { patrol } = require('./patrol');
 
 function runWindowsCommand(cmd) {
@@ -132,6 +133,9 @@ const DYNAMIC_SYSTEM_ACTIONS = {
   ...pcTools.make({ runPowerShell }),
   ...taskScheduler.make(),
   ...insights.make({ runPowerShell }),
+  // Lekki zrzut do strumienia 'ekran na zywo' i zaznaczanie fragmentu ekranu.
+  'zrzut-maly': async (p) => region.smallShot(p.szerokosc, p.jakosc),
+  'zaznacz-ekran': async () => region.selectRegion(),
   // Uruchamianie dowolnych aplikacji systemowych (np. "notepad", "calc", "chrome", "steam")
   'otworz-aplikacje': async (params) => {
     const appName = String(params.nazwa || params.app || '').trim();

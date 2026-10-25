@@ -3060,6 +3060,8 @@ function paramsForAction(name, raw) {
   if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };
+  if (name === 'ekran-na-zywo') return { wlacz: !/^(wylacz|stop|off|nie|0)/i.test(deaccent(String(raw || 'wlacz'))) };
+  if (name === 'skanuj-kamera') return { cel: raw || 'auto' };
   if (name === 'muzyka') {
     const [polecenie, wartosc] = String(raw || '').trim().split(/\s+/);
     return { polecenie, wartosc };
@@ -4244,6 +4246,13 @@ window.JarvisUI = {
   // druga ustawia sie w kolejce ZA akcja, ktora wlasnie trwa.
   runDeviceActionNow: (name, params, options) => runDeviceActionNow(name, params, options),
   events: () => EVENTS,
+  // Rozmowa na zywo: czy trwa i wysylka wiadomosci (klatka obrazu, cichy dopisek).
+  isLive: () => Boolean(store.live && liveWs && liveWs.readyState === WebSocket.OPEN),
+  liveSend(obj) {
+    if (!store.live || !liveWs || liveWs.readyState !== WebSocket.OPEN) return false;
+    liveWs.send(JSON.stringify(obj));
+    return true;
+  },
   paramsForAction: (name, raw) => paramsForAction(name, raw),
   // Podmienia liste paneli modulu (np. nowy Pulpit z widzetami zamiast starych kart).
   setPanels(moduleId, panels) {

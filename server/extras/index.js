@@ -16,6 +16,7 @@ import remote from './remote.js';
 import profiles from './profiles.js';
 import music from './music.js';
 import greeting from './greeting.js';
+import visionplus from './visionplus.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

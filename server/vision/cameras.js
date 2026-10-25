@@ -19,6 +19,32 @@ const MIN_GAP_MS = Number(process.env.CAMERA_MIN_GAP_MS || 4000);
 const lastAnalyzedAt = new Map();
 const lastHeartbeatAt = new Map();
 
+// Historia ostatnich zdarzen ze zdjeciem (w pamieci procesu - zdjecia nie trafiaja
+// do trwalej pamieci, zeby jej nie rozdmuchac). Panel Perymetr pokazuje je z miniatura.
+const EVENTS_MAX = 30;
+const events = [];
+let eventSeq = 0;
+
+function remember(cam, verdict, buffer) {
+  events.unshift({
+    id: String(++eventSeq),
+    at: Date.now(),
+    camera: cam,
+    notable: Boolean(verdict.notable),
+    description: String(verdict.description || '').slice(0, 300),
+    image: buffer && buffer.length < 600 * 1024 ? buffer : null,
+  });
+  if (events.length > EVENTS_MAX) events.length = EVENTS_MAX;
+}
+
+export function cameraEvents() {
+  return events.map(({ image, ...e }) => ({ ...e, hasImage: Boolean(image) }));
+}
+
+export function cameraEventImage(id) {
+  return events.find((e) => e.id === id)?.image || null;
+}
+
 // Klatka z wykrytym ruchem - ZAWSZE warta analizy, bo to ffmpeg po stronie
 // agenta juz przefiltrowal nieistotne klatki filtrem sceny.
 export async function handleFrame({ camera, buffer }) {
@@ -29,6 +55,7 @@ export async function handleFrame({ camera, buffer }) {
   lastAnalyzedAt.set(cam, now);
 
   const verdict = await analyzeFrame(buffer, cam);
+  remember(cam, verdict, buffer);
 
   if (verdict.notable) {
     bus.publish('perimeter', 'camera.alert', `${cam}: ${verdict.description}`, {

@@ -59,6 +59,17 @@ function registerHotkey() {
   } catch {
     /* zajety skrot - po prostu go nie mamy */
   }
+  // Ctrl+Alt+S: zaznacz fragment ekranu -> Jarvis pyta, co z nim zrobic.
+  try {
+    globalShortcut.register('CommandOrControl+Alt+S', async () => {
+      const r = await require('./region').selectRegion();
+      if (!r || !r.ok) return;
+      showWindow();
+      send('jarvis-command', { type: 'region', imageBase64: r.imageBase64, mimeType: r.mimeType });
+    });
+  } catch {
+    /* skrot zajety przez inna aplikacje */
+  }
 }
 
 function applyAutostart() {
