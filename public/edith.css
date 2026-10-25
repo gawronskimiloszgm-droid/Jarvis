@@ -70,6 +70,7 @@
 
 .edith-close {
   margin-left: auto;
+  flex: 0 0 auto;
   width: 30px;
   height: 30px;
   display: grid;
@@ -205,5 +206,11 @@
 
 @media (max-width: 640px) {
   .edith-head-txt p { display: none; }
+  /* Naglowek w dwoch wierszach: logo + krzyzyk na gorze, zakladki pod spodem.
+     Wczesniej trzy zakladki wypychaly krzyzyk poza ekran i nie dalo sie wyjsc. */
+  .edith-top { flex: 0 0 auto; flex-wrap: wrap; position: relative; gap: 8px 10px; padding: max(10px, env(safe-area-inset-top)) 60px 10px 14px; }
+  .edith-tabs { order: 3; flex: 1 1 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none; }
+  .edith-tabs button { flex: 0 0 auto; padding: 7px 12px; }
+  .edith-close { position: absolute; top: max(8px, env(safe-area-inset-top)); right: 10px; width: 40px; height: 40px; font-size: 22px; background: rgba(14, 3, 3, .9); }
   .edith-core { height: 26vh; }
 }

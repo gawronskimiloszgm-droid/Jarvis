@@ -3192,10 +3192,20 @@ async function speak(text) {
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, voice: localStorage.getItem('jarvis.voice') || undefined }),
     });
     if (!res.ok) return;
     const blob = await res.blob();
+    // Efekt "filmowy" (extras/voicefx.js) - gdy wlaczony, gra przez Web Audio z obrobka.
+    if (window.JarvisUI?.playVoiceBlob) {
+      setCoreState('MOWIE');
+      store.audioLevel = 0.7;
+      const done = await window.JarvisUI.playVoiceBlob(blob);
+      if (done) {
+        setCoreState('GOTOWY');
+        return;
+      }
+    }
     const audio = new Audio(URL.createObjectURL(blob));
     setCoreState('MOWIE');
     audio.onplay = () => { store.audioLevel = 0.7; };
@@ -3402,6 +3412,8 @@ function wsUrl() {
   // Wpis jest tylko wtedy, gdy uzytkownik SWIADOMIE przelaczyl w Ustawieniach.
   const clonePref = localStorage.getItem('jarvis.liveClone');
   if (clonePref != null) p.set('wantClone', clonePref);
+  const voicePref = localStorage.getItem('jarvis.voice');
+  if (voicePref) p.set('voice', voicePref);
   const qs = p.toString();
   return `${proto}//${location.host}/ws/voice${qs ? `?${qs}` : ''}`;
 }
@@ -3511,7 +3523,7 @@ async function playChunk(buf) {
   ab.copyToChannel(f32, 0);
   const src = outCtx.createBufferSource();
   src.buffer = ab;
-  src.connect(outCtx.destination);
+  src.connect(window.JarvisUI?.voiceFx?.(outCtx) || outCtx.destination);
   const at = Math.max(outCtx.currentTime, outAt);
   src.start(at);
   outAt = at + ab.duration;
@@ -3560,7 +3572,7 @@ function playEncodedChunk(base64, mimeType) {
     if (!(await ensureOutRunning()) || gen !== encodedGen) return;
     const src = outCtx.createBufferSource();
     src.buffer = audioBuffer;
-    src.connect(outCtx.destination);
+    src.connect(window.JarvisUI?.voiceFx?.(outCtx) || outCtx.destination);
     const at = Math.max(outCtx.currentTime, outAt);
     src.start(at);
     outAt = at + audioBuffer.duration;

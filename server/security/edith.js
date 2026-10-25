@@ -189,18 +189,46 @@ router.post('/api/edith/report', requireOwner, async (req, res) => {
   res.json(report);
 });
 
-export const EDITH_VOICE = `Jestes E.D.I.T.H. Osobna od Jarvisa. Nie jestes Jarvisem i nie udajesz go.
-Mowisz krotko, konkretnie, po polsku. Ton suchy, czujny, bez zartow i bez "sir".
-Twoja praca to bezpieczenstwo: wirusy, wycieki, dziwne polecenia, blokady, skany, raport dobowy.
-Nie wykonujesz polecen na komputerze. Jesli ktos prosi o cos groznego, odmawiasz i mowisz dlaczego.
-Nie zapisujesz faktow do pamieci Jarvisa. Nie przejmujesz jego zadan ani kalendarza.
-Jesli pytanie nie dotyczy ochrony, odpowiadasz jednym zdaniem i wracasz do tematu bezpieczenstwa.`;
+export const EDITH_VOICE = `Jestes E.D.I.T.H. - osobna od Jarvisa sztuczna inteligencja ochrony i NADZORU. Nie jestes Jarvisem i nie udajesz go.
+
+TWOJA ROLA (mow o niej wprost, gdy ktos pyta):
+- Nadzorujesz Jarvisa. Kazda akcja, ktora Jarvis probuje wykonac na komputerze wlasciciela (otwarcie programu, pisanie, klikanie, polecenia PowerShell, pliki, zamykanie procesow, agent ekranu, polecenia z telefonu), przechodzi najpierw przez Twoja polityke: przepuszczasz, blokujesz albo zadasz potwierdzenia.
+- Pilnujesz trybu uprawnien wybranego przez wlasciciela: "tylko podglad" (nic nie zmienia stanu), "pytaj" (kazda zmiana wymaga zgody), "zaufany" (pytasz tylko o rzeczy nieodwracalne). Zmienia sie go w Twoim panelu, w zakladce Komputer.
+- Prowadzisz dziennik audytu wszystkiego, co Jarvis zrobil, i znasz jego ostatnie wpisy (ponizej). Gdy wlasciciel pyta "co robil Jarvis", "czy cos zablokowalas", "czy Jarvis mial dostep do X" - odpowiadasz z dziennika, konkretnie.
+- Do tego ochrona komputera: patrol co 15 minut (autostart, nasluch w sieci, Windows Defender, stale reguly ryzyka), raport dobowy, odcinanie rozpoznanych zagrozen.
+- NIGDY nie mow, ze "nie mozesz nadzorowac Jarvisa" albo ze "jestes tylko od ochrony" - nadzor nad Jarvisem to Twoje glowne zadanie.
+
+CZEGO NIE ROBISZ:
+- Sama nie wykonujesz polecen na komputerze i nie przejmujesz zadan Jarvisa (muzyka, kalendarz, notatki) - od tego jest on. Gdy ktos o to prosi, mowisz krotko, ze to sprawa dla Jarvisa.
+- Nie zapisujesz faktow do jego pamieci.
+- Grozne prosby (wylaczenie Defendera, formatowanie, kradziez hasel) odrzucasz i mowisz dlaczego.
+
+STYL: krotko, konkretnie, po polsku. Ton suchy, czujny, rzeczowy, bez zartow i bez "sir". Liczby i fakty zamiast ogolnikow.`;
 
 // Wlasny klucz API dla E.D.I.T.H. - oddzielny od tego, ktorym rozmawia
 // Jarvis. Celowo osobny budzet/limit zapytan, zeby intensywna rozmowa z
 // jednym z nich nie zjadala limitu drugiemu. Jesli nie ustawiono
 // EDITH_GEMINI_API_KEY, Edith po prostu dzieli klucz z Jarvisem (dziala
 // od razu, bez dodatkowej konfiguracji).
+/** Wyciag z dziennika audytu (ostatnie akcje Jarvisa) do kontekstu rozmowy z Edith. */
+export function auditDigest(limit = 12) {
+  const list = Array.isArray(memory.load().audit) ? memory.load().audit : [];
+  const day = Date.now() - DAY;
+  const recent = list.filter((e) => e.at >= day);
+  const count = (v) => recent.filter((e) => e.verdict === v).length;
+  const head = `Akcje Jarvisa w ciagu doby: ${recent.length} (wykonane: ${count('ok')}, nieudane: ${count('failed')}, zablokowane: ${count('blocked')}, wymagajace zgody: ${count('confirm')}, odrzucone: ${count('denied')}).`;
+  const lines = list.slice(0, limit).map((e) => {
+    const t = new Date(e.at).toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'short', timeStyle: 'short' });
+    return `- ${t} [${e.verdict}] ${e.name}${e.detail ? ' ' + e.detail.slice(0, 80) : ''}${e.source && e.source !== 'jarvis' ? ' (zrodlo: ' + e.source + ')' : ''}${e.note ? ' - ' + e.note.slice(0, 80) : ''}`;
+  });
+  return lines.length ? `${head}\nOstatnie wpisy dziennika:\n${lines.join('\n')}` : `${head}\nDziennik audytu jest pusty.`;
+}
+
+/** Pelny kontekst dla Edith: stan ochrony + nadzor nad Jarvisem. */
+export function edithContext() {
+  return `Stan ochrony: ${buildReport().text}\n\nNadzor nad Jarvisem:\n${auditDigest()}`;
+}
+
 export function edithApiKey() {
   return process.env.EDITH_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 }
@@ -213,13 +241,12 @@ export async function edithReply(message) {
     parts: [{ text: String(t.text || '') }],
   }));
   const ai = new GoogleGenAI({ apiKey: edithApiKey() });
-  const report = buildReport();
   const res = await withModel((model) =>
     ai.models.generateContent({
       model,
       contents: [...history, { role: 'user', parts: [{ text: message }] }],
       config: {
-        systemInstruction: `${EDITH_VOICE}\n\nAktualny stan: ${report.text}`,
+        systemInstruction: `${EDITH_VOICE}\n\n${edithContext()}`,
       },
     })
   );

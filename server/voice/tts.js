@@ -133,14 +133,19 @@ function announceCloneFailure(err) {
 // konfiguracje, nie warto ich tu komplikowac dla jednego dodatkowego glosu).
 const EDITH_VOICE_NAME = process.env.EDITH_TTS_VOICE || 'Kore';
 
+// Wbudowane glosy Gemini (te same nazwy w TTS i w rozmowie na zywo). Uzytkownik moze
+// wybrac jeden w Ustawieniach - tylko z tej listy, zeby nie wysylac do API dowolnych napisow.
+export const GEMINI_VOICES = ['Charon', 'Iapetus', 'Rasalgethi', 'Sadaltager', 'Algenib', 'Orus', 'Schedar', 'Alnilam', 'Enceladus', 'Umbriel', 'Achird', 'Fenrir', 'Puck', 'Zubenelgenubi', 'Kore', 'Aoede', 'Leda', 'Zephyr'];
+
 // Kolejnosc: sklonowany glos (gdy wlaczony i tekst krotki) -> Gemini TTS
 // -> Edge TTS. Kazdy stopien lapie awarie poprzedniego, wiec czat nigdy
 // nie zostaje calkiem bez glosu, nawet gdy usluga klonujaca spi.
-export async function synthesize(text, { speaker } = {}) {
+export async function synthesize(text, { speaker, voice } = {}) {
   const clean = normalizeForSpeech(text);
-  const voiceName = speaker === 'edith' ? EDITH_VOICE_NAME : VOICE_NAME;
+  const picked = typeof voice === 'string' && GEMINI_VOICES.includes(voice) ? voice : null;
+  const voiceName = speaker === 'edith' ? EDITH_VOICE_NAME : picked || VOICE_NAME;
 
-  if (speaker !== 'edith' && CLONE_URL && clean.length <= CLONE_MAX_CHARS) {
+  if (speaker !== 'edith' && !picked && CLONE_URL && clean.length <= CLONE_MAX_CHARS) {
     try {
       return await synthesizeClone(clean);
     } catch (err) {

@@ -516,6 +516,7 @@
   root.querySelector('#edithClose')?.addEventListener('click', () => window.Edith.close());
 
   let coreStarted = false;
+  let lastGreetAt = 0;
   const GREETINGS = [
     'Czuwam. Mow albo pisz.',
     'E.D.I.T.H. online. Slucham.',
@@ -540,9 +541,13 @@
       // sie nie dzialo, dopoki ktos sam cos nie napisal/nie kliknal
       // mikrofonu, wiec wygladalo to jak "Edith sie nie odzywa". Krotkie
       // powitanie od razu, glosem I tekstem, potwierdza ze dziala.
-      const hello = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
-      addLine('her', hello);
-      speakEdith(hello);
+      // Powitanie najwyzej raz na 10 minut - przy kazdym otwarciu zasmiecalo rozmowe.
+      if (Date.now() - lastGreetAt > 10 * 60000) {
+        lastGreetAt = Date.now();
+        const hello = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
+        addLine('her', hello);
+        speakEdith(hello);
+      }
       if (window.jarvisDesktop) scanNow(false);
     },
     close() {
@@ -556,4 +561,39 @@
       refresh();
     },
   };
+
+  // Wyjscie z E.D.I.T.H. takze bez krzyzyka: Escape na komputerze, przycisk "wstecz" na telefonie.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !root.hidden) window.Edith.close();
+  });
+  const openOrig = window.Edith.open.bind(window.Edith);
+  window.Edith.open = function () {
+    if (root.hidden) {
+      try {
+        history.pushState({ edith: true }, '');
+      } catch {
+        /* historia niedostepna - zostaje krzyzyk i Escape */
+      }
+    }
+    return openOrig();
+  };
+  const closeOrig = window.Edith.close.bind(window.Edith);
+  // Zamkniecie krzyzykiem/Escape zdejmuje tez nasz wpis z historii, zeby "wstecz" nie stalo w miejscu.
+  // Zamykamy OD RAZU (wlacz-jarvis zaraz potem wznawia rozmowe i sprawdza, czy panel jest zamkniety).
+  let skipPop = false;
+  window.Edith.close = function () {
+    const ours = Boolean(history.state && history.state.edith);
+    closeOrig();
+    if (ours) {
+      skipPop = true;
+      history.back();
+    }
+  };
+  window.addEventListener('popstate', () => {
+    if (skipPop) {
+      skipPop = false;
+      return;
+    }
+    if (!root.hidden) closeOrig();
+  });
 })();

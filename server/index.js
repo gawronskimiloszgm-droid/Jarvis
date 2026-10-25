@@ -677,9 +677,9 @@ app.get('/api/events', requireOwner, (req, res) => {
 // --- TTS ---
 app.post('/api/tts', async (req, res) => {
   try {
-    const { text, speaker } = req.body;
-    if (!text) return res.status(400).json({ error: 'Brak tekstu.' });
-    const { buffer, contentType } = await tts.synthesize(text, { speaker });
+    const { text, speaker, voice } = req.body;
+    if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Brak tekstu.' });
+    const { buffer, contentType } = await tts.synthesize(text.slice(0, 4000), { speaker, voice });
     res.set('Content-Type', contentType);
     res.send(buffer);
   } catch (err) {
@@ -708,7 +708,7 @@ wss.on('connection', (ws, req) => {
   // zostawia domyslne zachowanie z env (patrz voiceLive.js).
   const wantCloneParam = url.searchParams.get('wantClone');
   const wantClone = wantCloneParam == null ? null : wantCloneParam === '1';
-  attachVoiceRelay(ws, coords, isOwner, wantClone, url.searchParams.get('persona')).catch((err) => {
+  attachVoiceRelay(ws, coords, isOwner, wantClone, url.searchParams.get('persona'), url.searchParams.get('voice')).catch((err) => {
     console.error('Voice relay error:', err);
     ws.close();
   });

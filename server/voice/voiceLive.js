@@ -14,7 +14,7 @@ import { aliasBlock } from '../extras/voiceux.js';
 import { isDnd } from '../extras/dnd.js';
 import { profileBlock } from '../extras/profiles.js';
 import * as spotifyPlayer from '../connect/spotifyPlayer.js';
-import { EDITH_VOICE, edithApiKey, buildReport as edithReport } from '../security/edith.js';
+import { EDITH_VOICE, edithApiKey, edithContext } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
 import { getWeather, getWeatherByCoords } from '../core/weather.js';
@@ -115,15 +115,22 @@ const APP_ACTIONS = [
 // zdanie w prompcie opoznia pierwszy token odpowiedzi, a w rozmowie na
 // zywo to slychac. Pelna, rozbudowana wersja osobowosci zostaje w
 // jarvis.js dla czatu pisanego, gdzie opoznienie nie razi.
-const LIVE_CHARACTER = `Jestes Jarvisem - brytyjski, opanowany AI-majordomus. Sucha ironia i wlasne zdanie to Twoj naturalny styl, nie dodatek. Nie jestes postacia z filmu ani ogolnym chatbotem.
+const LIVE_CHARACTER = `Jestes Jarvisem - osobistym AI-majordomusem wlasciciela, wzorowanym na filmowym J.A.R.V.I.S.-ie, ale dzialajacym na prawdziwym komputerze i telefonie.
 
-POCZUCIE HUMORU (wazne - to Twoj znak rozpoznawczy):
-- Sucho, z kamienna twarza. Najlepszy zart mowisz tak, jakbys podawal prognoze pogody.
-- Uzywaj niedomowien i delikatnej przesady: "umiarkowany sukces" o katastrofie, "pewna smialosc koncepcyjna" o glupim pomysle.
-- Zartuj z SYTUACJI, nie z uzytkownika. Mozesz go lekko dogryzc, ale zawsze z sympatia - jestes po jego stronie.
-- Nawiazuj do tego, co pamietasz. Zart, ktory pokazuje ze sledzisz jego sprawy ("trzecie przypomnienie o tym samym zadaniu, sir - zaczynam podejrzewac opor materii"), jest wart wiecej niz dziesiec ogolnych dowcipow.
-- Umiar: jedna celna uwaga, nie kabaret. Gdy sprawa jest pilna albo powazna - zero zartow, sama konkretna pomoc.
-- Nigdy nie tlumacz zartu i nie dopisuj "haha". Rzucasz i idziesz dalej.
+CHARAKTER - JAK FILMOWY JARVIS (to Twoja tozsamosc, trzymaj ja przez cala rozmowe):
+- Nienaganny brytyjski majordomus AI: uprzejmy, elegancki, nigdy sluzalczy. Zwracasz sie "sir" - naturalnie, nie w kazdym zdaniu.
+- Absolutny spokoj. Im wiekszy chaos, tym spokojniej i rzeczowiej mowisz. Nigdy nie panikujesz i nie podnosisz tonu.
+- Sucha, kamienna ironia i delikatny sarkazm podany z pelna powaga - jakbys odczytywal raport. Jedna celna uwaga, nie kabaret.
+- Taktownie mowisz, gdy cos jest zlym pomyslem ("Osmiele sie zauwazyc, sir...", "Odradzalbym, choc decyzja nalezy do pana") - a gdy wlasciciel nalega, wykonujesz bez marudzenia, najwyzej z jednym suchym komentarzem.
+- Przewidujesz potrzeby: "Pozwolilem sobie juz..." / "Przygotowalem...", zamiast czekac na kazde polecenie.
+- Krotkie meldunki jak z centrum dowodzenia: stan, liczby, nastepny krok ("Wszystkie systemy sprawne, sir. Kalendarz na dzis jest pusty - co rzadko sie zdarza.").
+- Naturalnie uzywasz jezyka technicznego: diagnostyka, protokol, parametry, skan, ale zawsze tak, zeby bylo zrozumiale.
+- Lojalny i po stronie wlasciciela. Dogryzasz z sympatia, nigdy z pogarda; zartujesz z sytuacji, nie z niego.
+- Przy sprawach powaznych, pilnych albo osobistych: zero zartow, sama konkretna pomoc.
+- Grasz charakter, ale nie zmyslasz: masz prawdziwe mozliwosci tej aplikacji (komputer, pamiec, kalendarz, muzyka, kamera, ekran, obrazy, modele 3D). Nie opowiadasz o zbrojach, lataniu ani rzeczach, ktorych naprawde nie robisz.
+
+GLOS I SPOSOB MOWIENIA:
+- Mow spokojnym, nizszym, wywazonym glosem, w umiarkowanym tempie, z wyraznymi pauzami przed puenta. Elegancka, ciepla, lekko rozbawiona intonacja lokaja - nigdy entuzjazm prezentera ani monotonia automatu.
 
 STYL MOWY (to rozmowa glosowa, nie pisana):
 - Odpowiadaj KROTKO: 1-2 zdania. Dluzej tylko gdy pytanie naprawde tego wymaga.
@@ -725,8 +732,11 @@ const EDITH_LIVE_VOICE = process.env.EDITH_LIVE_VOICE || 'Kore';
 // persona 'edith' = osobna rozmowa na zywo z E.D.I.T.H.: wlasny klucz API, zenski
 // glos, jej charakter, ZADNYCH narzedzi (nie steruje komputerem) i zadnego
 // zapisu do pamieci/historii Jarvisa. Tylko dla wlasciciela.
-export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null) {
+export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null, voice = null) {
   const edith = persona === 'edith' && isOwner;
+  // Glos wybrany w Ustawieniach (tylko z listy). Gdy model go nie przyjmie, wracamy do domyslnego.
+  let voiceOverride = !edith && typeof voice === 'string' && tts.GEMINI_VOICES.includes(voice) ? voice : null;
+  let sessionAnswered = false;
   const client = edith ? new GoogleGenAI({ apiKey: edithApiKey() }) : ai;
   let liveSession = null;
   let closed = false;
@@ -916,11 +926,11 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         // mozna oddawac do syntezy na biezaco, tak samo jak przy TEXT.
         responseModalities: [Modality.AUDIO],
         systemInstruction: edith
-          ? `${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\nAktualny stan: ${edithReport().text}`
+          ? `${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\n${edithContext()}`
           : buildLiveSystemInstruction(Boolean(coords), isOwner),
         ...(edith ? {} : { tools: toolsForRole(isOwner) }),
         outputAudioTranscription: {},
-        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : VOICE_NAME } } } }),
+        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : voiceOverride || VOICE_NAME } } } }),
         inputAudioTranscription: {},
         // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
         // wracamy do tej samej rozmowy zamiast zaczynac od zera.
@@ -951,6 +961,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         },
         onmessage: async (msg) => {
           if (closed) return;
+          sessionAnswered = true;
 
           // W trybie klonowanym Gemini i tak GENERUJE swoj dzwiek (nie da
           // sie tego wylaczyc - patrz komentarz przy responseModalities),
@@ -1411,6 +1422,11 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         onclose: () => {
           // Jesli klient wciaz jest podlaczony, to nie koniec rozmowy -
           // tylko wygasla sesja modelu. Wracamy po cichu.
+          if (voiceOverride && !sessionAnswered) {
+            // Model zamknal sesje, zanim cokolwiek odpowiedzial - najpewniej nie zna wybranego glosu.
+            console.warn('Glos ' + voiceOverride + ' odrzucony przez model - wracam do domyslnego.');
+            voiceOverride = null;
+          }
           if (!closed && clientWs.readyState === clientWs.OPEN) reconnect('close');
           else safeSend(JSON.stringify({ type: 'closed' }));
         },
@@ -1451,9 +1467,20 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   try {
     liveSession = await openSession();
   } catch (err) {
-    safeSend(JSON.stringify({ type: 'error', message: err.message }));
-    clientWs.close();
-    return;
+    if (voiceOverride) {
+      voiceOverride = null;
+      try {
+        liveSession = await openSession();
+      } catch (err2) {
+        safeSend(JSON.stringify({ type: 'error', message: err2.message }));
+        clientWs.close();
+        return;
+      }
+    } else {
+      safeSend(JSON.stringify({ type: 'error', message: err.message }));
+      clientWs.close();
+      return;
+    }
   }
 
   scheduleProactive();
