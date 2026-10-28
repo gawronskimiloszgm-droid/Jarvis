@@ -409,6 +409,7 @@ function mountCadView(model) {
   if (!cv || !window.CADView) return;
   cadView?.stop();
   cadView = window.CADView(cv, model);
+  window.dispatchEvent(new CustomEvent('jarvis:cad-model', { detail: { model } }));
 }
 
 // Przycisk drukowania jest wspolny dla obu ukladow panelu (wspornik i

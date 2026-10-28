@@ -61,7 +61,7 @@
   const STYLES = [['solid', 'BRYLA'], ['holo', 'HOLO'], ['wire', 'SZKIELET'], ['xray', 'RENTGEN']];
   const VIEWS = { przod: [0, 0], gora: [-Math.PI / 2 + 0.001, 0], bok: [0, Math.PI / 2], izo: [-0.45, 0.7] };
 
-  window.CADView = function CADView(canvas, model) {
+  window.CADView = function CADView(canvas, model, opts = {}) {
     const ctx = canvas.getContext('2d');
     let rotX = -0.45;
     let rotY = 0.7;
@@ -73,6 +73,7 @@
     let showGrid = true;
     let showDims = false;
     let cut = 1; // 1 = bez ciecia; mniej = odcina gore bryly
+    let projector = false; // model unosi sie nad stolem projektora
     const t0 = performance.now();
 
     const mesh = model.mesh || [];
@@ -156,7 +157,36 @@
       });
     }
 
+    // Stol projektora: swiecaca tarcza pod modelem i wiazki swiatla w gore.
+    function drawProjector(scale, cx, cy, col, t) {
+      const y = lo[1] - span * 0.04;
+      const base = project([center[0], y, center[2]], rotX, rotY, scale, cx, cy, center, zoom);
+      const rx = span * 0.55 * scale * zoom * 0.9;
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const k = 1 - i * 0.22;
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${(0.5 - i * 0.1).toFixed(2)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(base[0], base[1], rx * k, rx * k * Math.abs(Math.sin(rotX) * 0.6 + 0.25), 0, 0, 6.283);
+        ctx.stroke();
+      }
+      const g = ctx.createLinearGradient(0, base[1] - span * scale * zoom, 0, base[1]);
+      g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+      g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},${(0.16 + 0.05 * Math.sin(t * 3)).toFixed(3)})`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(base[0] - rx * 0.9, base[1]);
+      ctx.lineTo(base[0] - rx * 0.45, base[1] - span * scale * zoom);
+      ctx.lineTo(base[0] + rx * 0.45, base[1] - span * scale * zoom);
+      ctx.lineTo(base[0] + rx * 0.9, base[1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     function draw() {
+      if (!canvas.isConnected) return; // plotno usuniete z DOM - konczymy petle
       const rect = canvas.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       if (canvas.width !== Math.round(rect.width * dpr)) {
@@ -182,13 +212,15 @@
       const cutY = lo[1] + (hi[1] - lo[1]) * cut;
 
       if (showGrid) drawFloor(scale, cx, cy, col);
+      const hover = projector ? Math.sin(t * 1.4) * span * 0.03 + span * 0.12 : 0;
+      if (projector) drawProjector(scale, cx, cy, col, t);
 
       const drawn = [];
       mesh.forEach((tri, i) => {
         if (cut < 0.999 && Math.min(tri.a[1], tri.b[1], tri.c[1]) > cutY) return;
-        const pa = project(tri.a, rotX, rotY, scale, cx, cy, center, zoom);
-        const pb = project(tri.b, rotX, rotY, scale, cx, cy, center, zoom);
-        const pc = project(tri.c, rotX, rotY, scale, cx, cy, center, zoom);
+        const pa = project(tri.a, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
+        const pb = project(tri.b, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
+        const pc = project(tri.c, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
         drawn.push({ t: tri, i, pa, pb, pc, depth: (pa[2] + pb[2] + pc[2]) / 3 });
       });
       drawn.sort((p, q) => q.depth - p.depth);
@@ -299,9 +331,9 @@
     window.addEventListener('touchend', up);
 
     // Pasek narzedzi pod plotnem (tworzony raz na plotno).
-    let bar = canvas.parentElement && canvas.parentElement.querySelector(':scope > .cad-tools');
+    let bar = opts.tools === false ? null : canvas.parentElement && canvas.parentElement.querySelector(':scope > .cad-tools');
     if (bar) bar.remove();
-    bar = document.createElement('div');
+    bar = opts.tools === false ? document.createElement('div') : document.createElement('div');
     bar.className = 'cad-tools';
     const btn = (label, fn, on) => {
       const b = document.createElement('button');
@@ -320,6 +352,7 @@
     );
     btn('SIATKA', (b) => { showGrid = !showGrid; b.classList.toggle('on', showGrid); }, showGrid);
     btn('WYMIARY', (b) => { showDims = !showDims; b.classList.toggle('on', showDims); }, showDims);
+    btn('PROJEKTOR', (b) => { projector = !projector; b.classList.toggle('on', projector); }, projector);
     btn('OBROT', (b) => { spin = !spin; b.classList.toggle('on', spin); }, spin);
     Object.entries(VIEWS).forEach(([name, [rx, ry]]) => btn(name.toUpperCase(), () => { spin = false; rotX = rx; rotY = ry; zoom = 1; }));
     const cutWrap = document.createElement('label');
@@ -339,7 +372,7 @@
       a.download = `model-${model.id || 'jarvis'}.png`;
       a.click();
     });
-    if (canvas.parentElement) canvas.parentElement.appendChild(bar);
+    if (canvas.parentElement && opts.tools !== false) canvas.parentElement.appendChild(bar);
 
     draw();
 
@@ -349,6 +382,9 @@
       },
       setSpin(on) {
         spin = on;
+      },
+      getBar() {
+        return bar;
       },
       setStyle(s) {
         if (STYLES.some((x) => x[0] === s)) style = s;
