@@ -149,6 +149,30 @@ export function logJournal(kind, text, tag = '') {
 }
 
 // ---------- kolekcje ----------
+// Kursy walut (EBC przez frankfurter.app) - przez serwer, bo przegladarka blokuje to CORS-em; cache 6 h.
+const fxCache = new Map();
+router.get('/api/fx', requireOwner, async (req, res) => {
+  const cur = (v) => /^[A-Za-z]{3}$/.test(String(v || '')) ? String(v).toUpperCase() : null;
+  const from = cur(req.query.from);
+  const to = cur(req.query.to);
+  const amount = Number(req.query.amount) || 1;
+  if (!from || !to) return res.status(400).json({ error: 'Podaj waluty (np. EUR i PLN).' });
+  const key = `${from}>${to}`;
+  let hit = fxCache.get(key);
+  if (!hit || Date.now() - hit.at > 6 * 3600 * 1000) {
+    try {
+      const r = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`, { signal: AbortSignal.timeout(8000) });
+      const j = await r.json();
+      if (!r.ok || !j.rates || !j.rates[to]) throw new Error(j.message || 'brak kursu');
+      hit = { at: Date.now(), rate: j.rates[to], date: j.date };
+      fxCache.set(key, hit);
+    } catch (e) {
+      if (!hit) return res.status(502).json({ error: `Nie pobrano kursu: ${e.message}` });
+    }
+  }
+  res.json({ from, to, amount, rate: hit.rate, result: Math.round(amount * hit.rate * 10000) / 10000, date: hit.date });
+});
+
 router.get('/api/life', requireOwner, (req, res) => {
   const l = life();
   res.json({ ...l, journal: l.journal.slice(0, 200) });

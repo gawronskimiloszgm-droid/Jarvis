@@ -59,6 +59,8 @@
     return out.sort((a, b) => b.at - a.at).slice(0, 60);
   }
 
+  UI.notifications = notifications;
+
   function unread() {
     const seen = Number(get(SEEN, '0')) || 0;
     return notifications().filter((n) => n.at > seen).length;

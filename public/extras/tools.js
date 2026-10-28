@@ -4,7 +4,7 @@
   const UI = window.JarvisUI;
   const T = window.Toolkit;
   if (!UI || !T) return;
-  const { el, toast } = UI;
+  const { el, toast, api } = UI;
 
   const input = (ph, type = 'text', val = '') => {
     const i = el('input', 'inp');
@@ -390,8 +390,8 @@
       o.textContent = '...';
       try {
         if (from.value === to.value) return (o.textContent = fmt(Number(amt.value)));
-        const r = await fetch(`https://api.frankfurter.app/latest?amount=${encodeURIComponent(amt.value || 1)}&from=${from.value}&to=${to.value}`).then((x) => x.json());
-        o.textContent = `${money(Number(amt.value))} ${from.value} = ${money(r.rates[to.value])} ${to.value}  (${r.date})`;
+        const r = await api(`/api/fx?amount=${encodeURIComponent(amt.value || 1)}&from=${from.value}&to=${to.value}`);
+        o.textContent = `${money(Number(amt.value))} ${from.value} = ${money(r.result)} ${to.value}  (${r.date})`;
       } catch {
         o.textContent = 'Brak polaczenia z serwisem kursow.';
       }

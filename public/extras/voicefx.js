@@ -110,6 +110,7 @@
     wet.connect(out);
     delayGain.connect(out);
     out.connect(ctx.destination);
+    if (UI.audioAnalyser) out.connect(UI.audioAnalyser(ctx));
     return input;
   }
 
