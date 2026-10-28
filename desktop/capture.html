@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<title>Szybka notatka</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; font-family: Consolas, 'Courier New', monospace; color: #bff6ff; }
+  .box { margin: 6px; padding: 12px 14px; border: 1px solid rgba(51, 224, 255, .6); border-radius: 8px;
+    background: linear-gradient(135deg, rgba(4, 22, 30, .94), rgba(2, 10, 16, .92)); box-shadow: 0 0 28px rgba(51, 224, 255, .3); }
+  .lab { font-size: 9px; letter-spacing: .3em; opacity: .7; margin-bottom: 8px; }
+  input { width: 100%; box-sizing: border-box; background: rgba(51, 224, 255, .07); border: 1px solid rgba(51, 224, 255, .35); border-radius: 4px;
+    color: #e6fbff; font: 15px Consolas, monospace; padding: 10px; outline: none; }
+  input:focus { border-color: #33e0ff; box-shadow: 0 0 10px rgba(51, 224, 255, .4); }
+  .hint { font-size: 10px; opacity: .55; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="lab">J.A.R.V.I.S. - SZYBKIE PRZECHWYTYWANIE</div>
+  <input id="t" autofocus placeholder="Mysl, notatka...  (z: zadanie, k: zakupy, d: dziennik)" />
+  <div class="hint">Enter zapisuje, Esc zamyka.</div>
+</div>
+<script>
+  const t = document.getElementById('t');
+  t.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') window.overlay.capture(t.value);
+    if (e.key === 'Escape') window.overlay.capture('');
+  });
+  window.addEventListener('focus', () => t.focus());
+</script>
+</body>
+</html>

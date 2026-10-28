@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<title>Jarvis HUD</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; font-family: Consolas, 'Courier New', monospace; color: #bff6ff; user-select: none; }
+  .hud { margin: 4px; padding: 10px 12px; border: 1px solid rgba(51, 224, 255, .5); border-radius: 6px;
+    background: linear-gradient(135deg, rgba(4, 22, 30, .78), rgba(2, 10, 16, .66)); box-shadow: 0 0 18px rgba(51, 224, 255, .22), inset 0 0 14px rgba(51, 224, 255, .07); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .clock { font-size: 30px; font-weight: 700; letter-spacing: .06em; color: #33e0ff; text-shadow: 0 0 10px rgba(51, 224, 255, .7); }
+  .date { font-size: 10px; letter-spacing: .16em; opacity: .75; text-transform: uppercase; }
+  .bars { margin-top: 6px; display: grid; gap: 4px; }
+  .bar { display: grid; grid-template-columns: 34px 1fr 34px; gap: 6px; font-size: 10px; align-items: center; letter-spacing: .1em; }
+  .track { height: 5px; background: rgba(51, 224, 255, .15); border-radius: 3px; overflow: hidden; }
+  .fill { height: 100%; background: linear-gradient(90deg, rgba(51, 224, 255, .4), #33e0ff); width: 0; transition: width .5s; }
+  .np { margin-top: 6px; font-size: 10px; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .85; }
+  .tag { font-size: 8px; letter-spacing: .3em; opacity: .55; }
+</style>
+</head>
+<body>
+<div class="hud">
+  <div class="row"><span class="clock" id="clock">--:--</span><span class="tag">J.A.R.V.I.S.</span></div>
+  <div class="date" id="date"></div>
+  <div class="bars">
+    <div class="bar"><span>CPU</span><div class="track"><div class="fill" id="cpu"></div></div><span id="cpuv">-</span></div>
+    <div class="bar"><span>RAM</span><div class="track"><div class="fill" id="ram"></div></div><span id="ramv">-</span></div>
+  </div>
+  <div class="np" id="np"></div>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const tick = () => {
+    const d = new Date();
+    $('clock').textContent = d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    $('date').textContent = d.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+  tick();
+  setInterval(tick, 5000);
+  window.overlay.onData((d) => {
+    $('cpu').style.width = `${d.cpu}%`;
+    $('cpuv').textContent = `${d.cpu}%`;
+    $('ram').style.width = `${d.ram}%`;
+    $('ramv').textContent = `${d.ram}%`;
+    $('np').textContent = d.np ? `♫ ${d.np}` : '';
+  });
+</script>
+</body>
+</html>

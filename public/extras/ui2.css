@@ -244,3 +244,11 @@ body.rail-compact .rail-foot { flex-direction: column; }
 .help-out { margin-top: 8px; }
 .help-out .kv { gap: 12px; }
 .help-li { font-size: 13px; margin: 3px 0; }
+
+/* ---------- tryb kina ---------- */
+body.cinema { --cin: 1; }
+body.cinema .rail, body.cinema .deck-bar { opacity: .12; transition: opacity .4s; }
+body.cinema .rail:hover, body.cinema .deck-bar:hover { opacity: 1; }
+body.cinema .holo-scene { opacity: .55; }
+body.cinema::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 60;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, .55) 100%); }

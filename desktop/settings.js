@@ -14,6 +14,10 @@ const DEFAULTS = {
   worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',
+  overlayOn: false, // nakladka HUD (zegar, CPU/RAM, teraz gra) - patrz overlay.js
+  overlayCorner: 'tr',
+  overlayOpacity: 0.85,
+  overlayClick: true, // click-through: nakladka nie lapie myszy
   tasks: [], // zadania cykliczne - patrz scheduler.js
   // Linie bazowe patrolu E.D.I.T.H. (patrz patrol.js): null = jeszcze nie zapisano.
   startupBaseline: null,

@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   setSetting: (key, value) => ipcRenderer.invoke('jarvis-setting-set', key, value),
   // Polecenia z zasobnika/skrotu: { type: 'open-edith' | 'hotkey' | 'permission-mode', ... }
   onCommand: (cb) => ipcRenderer.on('jarvis-command', (_e, c) => cb(c)),
+  // Nakladka HUD: tekst "teraz gra" i ustawienia (patrz overlay.js).
+  overlayPush: (text) => ipcRenderer.send('jarvis-overlay-push', text),
+  overlayState: () => ipcRenderer.invoke('jarvis-overlay-state'),
+  overlaySet: (patch) => ipcRenderer.invoke('jarvis-overlay-set', patch),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
 });

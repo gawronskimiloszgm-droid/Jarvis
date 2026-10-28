@@ -6,9 +6,11 @@ const { app, Tray, Menu, globalShortcut, ipcMain, clipboard } = require('electro
 const { exec } = require('child_process');
 const settings = require('./settings');
 const { trayIcon } = require('./trayIcon');
+const overlay = require('./overlay');
 
 let tray = null;
 let getWin = () => null;
+let refreshMenu = () => {};
 let quitApp = () => app.quit();
 
 function showWindow() {
@@ -70,6 +72,23 @@ function registerHotkey() {
   } catch {
     /* skrot zajety przez inna aplikacje */
   }
+  // Ctrl+Alt+H nakladka HUD, Ctrl+Alt+N szybka notatka, Ctrl+Alt+Spacja pauza/wznow, Ctrl+Alt+P kolejny profil.
+  const extra = {
+    'CommandOrControl+Alt+H': () => {
+      overlay.toggle();
+      refreshMenu();
+    },
+    'CommandOrControl+Alt+N': () => overlay.openCapture(),
+    'CommandOrControl+Alt+Space': () => require('./actions').runAction('odtworz-pauza', {}, {}).catch(() => {}),
+    'CommandOrControl+Alt+P': () => send('jarvis-command', { type: 'next-profile' }),
+  };
+  for (const [combo, fn] of Object.entries(extra)) {
+    try {
+      globalShortcut.register(combo, fn);
+    } catch {
+      /* skrot zajety przez inna aplikacje */
+    }
+  }
 }
 
 function applyAutostart() {
@@ -103,6 +122,15 @@ function buildMenu() {
         send('jarvis-command', { type: 'open-edith' });
       },
     },
+    { label: 'Szybka notatka (Ctrl+Alt+N)', click: () => overlay.openCapture() },
+    {
+      label: 'Nakladka HUD (Ctrl+Alt+H)',
+      type: 'checkbox',
+      checked: overlay.isOn(),
+      click: (item) => overlay.setOn(item.checked),
+    },
+    { label: 'Tryb skupienia 25 min', click: () => send('jarvis-command', { type: 'focus', minutes: 25 }) },
+    { label: 'Tryb kina', click: () => send('jarvis-command', { type: 'cinema' }) },
     { type: 'separator' },
     {
       label: 'Uprawnienia Jarvisa',
@@ -140,7 +168,16 @@ function init({ getWindow, quit }) {
   tray.setToolTip('J.A.R.V.I.S.');
   tray.on('click', showWindow);
   const refresh = () => tray.setContextMenu(buildMenu());
+  refreshMenu = refresh;
   refresh();
+  overlay.init({ capture: (text) => send('jarvis-command', { type: 'quick-capture', text }) });
+  ipcMain.handle('jarvis-overlay-state', () => ({ on: overlay.isOn(), corner: settings.get('overlayCorner'), opacity: settings.get('overlayOpacity'), clickThrough: settings.get('overlayClick') !== false }));
+  ipcMain.handle('jarvis-overlay-set', (e, patch) => {
+    if (patch && patch.on != null) overlay.setOn(patch.on);
+    overlay.configure(patch || {});
+    refresh();
+    return { on: overlay.isOn() };
+  });
   // Zmiana trybu/ustawien z panelu (renderer) odswieza tez menu zasobnika.
   ipcMain.on('jarvis-settings-changed', refresh);
 
@@ -158,6 +195,7 @@ function init({ getWindow, quit }) {
 }
 
 function dispose() {
+  overlay.dispose();
   globalShortcut.unregisterAll();
   tray?.destroy();
   tray = null;

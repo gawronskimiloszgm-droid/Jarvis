@@ -418,7 +418,7 @@
   ];
   const SHORTCUTS = [
     ['Ctrl+K', 'paleta polecen'], ['Ctrl+/', 'ta pomoc'], ['Alt+1..9', 'kolejne moduly z menu'], ['g d', 'Pulpit'], ['g z', 'Zadania'], ['g n', 'Notatki'], ['g j', 'Dziennik'],
-    ['g k', 'Zakupy'], ['g w', 'Nawyki'], ['g t', 'Tablica'], ['g p', 'Planer'], ['g s', 'Statystyki'], ['g h', 'Pomoc'], ['Ctrl+Alt+S', 'zaznacz fragment ekranu (desktop)'], ['Ctrl+Alt+J', 'nakladka HUD (desktop)'], ['Ctrl+Alt+N', 'szybka notatka (desktop)'],
+    ['g k', 'Zakupy'], ['g w', 'Nawyki'], ['g t', 'Tablica'], ['g p', 'Planer'], ['g s', 'Statystyki'], ['g h', 'Pomoc'], ['Ctrl+Alt+S', 'zaznacz fragment ekranu (desktop)'], ['Ctrl+Alt+J', 'rozmowa z Jarvisem (desktop)'], ['Ctrl+Alt+H', 'nakladka HUD (desktop)'], ['Ctrl+Alt+N', 'szybka notatka (desktop)'], ['Ctrl+Alt+Spacja', 'pauza/wznow muzyke (desktop)'], ['Ctrl+Alt+P', 'kolejny profil (desktop)'],
   ];
   const help = {
     title: 'CENTRUM POMOCY',
