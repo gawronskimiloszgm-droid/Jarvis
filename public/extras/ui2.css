@@ -195,3 +195,11 @@ body.rail-compact .rail-foot { flex-direction: column; }
 .kan-acts button { background: none; border: 1px solid var(--line-2); border-radius: 4px; color: var(--dim); cursor: pointer; padding: 1px 7px; }
 .kan-acts button:hover { color: var(--bright); border-color: var(--blue); }
 @media (max-width: 760px) { .kanban { grid-template-columns: 1fr; } }
+
+/* ---------- pasek narzedzi podgladu 3D (cad-view.js) ---------- */
+.cad-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
+.cad-tool { font: 600 9px/1 var(--mono, monospace); letter-spacing: .12em; padding: 6px 8px; border-radius: 3px; cursor: pointer;
+  background: transparent; color: var(--dim, #8aa); border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent); }
+.cad-tool.on, .cad-tool:hover { color: var(--blue); border-color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
+.cad-cut { font: 600 9px/1 var(--mono, monospace); letter-spacing: .12em; color: var(--dim, #8aa); display: inline-flex; align-items: center; gap: 6px; }
+.cad-cut input { width: 90px; accent-color: var(--blue); }
