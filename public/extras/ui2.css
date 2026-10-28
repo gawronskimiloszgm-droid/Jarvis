@@ -269,3 +269,15 @@ body.m-oled .w, body.m-oled .stage-panel .card { background-color: #000; }
 .install-banner { position: fixed; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); z-index: 300; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   padding: 10px 12px; border: 1px solid var(--blue); border-radius: 8px; background: color-mix(in srgb, #02080c 94%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--blue) 30%, transparent); font-size: 13px; }
 .install-banner span { flex: 1 1 200px; }
+
+/* ---------- galeria i skupienie ---------- */
+.gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 8px; }
+.gal-card { margin: 0; border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); border-radius: 6px; padding: 6px; cursor: zoom-in; }
+.gal-card.notable { border-color: #ff9c4a; box-shadow: 0 0 12px rgba(255, 156, 74, .25); }
+.gal-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: #020608; }
+.gal-card figcaption { font: 600 10px/1.3 var(--mono, monospace); letter-spacing: .08em; margin: 4px 0 2px; color: var(--blue); }
+.gal-veil { position: fixed; inset: 0; z-index: 400; background: rgba(0, 0, 0, .88); display: grid; place-items: center; cursor: zoom-out; }
+.gal-veil img { max-width: 94vw; max-height: 90vh; border: 1px solid var(--blue); box-shadow: 0 0 40px color-mix(in srgb, var(--blue) 40%, transparent); }
+.focus-bars { display: flex; gap: 8px; align-items: flex-end; height: 80px; }
+.focus-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; font-size: 10px; color: var(--dim, #8aa); }
+.focus-col i { display: block; width: 100%; background: linear-gradient(180deg, var(--blue), color-mix(in srgb, var(--blue) 30%, transparent)); border-radius: 3px 3px 0 0; }

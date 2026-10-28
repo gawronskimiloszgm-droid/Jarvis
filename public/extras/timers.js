@@ -104,6 +104,7 @@
       if (t.kind === 'timer') notifyEnd('Minutnik', `Koniec minutnika${t.name ? ': ' + t.name : ''}.`);
       else if (t.kind === 'focus') {
         notifyEnd('Skupienie', `Koniec bloku pracy (${t.mins} min). 5 minut przerwy.`);
+        UI.logLife?.('focus', `Skupienie ${t.mins} min zakonczone`, 'skupienie');
         setDnd(0);
         timers.push({ id: id(), kind: 'break', name: 'Przerwa', end: now + 5 * 60000, total: 5 * 60000, mins: t.mins, cycle: t.cycle });
       } else if (t.kind === 'break') {

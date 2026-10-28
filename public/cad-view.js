@@ -73,6 +73,8 @@
     let showGrid = true;
     let showDims = false;
     let cut = 1; // 1 = bez ciecia; mniej = odcina gore bryly
+    let measuring = false;
+    let picks = []; // dwa wierzcholki (wspolrzedne modelu) do pomiaru
     let projector = false; // model unosi sie nad stolem projektora
     const t0 = performance.now();
 
@@ -185,6 +187,60 @@
       ctx.restore();
     }
 
+    // Pomiar odleglosci: klik w model wybiera najblizszy wierzcholek, dwa punkty = odcinek z opisem w mm.
+    function nearestVertex(mx, my, scale, cx, cy) {
+      let best = null;
+      let bd = 16 * 16;
+      for (const tri of mesh) {
+        for (const k of ['a', 'b', 'c']) {
+          const p = project(tri[k], rotX, rotY, scale, cx, cy, center, zoom);
+          const d = (p[0] - mx) ** 2 + (p[1] - my) ** 2;
+          if (d < bd) {
+            bd = d;
+            best = tri[k];
+          }
+        }
+      }
+      return best;
+    }
+    function drawMeasure(scale, cx, cy, col) {
+      picks.forEach((v) => {
+        const p = project(v, rotX, rotY, scale, cx, cy, center, zoom);
+        ctx.fillStyle = '#ffb347';
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], 4, 0, 6.283);
+        ctx.fill();
+      });
+      if (picks.length === 2) {
+        const a = project(picks[0], rotX, rotY, scale, cx, cy, center, zoom);
+        const b = project(picks[1], rotX, rotY, scale, cx, cy, center, zoom);
+        ctx.strokeStyle = '#ffb347';
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const dist = Math.hypot(picks[0][0] - picks[1][0], picks[0][1] - picks[1][1], picks[0][2] - picks[1][2]);
+        ctx.fillStyle = '#ffb347';
+        ctx.font = '600 12px monospace';
+        ctx.fillText(`${dist.toFixed(1)} mm`, (a[0] + b[0]) / 2 + 6, (a[1] + b[1]) / 2 - 6);
+      } else if (measuring) {
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.8)`;
+        ctx.font = '10px monospace';
+        ctx.fillText(picks.length ? 'Wskaz drugi punkt' : 'Wskaz pierwszy punkt', 8, 14);
+      }
+    }
+    canvas.addEventListener('click', (e) => {
+      if (!measuring || drag?.moved) return;
+      const rect = canvas.getBoundingClientRect();
+      const scale = (Math.min(rect.width, rect.height) * 0.62) / span;
+      const v = nearestVertex(e.clientX - rect.left, e.clientY - rect.top, scale, rect.width / 2, rect.height / 2);
+      if (!v) return;
+      picks = picks.length >= 2 ? [v] : [...picks, v];
+    });
+
     function draw() {
       if (!canvas.isConnected) return; // plotno usuniete z DOM - konczymy petle
       const rect = canvas.getBoundingClientRect();
@@ -247,7 +303,9 @@
           let c;
           if (heat && field[d.i]) {
             const hc = heatColor(field[d.i].ratio);
-            c = `rgb(${Math.round(hc[0] * lam)}, ${Math.round(hc[1] * lam)}, ${Math.round(hc[2] * lam)})`;
+            // Mapa naprezen "pulsuje": im wiekszy stosunek naprezenia, tym mocniejszy puls.
+            const pulse = 1 + 0.18 * field[d.i].ratio * Math.sin(t * 3.2);
+            c = `rgb(${Math.min(255, Math.round(hc[0] * lam * pulse))}, ${Math.min(255, Math.round(hc[1] * lam * pulse))}, ${Math.min(255, Math.round(hc[2] * lam * pulse))})`;
           } else {
             const g = Math.round(90 + lam * 140);
             c = `rgb(${Math.round(g * 0.55)}, ${Math.round(g * 0.82)}, ${g})`;
@@ -282,6 +340,7 @@
       }
 
       if (showDims) drawDims(scale, cx, cy, col);
+      drawMeasure(scale, cx, cy - hover * scale * zoom, col);
       drawAxes(scale, cx, cy);
 
       raf = requestAnimationFrame(draw);
@@ -310,12 +369,13 @@
       }
       if (!drag) return;
       const p = e.touches ? e.touches[0] : e;
+      if (Math.hypot(p.clientX - drag.x, p.clientY - drag.y) > 4) drag.moved = true;
       rotY = drag.ry + (p.clientX - drag.x) * 0.01;
       rotX = Math.max(-1.6, Math.min(1.6, drag.rx + (p.clientY - drag.y) * 0.01));
       e.preventDefault();
     };
     const up = () => {
-      drag = null;
+      setTimeout(() => { drag = null; }, 0);
       pinch = null;
     };
     const wheel = (e) => {
@@ -353,6 +413,7 @@
     btn('SIATKA', (b) => { showGrid = !showGrid; b.classList.toggle('on', showGrid); }, showGrid);
     btn('WYMIARY', (b) => { showDims = !showDims; b.classList.toggle('on', showDims); }, showDims);
     btn('PROJEKTOR', (b) => { projector = !projector; b.classList.toggle('on', projector); }, projector);
+    btn('POMIAR', (b) => { measuring = !measuring; picks = []; spin = false; b.classList.toggle('on', measuring); }, measuring);
     btn('OBROT', (b) => { spin = !spin; b.classList.toggle('on', spin); }, spin);
     Object.entries(VIEWS).forEach(([name, [rx, ry]]) => btn(name.toUpperCase(), () => { spin = false; rotX = rx; rotY = ry; zoom = 1; }));
     const cutWrap = document.createElement('label');

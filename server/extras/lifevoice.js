@@ -91,6 +91,16 @@ export const LIFE_TOOLS = [
     parameters: { type: 'object', properties: {} },
   },
   {
+    name: 'podsumowanie_dnia',
+    description: 'Podsumowanie dzisiejszego dnia z danych: woda, nastroj, nawyki, wpisy dziennika, zakupy i tablica. Uzyj na pytanie "jak mi minal dzien", "co dzis zrobilem".',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'co_nowego',
+    description: 'Lista nowych funkcji aplikacji z ostatniej aktualizacji (changelog) - na pytanie "co nowego", "co umiesz teraz".',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
     name: 'zegar_swiata',
     description: 'Podaj aktualna godzine w danym miescie lub strefie (np. Tokio, Nowy Jork, Londyn).',
     parameters: { type: 'object', properties: { miasto: { type: 'string' } }, required: ['miasto'] },
@@ -106,9 +116,19 @@ export const LIFE_TOOLS = [
   },
 ];
 
+const CHANGELOG = [
+  'Hologram: szesc stylow tla, lewitujace panele, smuga kursora, fale, pochylanie kart',
+  'Podglad 3D: tryb holo, skaner, wymiary, ciecie, pomiar, biblioteka projektow, porownanie',
+  'Ponad 50 widzetow na Pulpicie z wlasnym ukladem',
+  'Nowe moduly: dziennik, zakupy, nawyki, cele, tablica, zakladki, fiszki, planer, tlumacz, zegary swiata, statystyki, galeria, Holo-stol',
+  'Paleta polecen z kalkulatorem, przeliczeniami i szybkim dodawaniem',
+  'Desktop: nakladka HUD, szybkie przechwytywanie, skroty globalne, tryb kina',
+  'Telefon: gesty, wibracje, pasek szybkich akcji, tryb jednej reki, OLED',
+];
+
 export const LIFE_TOOL_NAMES = LIFE_TOOLS.map((t) => t.name);
 
-export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie.`;
+export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci.`;
 
 export async function runLifeTool(name, args = {}) {
   switch (name) {
@@ -161,6 +181,25 @@ export async function runLifeTool(name, args = {}) {
         return { error: e.message };
       }
     }
+    case 'podsumowanie_dnia': {
+      const day = warsawDay();
+      const d = lifeDaily({}, day);
+      const habits = lifeList('habits');
+      const wpisy = lifeList('journal').filter((e) => new Date(e.at).toLocaleDateString('en-CA', { timeZone: 'Europe/Warsaw' }) === day);
+      return {
+        dzien: day,
+        woda: d.water,
+        nastroj: d.mood || 'nie podano',
+        nawyki_zrobione: habits.filter((h) => h.days.includes(day)).map((h) => h.name),
+        nawyki_zostalo: habits.filter((h) => !h.days.includes(day)).map((h) => h.name),
+        wpisy_dziennika: wpisy.length,
+        ostatnie_wpisy: wpisy.slice(0, 5).map((e) => e.text.slice(0, 80)),
+        do_kupienia: lifeList('shopping').filter((x) => !x.done).length,
+        karty_w_toku: lifeList('kanban').filter((k) => k.col === 'doing').map((k) => k.text),
+      };
+    }
+    case 'co_nowego':
+      return { wersja: '0.6.0', nowosci: CHANGELOG };
     case 'podsumowanie_tygodnia':
       return { podsumowanie: lifeWeekSummary() };
     case 'zegar_swiata': {

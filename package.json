@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Osobisty asystent AI w stylu J.A.R.V.I.S.",
   "main": "server/index.js",
   "type": "module",

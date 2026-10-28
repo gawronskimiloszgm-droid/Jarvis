@@ -320,6 +320,15 @@
       a.download = 'qr.png';
       a.click();
     }, 'btn ghost');
+    try {
+      const pre = sessionStorage.getItem('jarvis.qrText'); // z palety: "qr tekst"
+      if (pre) {
+        sessionStorage.removeItem('jarvis.qrText');
+        t.value = pre;
+      }
+    } catch {
+      /* brak sessionStorage */
+    }
     draw();
     b.append(row(t, save), cv);
     UI.qrCanvas = cv;

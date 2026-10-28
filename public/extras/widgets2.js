@@ -320,7 +320,7 @@
     const draw = () => { disp.textContent = fmtT(cur()); laps.innerHTML = ''; st.laps.slice(0, 4).forEach((l, i) => laps.appendChild(el('div', 'w-dim', `#${st.laps.length - i}  ${l}`))); };
     box.append(disp, row, laps);
     draw();
-    const t = setInterval(() => (document.body.contains(box) ? disp.textContent = fmtT(cur()) : clearInterval(t)), 50);
+    const t = setInterval(() => { if (!document.body.contains(box)) return clearInterval(t); disp.textContent = fmtT(cur()); go.textContent = st.run ? 'PAUZA' : 'START'; }, 50);
   });
 
   add('dice', 'Kostka i moneta', '🎲', {}, (box) => {

@@ -86,6 +86,22 @@
     const out = [];
     const owner = isOwner();
 
+    // Podpowiedzi komend: wpisany poczatek pierwszego slowa -> szablony do wstawienia.
+    if (!rest && raw.length >= 2 && /^[a-zA-Z]+$/.test(raw)) {
+      const TEMPLATES = ['zadanie ', 'notatka ', 'zakupy ', 'wydatek ', 'woda +1', 'nastroj 4', 'nawyk ', 'dziennik ', 'cel ', 'tablica ', 'kostka 20', 'moneta', 'losuj ', 'haslo 20', 'uuid', 'hash ', 'tlumacz ', 'kurs usd', 'ile do piatku', 'za 30 dni', 'szukaj ', 'holo ', 'kino', 'nakladka', 'historia', 'pomoc', 'odliczanie 2027-01-01 '];
+      TEMPLATES.filter((t) => t.startsWith(norm(raw)) && t.trim() !== norm(raw)).slice(0, 4).forEach((t) => out.push({ label: `↹ ${t.trim()}`, hint: 'TAB/ENTER = wstaw', run: () => { setTimeout(() => { const i = document.getElementById('paletteInput'); if (i) { i.value = t; i.focus(); i.dispatchEvent(new Event('input')); } }, 60); document.getElementById('paletteBtn')?.click(); } }));
+    }
+    if (verb === 'pogoda' && /jutro/.test(norm(rest))) {
+      out.push({ label: '☁ Pogoda na jutro', hint: 'ENTER', run: async () => {
+        const loc = UI.store?.location || { lat: 52.23, lon: 21.01 };
+        try {
+          const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2`).then((x) => x.json());
+          toast(`Jutro: ${Math.round(r.daily.temperature_2m_min[1])}°/${Math.round(r.daily.temperature_2m_max[1])}°, opady ${r.daily.precipitation_probability_max[1]}%`, 'ok');
+        } catch {
+          toast('Brak danych pogodowych.');
+        }
+      } });
+    }
     const mi = mathItem(raw);
     if (mi) out.push(mi);
     if (verb === '=' || (verb.startsWith('=') && verb.length > 1)) {
@@ -156,7 +172,15 @@
       out.push(copyItem(`⏱ ${t.iso}`, t.unix, `unix ${t.unix}`));
     }
     if ((verb === 'tlumacz' || verb === 'translate') && rest) out.push({ label: `⇄ Tlumacz: ${rest.slice(0, 40)}`, hint: 'ENTER = otworz tlumacza', run: () => { sessionStorage.setItem('jarvis.trText', rest); UI.openWindow('translate'); } });
-    if (verb === 'stoper' || verb === 'stopwatch') out.push({ label: '⏱ Stoper na Pulpicie', hint: 'ENTER', run: () => UI.openWindow('dash') });
+    if (verb === 'stoper' || verb === 'stopwatch') {
+      // Wspolny stan ze widzetem "Stoper" na Pulpicie (window.__stopwatch).
+      const sw = (window.__stopwatch = window.__stopwatch || { run: false, start: 0, acc: 0, laps: [] });
+      const cur = () => sw.acc + (sw.run ? Date.now() - sw.start : 0);
+      const fmtSw = (ms) => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`;
+      const w = norm(rest);
+      if (!w || 'start'.startsWith(w) || 'pauza'.startsWith(w) || 'stop'.startsWith(w)) out.push({ label: `⏱ Stoper ${sw.run ? 'pauza' : 'start'} (${fmtSw(cur())})`, hint: 'ENTER', run: () => { if (sw.run) { sw.acc = cur(); sw.run = false; } else { sw.start = Date.now(); sw.run = true; } toast(`Stoper: ${sw.run ? 'idzie' : 'zatrzymany'} ${fmtSw(cur())}`, 'ok'); } });
+      if (!w || 'zeruj'.startsWith(w) || 'reset'.startsWith(w)) out.push({ label: '⏱ Stoper: zeruj', hint: 'ENTER', run: () => { sw.run = false; sw.acc = 0; sw.laps = []; toast('Stoper wyzerowany.', 'ok'); } });
+    }
     if (verb === 'pomoc' || verb === '?') out.push({ label: '? Centrum pomocy', hint: 'ENTER', run: () => UI.openWindow('help') });
     if (verb === 'qr' && rest) out.push({ label: `▦ QR: ${rest.slice(0, 40)}`, hint: 'ENTER = otworz narzedzia', run: () => { sessionStorage.setItem('jarvis.qrText', rest); UI.openWindow('tools'); } });
     if (verb === 'kolor' || verb === 'color') {
@@ -270,7 +294,7 @@
   window.addEventListener('keydown', (e) => {
     if (!isOwner() || e.target.closest?.('input, textarea, [contenteditable]')) return;
     if (e.altKey && /^[1-9]$/.test(e.key)) {
-      const nav = [...document.querySelectorAll('.nav button, #nav button, nav button')].filter((b) => b.offsetParent);
+      const nav = [...document.querySelectorAll('#dock .dock-btn')].filter((b) => !b.classList.contains('off'));
       const b = nav[Number(e.key) - 1];
       if (b) { e.preventDefault(); b.click(); }
     }
