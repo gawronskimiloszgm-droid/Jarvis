@@ -164,3 +164,9 @@ body.holo-boot .stage-panel, body.holo-boot .home-grid > .w { animation: holo-in
 body.holo-boot .home-grid > .w:nth-child(2n) { animation-delay: .08s; }
 body.holo-boot .home-grid > .w:nth-child(3n) { animation-delay: .16s; }
 body.holo-boot .home-grid > .w:nth-child(5n) { animation-delay: .24s; }
+
+/* nastroj dnia delikatnie przesuwa barwe sceny w tle (1 chlodna/smutna .. 5 cieplo-zielona) */
+body[data-mood='1'] .holo-scene { filter: hue-rotate(-35deg) saturate(.7); }
+body[data-mood='2'] .holo-scene { filter: hue-rotate(-15deg) saturate(.85); }
+body[data-mood='4'] .holo-scene { filter: hue-rotate(25deg) saturate(1.1); }
+body[data-mood='5'] .holo-scene { filter: hue-rotate(60deg) saturate(1.25); }
