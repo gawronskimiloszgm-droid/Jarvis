@@ -1,0 +1,123 @@
+/* Holograficzny interfejs: panele lewituja w przestrzeni (glebia + paralaksa), szklane
+   krawedzie z "skanerem", wejscie modulu jak wlaczenie projekcji. Sterowane atrybutem
+   body[data-holo]: full | subtle | off  (extras/holo.js). */
+
+:root {
+  --holo-amp: 1;          /* sila lewitacji i paralaksy 0..1 */
+  --holo-mx: 0;           /* przesuniecie myszy -1..1 */
+  --holo-my: 0;
+  --holo-tilt-x: 0deg;
+  --holo-tilt-y: 0deg;
+}
+
+/* ---------- scena w tle ---------- */
+.holo-scene { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.stage > .stage-panel { z-index: 1; }
+
+/* ---------- lewitujace elementy ---------- */
+body[data-holo='full'] .stage-body,
+body[data-holo='subtle'] .stage-body { perspective: 1100px; perspective-origin: 50% 30%; }
+
+body[data-holo='full'] .w,
+body[data-holo='full'] .stage-panel .card,
+body[data-holo='subtle'] .w,
+body[data-holo='subtle'] .stage-panel .card {
+  --d: 10;                       /* glebokosc: im wieksza, tym mocniejsza paralaksa */
+  --ph: 0s;                      /* faza lewitacji */
+  position: relative;
+  translate: calc(var(--holo-mx) * var(--d) * var(--holo-amp) * 1px) calc(var(--holo-my) * var(--d) * var(--holo-amp) * .7px);
+  transform: rotateX(calc(var(--holo-tilt-x) * var(--holo-amp))) rotateY(calc(var(--holo-tilt-y) * var(--holo-amp)));
+  transform-style: preserve-3d;
+  background-image:
+    linear-gradient(180deg, rgba(40, 140, 170, .09), rgba(6, 18, 24, .0) 42%),
+    linear-gradient(135deg, rgba(51, 224, 255, .06), transparent 45%);
+  border-color: color-mix(in srgb, var(--blue) 34%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--blue) 10%, transparent) inset,
+    0 14px 40px rgba(0, 0, 0, .45),
+    0 0 26px color-mix(in srgb, var(--blue) 10%, transparent);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
+}
+
+/* Roznicowanie glebokosci i fazy - kazdy element plywa troche inaczej. */
+body[data-holo='full'] .home-grid > .w:nth-child(3n + 1) { --d: 16; --ph: -1.4s; }
+body[data-holo='full'] .home-grid > .w:nth-child(3n + 2) { --d: 8; --ph: -3.1s; }
+body[data-holo='full'] .home-grid > .w:nth-child(3n) { --d: 22; --ph: -4.7s; }
+body[data-holo='full'] .stage-panel .card:nth-child(odd) { --d: 12; --ph: -2s; }
+body[data-holo='full'] .stage-panel .card:nth-child(even) { --d: 20; --ph: -5s; }
+
+body[data-holo='full'] .w,
+body[data-holo='full'] .stage-panel .card {
+  animation: holo-float 8s ease-in-out infinite;
+  animation-delay: var(--ph);
+}
+@keyframes holo-float {
+  0%, 100% { transform: translateY(0) rotateX(calc(var(--holo-tilt-x) * var(--holo-amp))) rotateY(calc(var(--holo-tilt-y) * var(--holo-amp))); }
+  50% { transform: translateY(calc(-5px * var(--holo-amp))) rotateX(calc(var(--holo-tilt-x) * var(--holo-amp) + .5deg)) rotateY(calc(var(--holo-tilt-y) * var(--holo-amp) - .4deg)); }
+}
+
+/* Narozniki "projektora" i przesuwajacy sie blysk skanera. */
+body[data-holo='full'] .w::before,
+body[data-holo='subtle'] .w::before {
+  content: ''; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit; z-index: 2;
+  background:
+    linear-gradient(var(--blue), var(--blue)) top left / 12px 1.5px no-repeat,
+    linear-gradient(var(--blue), var(--blue)) top left / 1.5px 12px no-repeat,
+    linear-gradient(var(--blue), var(--blue)) bottom right / 12px 1.5px no-repeat,
+    linear-gradient(var(--blue), var(--blue)) bottom right / 1.5px 12px no-repeat;
+  opacity: .7;
+}
+body[data-holo='full'] .w::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; overflow: hidden; z-index: 1;
+  background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--blue) 14%, transparent) 50%, transparent 65%) -150% 0 / 250% 100% no-repeat;
+  animation: holo-sheen 9s ease-in-out infinite;
+  animation-delay: calc(var(--ph) * -1);
+}
+@keyframes holo-sheen { 0%, 70% { background-position: -150% 0; } 100% { background-position: 150% 0; } }
+
+/* ---------- wejscie modulu: projekcja sie wlacza ---------- */
+body[data-holo='full'] .stage-panel.show .w,
+body[data-holo='full'] .stage-panel.show .card {
+  animation: holo-in .7s var(--ease) backwards, holo-float 8s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 55ms), var(--ph);
+}
+@keyframes holo-in {
+  0% { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateY(18px) rotateX(18deg) scale(.96); filter: brightness(2) blur(2px); }
+  35% { opacity: .9; clip-path: inset(0 0 40% 0); filter: brightness(1.6); }
+  42% { opacity: .35; }
+  50% { opacity: 1; clip-path: inset(0 0 0 0); }
+  100% { opacity: 1; clip-path: inset(0 0 0 0); transform: none; filter: none; }
+}
+
+/* ---------- glitch przy zmianie modulu ---------- */
+.holo-glitch { position: fixed; inset: 0; z-index: 80; pointer-events: none; opacity: 0; mix-blend-mode: screen; }
+.holo-glitch.on { animation: holo-glitch .32s steps(6, end); }
+@keyframes holo-glitch {
+  0% { opacity: .0; }
+  15% { opacity: .5; background: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--blue) 30%, transparent) 3px 4px); transform: translateX(-4px); }
+  45% { opacity: .35; transform: translateX(5px) skewX(-1deg); }
+  75% { opacity: .2; transform: translateX(-2px); }
+  100% { opacity: 0; transform: none; }
+}
+
+/* ---------- linie skanujace calego ekranu (bardzo delikatne) ---------- */
+.holo-lines { position: fixed; inset: 0; z-index: 79; pointer-events: none; opacity: .5; mix-blend-mode: overlay;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px); }
+body[data-holo='off'] .holo-lines, body[data-holo='subtle'] .holo-lines { display: none; }
+body[data-holo='full'] .holo-lines::after { content: ''; position: absolute; left: 0; right: 0; height: 18%; top: -18%;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--blue) 7%, transparent), transparent);
+  animation: holo-roll 7s linear infinite; }
+@keyframes holo-roll { to { top: 118%; } }
+
+/* ---------- reakcja na rozmowe: rdzen "oddycha" ---------- */
+body.holo-talk .rail-mark i:nth-child(1) { animation: hg-blink .5s infinite; }
+
+/* Tryby oszczedne: brak ruchu, sam szklany wyglad. */
+body[data-holo='off'] .holo-scene { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  body[data-holo='full'] .w, body[data-holo='full'] .stage-panel .card { animation: none !important; }
+}
+@media (max-width: 760px) {
+  body[data-holo='full'] .w::after { display: none; }
+}

@@ -7,6 +7,7 @@ import express from 'express';
 import * as memory from '../memory/memory.js';
 import { requireOwner } from '../core/auth.js';
 import { watchAudit } from '../security/edith.js';
+import { logJournal } from './life.js';
 
 const router = express.Router();
 const CAP = 500;
@@ -31,6 +32,10 @@ export function recordAudit(entry) {
   });
   if (list.length > CAP) list.length = CAP;
   memory.save(memory.load());
+  // Do dziennika dnia trafiaja tylko akcje, ktore cos zmienily (nie odczyty/probki).
+  const QUIET = new Set(['telemetria', 'aktywne-okno', 'zrzut-maly', 'czas-pracy', 'bateria', 'proces-dziala', 'schowek-historia', 'zadania-lista', 'stan-gry', 'lista-procesow', 'lista-okien']);
+  if (list[0].verdict === 'ok' && !QUIET.has(list[0].name) && !/^agent:/.test(list[0].name)) logJournal('action', `Akcja: ${list[0].name}${list[0].detail ? ' ' + list[0].detail.slice(0, 80) : ''}`, 'komputer');
+  else if (list[0].verdict === 'blocked') logJournal('alert', `Zablokowano: ${list[0].name} - ${list[0].note || ''}`, 'edith');
   try {
     watchAudit(list[0], list);
   } catch (err) {

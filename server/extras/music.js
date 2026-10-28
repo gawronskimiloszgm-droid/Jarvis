@@ -7,6 +7,7 @@ import express from 'express';
 import { requireOwner } from '../core/auth.js';
 import * as spotify from '../connect/spotify.js';
 import * as player from '../connect/spotifyPlayer.js';
+import { logJournal } from './life.js';
 
 const router = express.Router();
 
@@ -126,12 +127,14 @@ router.post('/api/music/play', requireOwner, async (req, res) => {
   if (found.zrodlo === 'spotify' && player.isConnected()) {
     try {
       const r = await player.playUri(found.url.replace(/:play$/, ''));
+      logJournal('music', `Gram: ${found.nazwa}`, 'muzyka');
       return res.json({ ok: true, played: true, nazwa: found.nazwa, device: r.device });
     } catch (err) {
       // Nie udalo sie przez API (np. Spotify wylaczone) - klient sprobuje otworzyc link.
       return res.json({ ok: true, played: false, found, warning: err.message });
     }
   }
+  logJournal('music', `Gram: ${found.nazwa}`, 'muzyka');
   res.json({ ok: true, played: false, found });
 });
 

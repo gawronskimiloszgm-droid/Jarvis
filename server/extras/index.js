@@ -18,6 +18,7 @@ import music from './music.js';
 import greeting from './greeting.js';
 import visionplus from './visionplus.js';
 import agentlearn from './agentlearn.js';
+import life from './life.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

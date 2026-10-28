@@ -5,6 +5,7 @@ import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
 import { withModel } from '../core/geminiChain.js';
 import { judge } from './edithPolicy.js';
+import { logJournal } from '../extras/life.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const router = Router();
@@ -290,6 +291,7 @@ function watchAlert(key, reason) {
   state.alerts = state.alerts.slice(0, 80);
   remember();
   pushAlert('E.D.I.T.H. — nietypowe zachowanie', reason);
+  logJournal('alert', `E.D.I.T.H.: ${reason}`, 'edith');
   return true;
 }
 

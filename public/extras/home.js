@@ -430,6 +430,45 @@
     },
   });
 
+  // ---------- uklad pulpitu: ukrywanie, kolejnosc, rozmiar ----------
+  const LAYOUT_KEY = 'jarvis.homeLayout';
+  function layout() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}');
+      return { hidden: Array.isArray(v.hidden) ? v.hidden : [], order: Array.isArray(v.order) ? v.order : [], size: v.size && typeof v.size === 'object' ? v.size : {} };
+    } catch {
+      return { hidden: [], order: [], size: {} };
+    }
+  }
+  function saveLayout(l) {
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(l));
+    } catch {
+      /* uklad do zamkniecia karty */
+    }
+  }
+  let editMode = false;
+
+  function orderedWidgets() {
+    const l = layout();
+    const list = WIDGETS.filter((w) => !w.owner || isOwner());
+    const pos = (id) => {
+      const i = l.order.indexOf(id);
+      return i < 0 ? 1000 + WIDGETS.findIndex((w) => w.id === id) : i;
+    };
+    return list.sort((x, y) => pos(x.id) - pos(y.id));
+  }
+
+  // Dodatki rejestruja wlasne widzety: UI.addHomeWidget({ id, title, glyph, owner, wide, every, render(box) }).
+  UI.addHomeWidget = (def) => {
+    if (WIDGETS.some((w) => w.id === def.id)) return;
+    WIDGETS.push(def);
+    (def.events || []).forEach((ev) => window.addEventListener(ev, () => renderOne(def.id)));
+    if (grid?.parentElement) buildGrid(grid.parentElement);
+  };
+  UI.homeWidgetList = () => WIDGETS.map((w) => ({ id: w.id, title: w.title, owner: Boolean(w.owner) }));
+  UI.homeLayout = { get: layout, set: (l) => { saveLayout(l); if (grid?.parentElement) buildGrid(grid.parentElement); }, edit: () => { editMode = !editMode; if (grid?.parentElement) buildGrid(grid.parentElement); return editMode; } };
+
   // ---------- silnik siatki ----------
   let grid = null;
   const boxes = new Map();
@@ -451,11 +490,77 @@
     body.innerHTML = '';
     timers.splice(0).forEach(clearInterval);
     boxes.clear();
+    const l = layout();
+
+    const bar = el('div', 'home-bar');
+    const edit = el('button', editMode ? 'btn primary' : 'btn ghost', editMode ? 'GOTOWE' : '✎ UKLAD');
+    edit.title = 'Ukryj, przestaw (przeciagnij) i zmien rozmiar widzetow';
+    edit.addEventListener('click', () => {
+      editMode = !editMode;
+      buildGrid(body);
+    });
+    bar.appendChild(edit);
+    if (editMode) {
+      const reset = el('button', 'btn ghost', 'RESETUJ UKLAD');
+      reset.addEventListener('click', () => {
+        saveLayout({ hidden: [], order: [], size: {} });
+        buildGrid(body);
+      });
+      bar.appendChild(reset);
+      bar.appendChild(el('span', 'w-dim', 'Przeciagnij karte, zeby ja przestawic. Przyciski na karcie: ukryj, rozmiar.'));
+    }
+    body.appendChild(bar);
+
     grid = el('div', 'home-grid');
     grid._owner = isOwner();
-    WIDGETS.filter((w) => !w.owner || isOwner()).forEach((def) => {
-      const { w, body: b } = shell(def);
+    const all = orderedWidgets();
+    const visible = all.filter((w) => editMode || !l.hidden.includes(w.id));
+    visible.forEach((def) => {
+      const forced = l.size[def.id];
+      const wide = forced ? forced === 'wide' : Boolean(def.wide);
+      const { w, body: b } = shell({ ...def, wide });
+      w.dataset.wid = def.id;
       boxes.set(def.id, b);
+      if (l.hidden.includes(def.id)) w.classList.add('w-hidden');
+      if (editMode) {
+        w.draggable = true;
+        w.classList.add('w-edit');
+        const tools = el('div', 'w-tools');
+        const hide = el('button', null, l.hidden.includes(def.id) ? '👁 POKAZ' : '✕ UKRYJ');
+        hide.addEventListener('click', () => {
+          const cur = layout();
+          cur.hidden = cur.hidden.includes(def.id) ? cur.hidden.filter((x) => x !== def.id) : [...cur.hidden, def.id];
+          saveLayout(cur);
+          buildGrid(body);
+        });
+        const size = el('button', null, wide ? '⇲ MALY' : '⇱ DUZY');
+        size.addEventListener('click', () => {
+          const cur = layout();
+          cur.size[def.id] = wide ? 'small' : 'wide';
+          saveLayout(cur);
+          buildGrid(body);
+        });
+        tools.append(hide, size);
+        w.appendChild(tools);
+        w.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', def.id);
+          w.classList.add('dragging');
+        });
+        w.addEventListener('dragend', () => w.classList.remove('dragging'));
+        w.addEventListener('dragover', (e) => e.preventDefault());
+        w.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const from = e.dataTransfer.getData('text/plain');
+          if (!from || from === def.id) return;
+          const ids = orderedWidgets().map((x) => x.id);
+          ids.splice(ids.indexOf(from), 1);
+          ids.splice(ids.indexOf(def.id), 0, from);
+          const cur = layout();
+          cur.order = ids;
+          saveLayout(cur);
+          buildGrid(body);
+        });
+      }
       grid.appendChild(w);
       renderOne(def.id);
       if (def.every) {
@@ -479,7 +584,7 @@
     refresh() {
       // Po zalogowaniu/wylogowaniu zmienia sie zestaw widzetow (czesc jest tylko dla wlasciciela).
       if (grid && grid._owner !== isOwner() && grid.parentElement) return buildGrid(grid.parentElement);
-      if (grid) WIDGETS.filter((w) => !w.every || w.every > 5000).forEach((w) => renderOne(w.id));
+      if (grid && !editMode) WIDGETS.filter((w) => !w.every || w.every > 5000).forEach((w) => renderOne(w.id));
     },
   };
   UI.extend('dash', { home: homeDef });
