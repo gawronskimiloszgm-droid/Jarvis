@@ -15,6 +15,7 @@ import { isDnd } from '../extras/dnd.js';
 import { profileBlock } from '../extras/profiles.js';
 import * as spotifyPlayer from '../connect/spotifyPlayer.js';
 import { findRecipe } from '../extras/agentlearn.js';
+import { LIFE_TOOLS, LIFE_VOICE_PROMPT, runLifeTool } from '../extras/lifevoice.js';
 import { EDITH_VOICE, edithApiKey, edithContext } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
@@ -221,6 +222,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_zadanie / dodaj_przypomnienie (czas w ISO RRRR-MM-DDTHH:MM wzgledem "teraz" ponizej). Uzywaj tego TAKZE jako minutnika: "ustaw timer na 20 minut" = przypomnienie za 20 minut z trescia mowiaca po co ("koniec 20 minut - klej").
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
+${LIFE_VOICE_PROMPT}
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej WYLACZNIE gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke. Przy KAZDEJ innej prosbie o muzyke (konkretny utwor, wykonawca, gatunek) uzyj graj_muzyke - nigdy pobudki. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
@@ -712,7 +714,7 @@ const ALL_TOOLS = [
 ];
 
 function toolsForRole(isOwner) {
-  const declarations = isOwner ? ALL_TOOLS : ALL_TOOLS.filter((t) => GUEST_TOOL_NAMES.includes(t.name));
+  const declarations = isOwner ? [...ALL_TOOLS, ...LIFE_TOOLS] : ALL_TOOLS.filter((t) => GUEST_TOOL_NAMES.includes(t.name));
   return [{ functionDeclarations: declarations }];
 }
 
@@ -750,8 +752,10 @@ async function executeTool(name, args, coords) {
         return { error: 'blad pobierania pogody' };
       }
     }
-    default:
-      return { error: 'nieznana funkcja' };
+    default: {
+      const lifeResult = await runLifeTool(name, args);
+      return lifeResult === undefined ? { error: 'nieznana funkcja' } : lifeResult;
+    }
   }
 }
 

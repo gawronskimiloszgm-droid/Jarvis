@@ -1,3 +1,4 @@
+import { LIFE_TAG_PATTERNS, LIFE_TAG_PROMPT, persistLifeTags } from '../extras/lifevoice.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import * as memory from '../memory/memory.js';
 import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weather.js';
@@ -35,7 +36,7 @@ const POLECENIE_RE = /\[POLECENIE:\s*([^\]]+)\]/gi;
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/gi;
 const PROJEKT_RE = /\[PROJEKT:\s*([^\]]+)\]/gi;
 const WYDATEK_RE = /\[WYDATEK:\s*([^,\]]+),\s*([^,\]]+)(?:,\s*([^\]]+))?\]/gi;
-const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE, PROJEKT_RE];
+const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE, PROJEKT_RE, ...LIFE_TAG_PATTERNS];
 
 function stripTags(text) {
   return TAG_STRIP_PATTERNS.reduce((acc, re) => acc.replace(re, ''), text);
@@ -66,6 +67,7 @@ function persistTagsFrom(rawFull) {
   for (const t of newTodos) memory.addTodo(t);
   for (const r of reminders) memory.addReminder(r.text, r.dueAt);
   for (const e of expenses) memory.addExpense(e.amount, e.category, e.note);
+  persistLifeTags(rawFull);
 }
 
 async function resolveCity(userMessage) {
@@ -117,6 +119,7 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [ZADANIE: tresc] - gdy uzytkownik prosi o dodanie czegos do listy zadan/rzeczy do zrobienia
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
 - [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
+${LIFE_TAG_PROMPT}
 - [PROJEKT: obciazenie=6.8, wysieg=45, szerokosc=60, grubosc=5, material=PLA] - gdy uzytkownik prosi o zaprojektowanie uchwytu, wspornika, polki albo o sprawdzenie czy cos wytrzyma obciazenie.
   UZYJ TEGO ZNACZNIKA ZAMIAST OPISYWANIA KONSTRUKCJI SLOWAMI. To nie jest porada - masz realny generator modeli 3D i on policzy wymiary, naprezenia i werdykt, a nastepnie pokaze uzytkownikowi obracany model i plik do druku.
   NIE wymyslaj wlasnych wymiarow, gruboscі scianek, katow ani zalecen materialowych "z glowy" - to bylyby liczby wzięte z powietrza. Podaj w znaczniku tylko to, co wynika z prosby (reszta ma sensowne wartosci domyslne), obciazenie ZAWSZE w kilogramach (funty przelicz: 1 lb = 0.4536 kg).

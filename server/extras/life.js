@@ -148,6 +148,56 @@ export function logJournal(kind, text, tag = '') {
   }
 }
 
+
+// ---------- API wewnetrzne (glos, czat): to samo co trasy, bez HTTP ----------
+export function lifeAdd(coll, body) {
+  const schema = SCHEMAS[coll];
+  if (!schema) return null;
+  const clean = schema.make(body || {});
+  if (!clean) return null;
+  const list = life()[coll];
+  if (list.length >= schema.max) {
+    if (coll === 'journal') list.length = schema.max - 1;
+    else return null;
+  }
+  const item = { id: nanoid(8), at: Date.now(), ...clean };
+  if (coll === 'journal') list.unshift(item);
+  else list.push(item);
+  save();
+  return item;
+}
+
+export function lifeList(coll) {
+  return SCHEMAS[coll] ? life()[coll] : [];
+}
+
+export function lifeDaily(patch = {}, day = warsawDay()) {
+  const l = life();
+  const cur = l.daily[day] || { water: 0, mood: 0 };
+  if (patch.waterDelta != null) cur.water = Math.max(0, Math.min(40, cur.water + Math.round(num(patch.waterDelta))));
+  if (patch.mood != null) cur.mood = Math.max(0, Math.min(5, Math.round(num(patch.mood))));
+  l.daily[day] = cur;
+  save();
+  return { day, ...cur };
+}
+
+// Odhaczenie nawyku (po fragmencie nazwy) na dzis; zwraca nazwe, serie albo null.
+export function lifeToggleHabit(namePart) {
+  const q = String(namePart || '').toLowerCase().trim();
+  if (!q) return null;
+  const h = life().habits.find((x) => x.name.toLowerCase().includes(q));
+  if (!h) return null;
+  const today = warsawDay();
+  const on = !h.days.includes(today);
+  h.days = on ? [...h.days, today].sort() : h.days.filter((d) => d !== today);
+  save();
+  let streak = 0;
+  for (let i = 0; i < 400; i++) {
+    if (h.days.includes(warsawDay(-i))) streak++;
+    else if (i > 0) break;
+  }
+  return { name: h.name, done: on, streak };
+}
 // ---------- kolekcje ----------
 // Kursy walut (EBC przez frankfurter.app) - przez serwer, bo przegladarka blokuje to CORS-em; cache 6 h.
 const fxCache = new Map();
