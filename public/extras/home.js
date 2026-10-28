@@ -466,6 +466,7 @@
     (def.events || []).forEach((ev) => window.addEventListener(ev, () => renderOne(def.id)));
     if (grid?.parentElement) buildGrid(grid.parentElement);
   };
+  UI.homeWidgetDef = (id) => WIDGETS.find((w) => w.id === id);
   UI.homeWidgetList = () => WIDGETS.map((w) => ({ id: w.id, title: w.title, owner: Boolean(w.owner) }));
   UI.homeLayout = { get: layout, set: (l) => { saveLayout(l); if (grid?.parentElement) buildGrid(grid.parentElement); }, edit: () => { editMode = !editMode; if (grid?.parentElement) buildGrid(grid.parentElement); return editMode; } };
 

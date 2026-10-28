@@ -106,6 +106,16 @@ const SCHEMAS = {
     make: (b) => (str(b.name, 60) && /^\d{2}-\d{2}$/.test(str(b.date, 5)) ? { name: str(b.name, 60), date: str(b.date, 5) } : null),
     patch: (b) => ({ ...(b.name != null && { name: str(b.name, 60) }), ...(/^\d{2}-\d{2}$/.test(str(b.date, 5)) && { date: str(b.date, 5) }) }),
   },
+  planner: {
+    max: 600,
+    make: (b) => (str(b.text, 140) && isDay(b.day) ? { text: str(b.text, 140), day: b.day, time: /^\d{2}:\d{2}$/.test(str(b.time, 5)) ? str(b.time, 5) : '', done: false } : null),
+    patch: (b) => ({
+      ...(b.text != null && { text: str(b.text, 140) }),
+      ...(isDay(b.day) && { day: b.day }),
+      ...(b.time != null && { time: /^\d{2}:\d{2}$/.test(str(b.time, 5)) ? str(b.time, 5) : '' }),
+      ...(b.done != null && { done: bool(b.done) }),
+    }),
+  },
   recurring: {
     max: 60,
     make: (b) => (str(b.text, 140) ? { text: str(b.text, 140), every: oneOf(b.every, ['daily', 'weekly', 'monthly'], 'daily'), time: /^\d{2}:\d{2}$/.test(str(b.time, 5)) ? str(b.time, 5) : '09:00', dow: Math.max(0, Math.min(6, num(b.dow, 1))), dom: Math.max(1, Math.min(28, num(b.dom, 1))), last: '' } : null),
@@ -372,6 +382,48 @@ router.post('/api/life/summary', requireOwner, async (req, res) => {
   } catch {
     res.json({ text: fallback });
   }
+});
+
+
+// ---------- tlumacz (AI) ----------
+router.post('/api/translate', requireOwner, async (req, res) => {
+  const text = str(req.body?.text, 4000);
+  const to = str(req.body?.to, 30) || 'angielski';
+  if (!text) return res.status(400).json({ error: 'Wpisz tekst do przetlumaczenia.' });
+  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'Brak klucza AI na serwerze.' });
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const r = await withModel((model) =>
+      ai.models.generateContent({ model, contents: `Przetlumacz na jezyk: ${to}. Zwroc TYLKO tlumaczenie, bez komentarza i cudzyslowow.
+
+${text}` })
+    );
+    res.json({ text: String(r.text || '').trim(), to });
+  } catch (err) {
+    res.status(502).json({ error: `Tlumaczenie nie powiodlo sie: ${err.message || err}` });
+  }
+});
+
+// ---------- statystyki uzycia ----------
+router.get('/api/life/stats/all', requireOwner, (req, res) => {
+  const l = life();
+  const counts = Object.fromEntries(Object.keys(SCHEMAS).map((k) => [k, l[k].length]));
+  const days = Object.keys(l.daily).sort();
+  const water = days.reduce((a, d) => a + (l.daily[d].water || 0), 0);
+  const moods = days.map((d) => l.daily[d].mood).filter(Boolean);
+  const firstAt = Math.min(...Object.values(l).flatMap((v) => (Array.isArray(v) ? v.map((x) => x.at).filter(Boolean) : [])), Date.now());
+  const bestStreak = Math.max(0, ...l.habits.map((h) => {
+    let best = 0;
+    let cur = 0;
+    let prev = null;
+    for (const d of [...h.days].sort()) {
+      cur = prev && Math.round((new Date(d + 'T12:00:00') - new Date(prev + 'T12:00:00')) / 86400000) === 1 ? cur + 1 : 1;
+      best = Math.max(best, cur);
+      prev = d;
+    }
+    return best;
+  }));
+  res.json({ counts, water, moodAvg: moods.length ? Math.round((moods.reduce((a, b) => a + b, 0) / moods.length) * 10) / 10 : 0, daysTracked: days.length, firstAt, bestStreak });
 });
 
 // ---------- fiszki generowane przez AI ----------

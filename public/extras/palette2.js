@@ -155,6 +155,9 @@
       const t = T.timestamp(rest || Date.now() / 1000);
       out.push(copyItem(`⏱ ${t.iso}`, t.unix, `unix ${t.unix}`));
     }
+    if ((verb === 'tlumacz' || verb === 'translate') && rest) out.push({ label: `⇄ Tlumacz: ${rest.slice(0, 40)}`, hint: 'ENTER = otworz tlumacza', run: () => { sessionStorage.setItem('jarvis.trText', rest); UI.openWindow('translate'); } });
+    if (verb === 'stoper' || verb === 'stopwatch') out.push({ label: '⏱ Stoper na Pulpicie', hint: 'ENTER', run: () => UI.openWindow('dash') });
+    if (verb === 'pomoc' || verb === '?') out.push({ label: '? Centrum pomocy', hint: 'ENTER', run: () => UI.openWindow('help') });
     if (verb === 'qr' && rest) out.push({ label: `▦ QR: ${rest.slice(0, 40)}`, hint: 'ENTER = otworz narzedzia', run: () => { sessionStorage.setItem('jarvis.qrText', rest); UI.openWindow('tools'); } });
     if (verb === 'kolor' || verb === 'color') {
       try {
