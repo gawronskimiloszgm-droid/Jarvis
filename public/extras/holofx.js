@@ -152,4 +152,12 @@
     }
   }
   sync();
+
+  // Start aplikacji: moduly "wlaczaja sie" po kolei (klasa holo-boot na ~1.6 s) + krotki glitch.
+  window.addEventListener('jarvis:ready', () => {
+    if (document.body.dataset.holo !== 'full') return;
+    document.body.classList.add('holo-boot');
+    UI.holo?.glitch?.();
+    setTimeout(() => document.body.classList.remove('holo-boot'), 1700);
+  }, { once: true });
 })();

@@ -46,6 +46,7 @@ function toast(msg, kind = 'bad') {
   const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
   $('#toasts').appendChild(n);
   window.SFX?.play(kind === 'ok' ? 'ok' : 'err');
+  window.dispatchEvent(new CustomEvent('jarvis:toast', { detail: { kind } }));
   setTimeout(() => n.remove(), 4800);
 }
 

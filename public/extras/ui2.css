@@ -252,3 +252,20 @@ body.cinema .rail:hover, body.cinema .deck-bar:hover { opacity: 1; }
 body.cinema .holo-scene { opacity: .55; }
 body.cinema::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 60;
   background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, .55) 100%); }
+
+/* ---------- telefon: pasek szybkich akcji, jedna reka, OLED, baner (mobile2.js) ---------- */
+.quickbar { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 120; display: none; gap: 6px; padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--blue) 45%, transparent); border-radius: 30px; background: color-mix(in srgb, #02080c 88%, transparent); backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .6), 0 0 22px color-mix(in srgb, var(--blue) 25%, transparent); }
+body.m-quickbar .quickbar { display: flex; }
+.qb { width: 44px; height: 44px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--blue) 35%, transparent); background: transparent; color: var(--blue); font-size: 18px; cursor: pointer; }
+.qb:active { background: color-mix(in srgb, var(--blue) 22%, transparent); }
+body.m-quickbar .stage-body { padding-bottom: 76px; }
+body.m-onehand .btn, body.m-onehand button.dock-btn, body.m-onehand .inp { min-height: 48px; font-size: 15px; }
+body.m-onehand .stage-body { padding-bottom: 96px; }
+body.m-onehand .quickbar { bottom: calc(18px + env(safe-area-inset-bottom)); }
+body.m-oled, body.m-oled .stage, body.m-oled #board, body.m-oled .rail { background: #000 !important; }
+body.m-oled .w, body.m-oled .stage-panel .card { background-color: #000; }
+.install-banner { position: fixed; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); z-index: 300; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--blue); border-radius: 8px; background: color-mix(in srgb, #02080c 94%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--blue) 30%, transparent); font-size: 13px; }
+.install-banner span { flex: 1 1 200px; }
