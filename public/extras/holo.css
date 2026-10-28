@@ -102,7 +102,7 @@ body[data-holo='full'] .stage-panel.show .card {
 }
 
 /* ---------- linie skanujace calego ekranu (bardzo delikatne) ---------- */
-.holo-lines { position: fixed; inset: 0; z-index: 79; pointer-events: none; opacity: .5; mix-blend-mode: overlay;
+.holo-lines { position: fixed; inset: 0; z-index: 79; pointer-events: none; opacity: .28; mix-blend-mode: overlay;
   background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px); }
 body[data-holo='off'] .holo-lines, body[data-holo='subtle'] .holo-lines { display: none; }
 body[data-holo='full'] .holo-lines::after { content: ''; position: absolute; left: 0; right: 0; height: 18%; top: -18%;
@@ -121,3 +121,24 @@ body[data-holo='off'] .holo-scene { display: none; }
 @media (max-width: 760px) {
   body[data-holo='full'] .w::after { display: none; }
 }
+
+/* ---------- efekty interfejsu (holofx.js) ---------- */
+.holo-trail { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 90; pointer-events: none; }
+.holo-ripple {
+  position: fixed; z-index: 91; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  border: 1.5px solid var(--blue); box-shadow: 0 0 14px var(--blue), inset 0 0 8px var(--blue);
+  pointer-events: none; animation: holo-ripple .62s ease-out forwards;
+}
+@keyframes holo-ripple { to { transform: scale(9); opacity: 0; } }
+body.fx-magnet button, body.fx-magnet .btn { transition: translate .12s ease-out; }
+body.fx-tilt .w, body.fx-tilt .stage-panel .card { transition: rotate .18s ease-out; }
+body.fx-tilt [data-tilt='1'] {
+  background-image:
+    radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255, 255, 255, .10), transparent 55%),
+    linear-gradient(180deg, rgba(40, 140, 170, .09), rgba(6, 18, 24, 0) 42%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 40%, transparent) inset, 0 22px 50px rgba(0, 0, 0, .5), 0 0 34px color-mix(in srgb, var(--blue) 22%, transparent);
+}
+/* Glebia ostrosci: panele w tle lekko nieostre, ten pod kursorem ostry. */
+body.fx-dof .home-grid > .w { filter: blur(.7px); opacity: .9; transition: filter .25s, opacity .25s; }
+body.fx-dof .home-grid > .w:hover, body.fx-dof .home-grid > .w:focus-within { filter: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .holo-trail, .holo-ripple { display: none; } }

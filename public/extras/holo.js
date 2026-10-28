@@ -189,6 +189,93 @@
     return Math.min(1, Math.max(talk, alarm, music));
   }
 
+  // ---------- style sceny tla ----------
+  const SCENES = [['grid', 'Siatka'], ['hex', 'Heksy'], ['rain', 'Deszcz danych'], ['aurora', 'Zorza'], ['stars', 'Gwiazdy'], ['circuit', 'Uklad']];
+  const sceneStyle = () => {
+    const v = get('jarvis.holoScene', 'grid');
+    return SCENES.some((s) => s[0] === v) ? v : 'grid';
+  };
+  const rgba3 = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a.toFixed(3)})`;
+
+  function drawScene(style, ctx, w, h, t, col, px, py) {
+    const p = S.pulse;
+    if (style === 'hex') {
+      // plaster sześciokątów; fala rozchodzi się od kursora/środka
+      const r = Math.max(26, Math.min(w, h) / 14);
+      const dx = r * 1.5, dy = r * Math.sqrt(3);
+      const cx0 = w * (0.5 + px * 0.05), cy0 = h * (0.5 + py * 0.05);
+      for (let c = -1; c * dx < w + dx; c++) {
+        for (let rw = -1; rw * dy < h + dy; rw++) {
+          const x = c * dx, y = rw * dy + (c % 2 ? dy / 2 : 0);
+          const d = Math.hypot(x - cx0, y - cy0);
+          const wave = 0.5 + 0.5 * Math.sin(d * 0.012 - t * 1.6);
+          const a = 0.035 + wave * (0.09 + p * 0.12);
+          ctx.strokeStyle = rgba3(col, a);
+          ctx.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const ang = (Math.PI / 3) * k;
+            const hx = x + Math.cos(ang) * r * 0.92, hy = y + Math.sin(ang) * r * 0.92;
+            k ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+    } else if (style === 'rain') {
+      if (!S.drops || S.drops.length !== Math.ceil(w / 18)) S.drops = Array.from({ length: Math.ceil(w / 18) }, () => ({ y: Math.random() * h, v: 30 + Math.random() * 90 }));
+      ctx.font = '12px monospace';
+      S.drops.forEach((d, i) => {
+        d.y += d.v * 0.033 * (1 + p * 3);
+        if (d.y > h + 120) d.y = -Math.random() * 200;
+        for (let k = 0; k < 9; k++) {
+          ctx.fillStyle = rgba3(col, (0.28 - k * 0.03) * (0.6 + p));
+          ctx.fillText(String.fromCharCode(0x30a0 + ((i * 7 + k * 13 + Math.floor(t * 4)) % 90)), i * 18 + px * 4, d.y - k * 14);
+        }
+      });
+    } else if (style === 'aurora') {
+      for (let b = 0; b < 4; b++) {
+        const g = ctx.createLinearGradient(0, h * 0.1, 0, h * 0.7);
+        const hue = [col, [Math.min(255, col[0] + 60), col[1], 255], [90, 255, 200], col][b];
+        g.addColorStop(0, rgba3(hue, 0));
+        g.addColorStop(0.5, rgba3(hue, 0.07 + p * 0.06));
+        g.addColorStop(1, rgba3(hue, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for (let x = 0; x <= w; x += 20) ctx.lineTo(x, h * (0.3 + b * 0.07) + Math.sin(x * 0.006 + t * (0.3 + b * 0.1) + b) * h * 0.1 + Math.sin(x * 0.015 - t * 0.4) * h * 0.03);
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (style === 'stars') {
+      if (!S.stars) S.stars = Array.from({ length: 140 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
+      const cx = w * (0.5 + px * 0.03), cy = h * (0.5 + py * 0.03);
+      S.stars.forEach((s) => {
+        s.z -= 0.004 * (1 + p * 6);
+        if (s.z <= 0.02) { s.x = Math.random() * 2 - 1; s.y = Math.random() * 2 - 1; s.z = 1; }
+        const k = 1 / s.z;
+        const x = cx + s.x * k * w * 0.08, y = cy + s.y * k * h * 0.08;
+        const x2 = cx + s.x * (k * 1.08) * w * 0.08, y2 = cy + s.y * (k * 1.08) * h * 0.08;
+        ctx.strokeStyle = rgba3(col, Math.min(0.8, (1 - s.z) * 0.8));
+        ctx.lineWidth = 0.6 + (1 - s.z) * 1.2;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+      });
+      ctx.lineWidth = 1;
+    } else if (style === 'circuit') {
+      if (!S.traces) S.traces = Array.from({ length: 14 }, () => ({ y: Math.random(), x: Math.random(), dir: Math.random() < 0.5 ? 1 : -1, len: 0.2 + Math.random() * 0.4, sp: 0.04 + Math.random() * 0.08 }));
+      S.traces.forEach((tr, i) => {
+        tr.x += tr.dir * tr.sp * 0.033 * (1 + p * 3);
+        if (tr.x > 1.4 || tr.x < -0.4) { tr.x = tr.dir > 0 ? -0.3 : 1.3; tr.y = Math.random(); }
+        const y = tr.y * h;
+        const x1 = tr.x * w, x0 = x1 - tr.dir * tr.len * w;
+        ctx.strokeStyle = rgba3(col, 0.07);
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.lineTo(x1 + tr.dir * 30, y + (i % 2 ? 24 : -24)); ctx.stroke();
+        ctx.fillStyle = rgba3(col, 0.6);
+        ctx.beginPath(); ctx.arc(x1, y, 2.2, 0, 6.283); ctx.fill();
+      });
+    }
+  }
+
   function frame(now) {
     S.raf = requestAnimationFrame(frame);
     const m = mode();
@@ -209,6 +296,9 @@
     S.pulse += (en - S.pulse) * 0.15;
     const px = P.x, py = P.y;
 
+    const style = sceneStyle();
+    if (style !== 'grid') drawScene(style, ctx, w, h, t, col, px, py);
+    else {
     // horyzont i poswiata
     const hor = h * (0.58 + py * 0.02);
     const glow = ctx.createLinearGradient(0, hor - h * 0.35, 0, hor + 4);
@@ -253,6 +343,7 @@
       ctx.fill();
     });
     ctx.globalAlpha = 1;
+    }
 
     // bryly druciane
     S.shapes.forEach((s, i) => {
@@ -299,6 +390,32 @@
         row.appendChild(b);
       });
       body.appendChild(row);
+      body.appendChild(el('div', 'sub', 'Tlo sceny:'));
+      const scenes = el('div', 'field');
+      scenes.style.cssText = 'flex-wrap:wrap;gap:6px;margin:6px 0 10px';
+      SCENES.forEach(([v, l]) => {
+        const b = el('button', sceneStyle() === v ? 'btn primary' : 'btn ghost', l);
+        b.addEventListener('click', () => {
+          put('jarvis.holoScene', v);
+          S.drops = S.stars = S.traces = null;
+          def.build(body);
+        });
+        scenes.appendChild(b);
+      });
+      body.appendChild(scenes);
+      body.appendChild(el('div', 'sub', 'Efekty interfejsu:'));
+      const fxRow = el('div', 'field');
+      fxRow.style.cssText = 'flex-wrap:wrap;gap:6px;margin:6px 0 10px';
+      [['trail', 'Smuga kursora'], ['magnet', 'Magnetyczne przyciski'], ['ripple', 'Fale po kliknieciu'], ['tilt', 'Pochylanie kart'], ['dof', 'Rozmycie tla']].forEach(([k, l]) => {
+        const on = UI.holoFx ? UI.holoFx.enabled(k) : false;
+        const b = el('button', on ? 'btn primary' : 'btn ghost', l);
+        b.addEventListener('click', () => {
+          UI.holoFx && UI.holoFx.toggle(k);
+          def.build(body);
+        });
+        fxRow.appendChild(b);
+      });
+      body.appendChild(fxRow);
       const amp = el('input');
       amp.type = 'range';
       amp.min = '0.2';
