@@ -35,6 +35,6 @@ test('moduly klienta rejestruja unikalne identyfikatory', () => {
 
 test('lista nocnej rozbudowy ma co najmniej 200 punktow', () => {
   const doc = fs.readFileSync(new URL('../docs/NOC-200.md', import.meta.url), 'utf8');
-  const items = doc.match(/^\d+\. \[[ x]\]/gm) || [];
+  const items = doc.match(/^\d+\. \[[ x~]\]/gm) || [];
   assert.ok(items.length >= 200, `tylko ${items.length} punktow`);
 });
