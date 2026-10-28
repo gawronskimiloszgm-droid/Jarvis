@@ -19,7 +19,7 @@ import { consolidateFacts, condenseHistory } from './jarvis.js';
 import { sweep as sweepSentinel } from '../home/sentinel.js';
 import { runCheck as runProactiveCheck } from '../home/proactive.js';
 import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
-import { maybeRecurring } from '../extras/life.js';
+import { maybeRecurring, maybeNudges } from '../extras/life.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -96,6 +96,7 @@ export function startUpkeep() {
       await maybeDailyReport();
       await maybeWeeklyReport();
       await maybeRecurring();
+      await maybeNudges();
     } catch (err) {
       console.error('Raport E.D.I.T.H. nieudany:', err.message);
     }

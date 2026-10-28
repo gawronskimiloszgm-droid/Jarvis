@@ -3,7 +3,7 @@
 // kalkulator, przeliczanie jednostek i losowanie. Logika liczb pochodzi z public/extras/toolkit.js.
 import fs from 'node:fs';
 import { webcrypto } from 'node:crypto';
-import { lifeAdd, lifeList, lifeDaily, lifeToggleHabit, warsawDay } from './life.js';
+import { lifeAdd, lifeList, lifeDaily, lifeToggleHabit, lifeWeekSummary, warsawDay } from './life.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto; // Node 18: toolkit.js korzysta z globalnego crypto
 
@@ -86,6 +86,16 @@ export const LIFE_TOOLS = [
     parameters: { type: 'object', properties: { wyrazenie: { type: 'string' } }, required: ['wyrazenie'] },
   },
   {
+    name: 'podsumowanie_tygodnia',
+    description: 'Krotkie podsumowanie ostatnich 7 dni: woda, nawyki, dziennik, nastroj, tablica.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'zegar_swiata',
+    description: 'Podaj aktualna godzine w danym miescie lub strefie (np. Tokio, Nowy Jork, Londyn).',
+    parameters: { type: 'object', properties: { miasto: { type: 'string' } }, required: ['miasto'] },
+  },
+  {
     name: 'losuj',
     description: 'Rzut koscia (k6, k20...), moneta albo wybor jednej opcji z listy.',
     parameters: {
@@ -98,7 +108,7 @@ export const LIFE_TOOLS = [
 
 export const LIFE_TOOL_NAMES = LIFE_TOOLS.map((t) => t.name);
 
-export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy.`;
+export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie.`;
 
 export async function runLifeTool(name, args = {}) {
   switch (name) {
@@ -149,6 +159,20 @@ export async function runLifeTool(name, args = {}) {
         return { wynik: toolkit.calc(q) };
       } catch (e) {
         return { error: e.message };
+      }
+    }
+    case 'podsumowanie_tygodnia':
+      return { podsumowanie: lifeWeekSummary() };
+    case 'zegar_swiata': {
+      if (!toolkit) return { error: 'zegar niedostepny' };
+      const ZONES = { warszawa: 'Europe/Warsaw', londyn: 'Europe/London', 'nowy jork': 'America/New_York', 'los angeles': 'America/Los_Angeles', tokio: 'Asia/Tokyo', sydney: 'Australia/Sydney', dubaj: 'Asia/Dubai', pekin: 'Asia/Shanghai', kair: 'Africa/Cairo', paryz: 'Europe/Paris', berlin: 'Europe/Berlin', moskwa: 'Europe/Moscow', singapur: 'Asia/Singapore', 'sao paulo': 'America/Sao_Paulo' };
+      const key = String(args.miasto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').trim();
+      const tz = ZONES[key] || (/^[A-Za-z_]+\/[A-Za-z_]+$/.test(String(args.miasto)) ? String(args.miasto) : null);
+      if (!tz) return { error: 'nieznane miasto', znane: Object.keys(ZONES) };
+      try {
+        return { miasto: args.miasto, czas: toolkit.timeIn(tz) };
+      } catch {
+        return { error: 'nieznana strefa' };
       }
     }
     case 'losuj': {

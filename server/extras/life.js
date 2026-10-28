@@ -491,4 +491,56 @@ export async function maybeRecurring() {
   return sent;
 }
 
+
+// ---------- proaktywne podpowiedzi: woda, nawyki wieczorem, podsumowanie tygodnia ----------
+// Kazda wysyla sie najwyzej raz (klucz dnia w life.nudges), nigdy w trybie "nie przeszkadzac".
+function weekSummary() {
+  const l = life();
+  const days = Array.from({ length: 7 }, (_, i) => warsawDay(-i));
+  const water = days.reduce((a, d) => a + (l.daily[d]?.water || 0), 0);
+  const moods = days.map((d) => l.daily[d]?.mood).filter(Boolean);
+  const habitHits = l.habits.reduce((a, h) => a + h.days.filter((d) => days.includes(d)).length, 0);
+  const entries = l.journal.filter((e) => Date.now() - e.at < 7 * 86400000).length;
+  const doneCards = l.kanban.filter((k) => k.col === 'done').length;
+  const parts = [`woda ${water} szkl.`, `nawyki ${habitHits} odhaczen`, `dziennik ${entries} wpisow`];
+  if (moods.length) parts.push(`nastroj ${(moods.reduce((a, b) => a + b, 0) / moods.length).toFixed(1)}/5`);
+  if (doneCards) parts.push(`gotowych kart ${doneCards}`);
+  return parts.join(' · ');
+}
+
+export async function maybeNudges() {
+  const l = life();
+  if (!l.nudges || typeof l.nudges !== 'object') l.nudges = {};
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', hour: '2-digit', weekday: 'short', hour12: false }).formatToParts(new Date()).map((p) => [p.type, p.value])
+  );
+  const hour = Number(parts.hour);
+  const today = warsawDay();
+  for (const k of Object.keys(l.nudges)) if (!k.startsWith(today) && l.nudges[k] !== true) delete l.nudges[k];
+  for (const k of Object.keys(l.nudges)) if (k.slice(0, 10) < warsawDay(-3)) delete l.nudges[k];
+  const todo = [];
+  const water = l.daily[today]?.water || 0;
+  if (hour >= 12 && hour < 14 && water < 3) todo.push([`${today}:water-noon`, 'Woda', `Dzis dopiero ${water} szkl. - czas na szklanke, sir.`]);
+  if (hour >= 16 && hour < 18 && water < 5) todo.push([`${today}:water-pm`, 'Woda', `Wypito ${water} szkl. Do wieczora warto dobic do 6.`]);
+  if (hour >= 20 && hour < 22) {
+    const left = l.habits.filter((h) => !h.days.includes(today));
+    if (l.habits.length && left.length) todo.push([`${today}:habits`, 'Nawyki', `Dzis jeszcze: ${left.slice(0, 4).map((h) => h.name).join(', ')}.`]);
+  }
+  if (parts.weekday === 'Sun' && hour >= 19 && hour < 22) todo.push([`${today}:week`, 'Podsumowanie tygodnia', weekSummary()]);
+  let sent = 0;
+  for (const [key, title, body] of todo) {
+    if (l.nudges[key]) continue;
+    l.nudges[key] = true;
+    sent++;
+    if (push.isConfigured() && !isDnd()) await push.sendToAll({ title: `J.A.R.V.I.S. - ${title}`, body }).catch(() => {});
+    logJournal('auto', `${title}: ${body}`, 'podpowiedz');
+  }
+  if (sent) save();
+  return sent;
+}
+
+export function lifeWeekSummary() {
+  return weekSummary();
+}
+
 export default router;
