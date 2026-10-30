@@ -1,0 +1,6 @@
+chatterbox-tts==0.1.7
+fastapi
+uvicorn
+python-multipart
+soundfile
+num2words

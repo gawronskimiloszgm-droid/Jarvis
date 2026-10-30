@@ -765,6 +765,9 @@ async function executeTool(name, args, coords) {
   }
 }
 
+// Lokalny syntezator czyta zdanie po zdaniu: krotkie zdania to krotsza cisza przed pierwszym dzwiekiem.
+const LOCAL_VOICE_STYLE = ' Mow spokojnie i krotkimi zdaniami (do 12 slow), poprawna polszczyzna. Liczby i jednostki wypowiadaj slownie.';
+
 const EDITH_LIVE_VOICE = process.env.EDITH_LIVE_VOICE || 'Kore';
 
 // persona 'edith' = osobna rozmowa na zywo z E.D.I.T.H.: wlasny klucz API, zenski
@@ -973,7 +976,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         responseModalities: [Modality.AUDIO],
         systemInstruction: edith
           ? `${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\n${edithContext()}`
-          : buildLiveSystemInstruction(Boolean(coords), isOwner),
+          : buildLiveSystemInstruction(Boolean(coords), isOwner) + (localVoice ? LOCAL_VOICE_STYLE : ''),
         ...(edith ? {} : { tools: toolsForRole(isOwner) }),
         outputAudioTranscription: {},
         ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : voiceOverride || VOICE_NAME } } } }),

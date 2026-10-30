@@ -6,6 +6,7 @@ const { runAction } = require('./actions');
 const { initUpdater } = require('./updater');
 const shell = require('./shell');
 const scheduler = require('./scheduler');
+const voiceServer = require('./voiceServer');
 
 let mainWindow = null;
 
@@ -129,6 +130,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  voiceServer.start().catch(() => {});
   initUpdater(() => mainWindow);
   // Powrot do komputera (wybudzenie, odblokowanie) - okno dostaje sygnal i Jarvis sie wita.
   const { powerMonitor } = require('electron');
@@ -169,6 +171,7 @@ app.on('window-all-closed', () => {});
 
 app.on('before-quit', () => {
   quitting = true;
+  voiceServer.stop();
   shell.dispose();
   if (wakeProc) {
     try { wakeProc.kill(); } catch (e) { /* noop */ }
