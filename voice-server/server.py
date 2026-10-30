@@ -84,6 +84,7 @@ def ensure_model():
     """Wczytuje model przy pierwszym uzyciu (albo po zwolnieniu)."""
     global model, device, conds_for
     with lock:
+        state["last_use"] = time.time()
         if model is not None:
             return model
         state["loading"] = True
@@ -97,6 +98,7 @@ def ensure_model():
             model = ChatterboxMultilingualTTS.from_pretrained(device=torch.device(device))
             conds_for = None
             state["load_sec"] = round(time.time() - started, 1)
+            state["last_use"] = time.time()
             return model
         except Exception as e:  # pokazujemy powod w /health i w odpowiedzi
             state["error"] = f"{type(e).__name__}: {e}"
@@ -126,8 +128,11 @@ def unload():
 def idle_watch():
     while True:
         time.sleep(30)
-        if IDLE_UNLOAD_SEC > 0 and model is not None and time.time() - state["last_use"] > IDLE_UNLOAD_SEC:
-            unload()
+        if IDLE_UNLOAD_SEC <= 0 or model is None:
+            continue
+        with lock:  # sprawdzamy pod blokada: w trakcie generowania czekamy, az sie skonczy i odswiezy czas
+            if model is not None and time.time() - state["last_use"] > IDLE_UNLOAD_SEC:
+                unload()
 
 
 threading.Thread(target=idle_watch, daemon=True).start()
