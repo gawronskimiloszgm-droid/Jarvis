@@ -181,6 +181,7 @@
       if (!w || 'start'.startsWith(w) || 'pauza'.startsWith(w) || 'stop'.startsWith(w)) out.push({ label: `⏱ Stoper ${sw.run ? 'pauza' : 'start'} (${fmtSw(cur())})`, hint: 'ENTER', run: () => { if (sw.run) { sw.acc = cur(); sw.run = false; } else { sw.start = Date.now(); sw.run = true; } toast(`Stoper: ${sw.run ? 'idzie' : 'zatrzymany'} ${fmtSw(cur())}`, 'ok'); } });
       if (!w || 'zeruj'.startsWith(w) || 'reset'.startsWith(w)) out.push({ label: '⏱ Stoper: zeruj', hint: 'ENTER', run: () => { sw.run = false; sw.acc = 0; sw.laps = []; toast('Stoper wyzerowany.', 'ok'); } });
     }
+    if (verb === 'graf' || verb === 'graph') out.push({ label: '⌬ Graf wiedzy 3D', hint: 'ENTER', run: () => UI.openWindow('graph') });
     if (verb === 'pomoc' || verb === '?') out.push({ label: '? Centrum pomocy', hint: 'ENTER', run: () => UI.openWindow('help') });
     if (verb === 'qr' && rest) out.push({ label: `▦ QR: ${rest.slice(0, 40)}`, hint: 'ENTER = otworz narzedzia', run: () => { sessionStorage.setItem('jarvis.qrText', rest); UI.openWindow('tools'); } });
     if (verb === 'kolor' || verb === 'color') {
