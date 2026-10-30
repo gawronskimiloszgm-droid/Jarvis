@@ -264,7 +264,7 @@ app.post('/api/login', (req, res) => {
 
 // --- Chat (streaming) ---
 app.post('/api/chat', async (req, res) => {
-  const { message, location } = req.body;
+  const { message, location, ui } = req.body;
   if (!message || !String(message).trim()) {
     return res.status(400).json({ error: 'Brak wiadomosci.' });
   }
@@ -286,7 +286,7 @@ app.post('/api/chat', async (req, res) => {
   try {
     await jarvis.chatStream(String(message), (chunk) => {
       res.write(chunk);
-    }, coords, isOwner);
+    }, coords, isOwner, Array.isArray(ui) ? ui : []);
     res.end();
   } catch (err) {
     console.error('Chat error:', err);

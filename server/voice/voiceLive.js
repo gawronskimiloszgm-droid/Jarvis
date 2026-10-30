@@ -223,6 +223,7 @@ Narzedzia wywolujesz w tle, bez zapowiadania - po prostu zrob i potwierdz jednym
 - dodaj_wydatek: gdy wlasciciel wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 na paliwo"). Kwote podaj liczba, kategorie jednym slowem. Potwierdz krotko, mozesz dorzucic sume z miesiaca jesli jest ciekawa.
 - podsumuj_wydatki: gdy pyta ile wydal. Podaj sume i 2-3 najwieksze kategorie, nie czytaj calej listy.
 ${LIFE_VOICE_PROMPT}
+- Wiadomosci zaczynajace sie od [UI] to CICHY kontekst o tym, co uzytkownik robi w aplikacji (otwarte moduly, wybrane pojecia w grafie, gesty dloni, zakonczone minutniki, zmiany w danych). Wiesz o tym i mozesz sie odniesc, ale nie komentuj kazdej drobnostki. Wiadomosci [ZDARZENIE W APLIKACJI] wymagaja jednej krotkiej reakcji.
 - wlacz_kamere / wylacz_kamere: kamera jest domyslnie wylaczona, wlaczasz ja tylko na wyrazna prosbe. Gdy dziala, widzisz obraz co kilka sekund - komentuj tylko gdy to istotne.
 - steruj_urzadzeniem, dozwolone: ${DEVICE_ACTIONS.join(', ')}. Akcja "pobudka" wlacza AC/DC "Back in Black" - uzyj jej WYLACZNIE gdy uslyszysz "Jarvis, pobudka" albo prosbe o pobudke. Przy KAZDEJ innej prosbie o muzyke (konkretny utwor, wykonawca, gatunek) uzyj graj_muzyke - nigdy pobudki. odtworz-pauza/nastepny-utwor/poprzedni-utwor steruja tym, co akurat gra, w dowolnej aplikacji. zrzut-ekranu, zamknij-okno, pokaz-pulpit, uspij-komputer, otworz-eksplorator i zablokuj-ekran dzialaja tylko na komputerze. Przy uspij-komputer upewnij sie krotko, zanim wykonasz - to przerywa wszystko, co uzytkownik robi.
 - "wlacz-edith" w steruj_urzadzeniem uzywaj WYLACZNIE, gdy uzytkownik wprost poprosi o Edith/ochrone/raport bezpieczenstwa - nigdy w innych sytuacjach i nigdy na samo powitanie. KONCZY Twoja rozmowe - klient zrywa to polaczenie glosowe i dalej mowi E.D.I.T.H., osobna osobowosc (inny glos, inny ton, bez "sir"). Po wywolaniu tej akcji NIE mow juz nic wiecej w tej turze - zadnego "przelaczam na Edith, sir" ani niczego innego Twoim glosem. Cisza po tym tagu jest zamierzona.
@@ -337,6 +338,11 @@ const ALL_TOOLS = [
     name: 'ekran_na_zywo',
     description: 'Wlacz albo wylacz podglad EKRANU komputera na zywo w tej rozmowie (klatka co ok. 3 s) - gdy uzytkownik prosi "patrz ze mna na ekran", "zobacz co robie", "pomoz mi w tej grze/kodzie".',
     parameters: { type: 'object', properties: { wlacz: { type: 'boolean' } }, required: ['wlacz'] },
+  },
+  {
+    name: 'holo_interfejs',
+    description: 'Steruj holograficznym interfejsem: kamera (obraz z kamery na calym ekranie pod hologramem), gesty (sterowanie dlonmi), graf (otworz Graf wiedzy), kino (tryb kina).',
+    parameters: { type: 'object', properties: { co: { type: 'string', enum: ['kamera', 'gesty', 'graf', 'kino'] }, wlacz: { type: 'boolean', description: 'Wlacz albo wylacz; pomin, zeby przelaczyc.' } }, required: ['co'] },
   },
   {
     name: 'zaznacz_ekran',
@@ -1163,6 +1169,14 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 const wlacz = Boolean((call.args || {}).wlacz);
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'ekran-na-zywo', params: { wlacz } }));
                 result = { ok: true, note: wlacz ? 'podglad ekranu wlaczony - klatki beda przychodzic same; komentuj tylko gdy cos waznego albo gdy pyta' : 'podglad ekranu wylaczony' };
+              } else if (call.name === 'holo_interfejs') {
+                const a = call.args || {};
+                const action = { kamera: 'holo-kamera', gesty: 'gesty-dloni', graf: 'graf-wiedzy', kino: 'tryb-kina' }[a.co];
+                if (!action) result = { error: 'nieznana funkcja interfejsu' };
+                else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action, params: a.wlacz == null ? {} : { wlacz: Boolean(a.wlacz) } }));
+                  result = { ok: true };
+                }
               } else if (call.name === 'zaznacz_ekran') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'zaznacz-ekran' }));
                 result = { ok: true, note: 'uzytkownik zaznacza teraz fragment - wynik analizy pojawi sie na ekranie' };
@@ -1546,6 +1560,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
 
   scheduleProactive();
 
+  let lastReactAt = 0;
   clientWs.on('message', (data, isBinary) => {
     if (isBinary) {
       liveSession.sendRealtimeInput({ audio: { data: data.toString('base64'), mimeType: 'audio/pcm;rate=16000' } });
@@ -1556,6 +1571,16 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           liveSession.close();
         } else if (msg.type === 'note' && typeof msg.text === 'string') {
           liveSession.sendClientContent({ turns: [{ role: 'user', parts: [{ text: msg.text.slice(0, 1000) }] }], turnComplete: false });
+        } else if (msg.type === 'react' && typeof msg.text === 'string') {
+          // Zdarzenie z interfejsu, na ktore Jarvis ma zareagowac glosem (z ograniczeniem czestotliwosci i trybem ciszy).
+          const nowTs = Date.now();
+          if (!isDnd() && nowTs - lastReactAt > 9000) {
+            lastReactAt = nowTs;
+            liveSession.sendClientContent({
+              turns: [{ role: 'user', parts: [{ text: `[ZDARZENIE W APLIKACJI - to nie wypowiedz uzytkownika] ${msg.text.slice(0, 400)} Zareaguj JEDNYM krotkim zdaniem w swoim charakterze (komentarz, ostrzezenie albo propozycja pomocy). Jesli to nieistotne - nic nie mow.` }] }],
+              turnComplete: true,
+            });
+          }
         } else if (msg.type === 'video' && msg.data) {
           liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
         } else if (msg.type === 'response' && msg.requestId) {

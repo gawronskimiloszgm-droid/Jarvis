@@ -514,10 +514,10 @@
         bar.append(
           hb,
           search,
-          mkBtn('KAMERA W TLE', (b) => {
-            video.hidden = !video.hidden;
-            b.classList.toggle('on', !video.hidden);
-            if (!video.hidden && !hand.on) startHands(hb);
+          mkBtn('KAMERA W TLE', async (b) => {
+            if (UI.holoCam) await UI.holoCam.toggle();
+            b.classList.toggle('on', Boolean(UI.holoCam?.isOn()));
+            if (UI.holoCam?.isOn() && !hand.on) startHands(hb);
           }),
           mkBtn('ETYKIETY', (b) => {
             showLabels = !showLabels;
@@ -573,6 +573,8 @@
           return;
         }
         const n = nodes[i];
+        const first = String(n.text || '').split(/(?<=[.!?])\s/)[0].slice(0, 160);
+        UI.activity?.emit('graf', `Wybrano pojecie "${n.label}" (${CATS[n.cat][0]}): ${String(n.text).slice(0, 120)}`, { react: true, say: `${n.label}. ${first}` });
         card.hidden = false;
         card.innerHTML = '';
         const head = el('div', 'gk-ch');
@@ -665,6 +667,7 @@
       // ----- gesty dłoni (MediaPipe) -----
       let landmarker = null;
       let stream = null;
+      let sharedCam = false;
       let handRaf = 0;
       const tracker = G ? G.createTracker() : null;
       let lastVideoTime = -1;
@@ -688,23 +691,32 @@
         btn.textContent = 'ŁADOWANIE...';
         btn.disabled = true;
         try {
-          const [lm, s] = await Promise.all([loadLandmarker(), navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false })]);
+          const s = await (UI.camera ? UI.camera.acquire() : navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false }));
           stream = s;
+          sharedCam = Boolean(UI.camera);
+          const lm = await loadLandmarker();
+          // Do sledzenia osobny, niedolaczony do strony element: ukryty <video> w DOM nie dostarcza klatek.
+          const feed = el('video');
+          feed.muted = true;
+          feed.playsInline = true;
+          feed.srcObject = s;
+          await feed.play();
           video.srcObject = s;
-          await video.play();
+          if (!video.hidden) await video.play();
           hand.on = true;
           hand.status = 'aktywne';
           btn.textContent = 'DEZAKTYWUJ GESTY';
           btn.classList.add('on');
           toast('Gesty dłoni aktywne. Rozsuń palce i pokaż dłoń do kamery.', 'ok');
+          UI.activity?.emit('gesty', 'Gesty dloni aktywne w grafie wiedzy', { react: true });
           const loop = () => {
             if (!hand.on) return;
             handRaf = requestAnimationFrame(loop);
-            if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
-            lastVideoTime = video.currentTime;
+            if (feed.readyState < 2 || feed.currentTime === lastVideoTime) return;
+            lastVideoTime = feed.currentTime;
             let res;
             try {
-              res = lm.detectForVideo(video, performance.now());
+              res = lm.detectForVideo(feed, performance.now());
             } catch {
               return;
             }
@@ -717,7 +729,7 @@
           loop();
         } catch (e) {
           stopHands();
-          toast(e && e.name === 'NotAllowedError' ? 'Brak zgody na kamerę.' : `Nie uruchomiono gestów: ${e.message || e}`);
+          toast(UI.camera ? await UI.camera.explain(e) : `Nie uruchomiono gestów: ${e.message || e}`);
         } finally {
           btn.disabled = false;
         }
@@ -727,8 +739,12 @@
         hand.on = false;
         hand.cursor = null;
         cancelAnimationFrame(handRaf);
-        if (stream) stream.getTracks().forEach((t) => t.stop());
+        if (stream) {
+          if (sharedCam) UI.camera.release();
+          else stream.getTracks().forEach((t) => t.stop());
+        }
         stream = null;
+        sharedCam = false;
         video.srcObject = null;
         if (hud.hb) {
           hud.hb.textContent = 'AKTYWUJ GESTY';
@@ -752,6 +768,7 @@
           const i = pick(e.x * W, e.y * H);
           if (i >= 0) {
             dragNode = i;
+            UI.activity?.emit('graf', `Chwycono wezel "${nodes[i].label}" gestem`);
             select(i);
           }
         } else if (e.type === 'grab-move') {

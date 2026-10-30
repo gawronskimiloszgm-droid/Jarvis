@@ -46,7 +46,7 @@ function toast(msg, kind = 'bad') {
   const n = el('div', `toast ${kind === 'ok' ? 'ok' : ''}`, msg);
   $('#toasts').appendChild(n);
   window.SFX?.play(kind === 'ok' ? 'ok' : 'err');
-  window.dispatchEvent(new CustomEvent('jarvis:toast', { detail: { kind } }));
+  window.dispatchEvent(new CustomEvent('jarvis:toast', { detail: { kind, msg } }));
   setTimeout(() => n.remove(), 4800);
 }
 
@@ -209,8 +209,10 @@ function openWindow(id) {
 
   entry.win.hidden = false;
   requestAnimationFrame(() => entry.win.classList.add('show'));
+  const prevModule = activeModule;
   activeModule = id;
   setSavedModule(id);
+  if (prevModule !== id) window.dispatchEvent(new CustomEvent('jarvis:module', { detail: { id, title: mod.title, from: prevModule } }));
   mod.panels.forEach((pid) => PANEL_DEFS[pid]?.refresh?.());
   syncDock();
 }
@@ -329,6 +331,7 @@ const EVENTS = [];
 function logEvent(source, message, kind = 'info') {
   EVENTS.unshift({ source, message, kind, at: new Date() });
   if (EVENTS.length > 200) EVENTS.length = 200;
+  window.dispatchEvent(new CustomEvent('jarvis:event', { detail: { source, message, kind } }));
   if (panelLive('logs')) drawLogs();
 }
 
@@ -3111,7 +3114,7 @@ async function sendTyped(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ message: text, location: store.location }),
+      body: JSON.stringify({ message: text, location: store.location, ui: window.JarvisUI?.activity?.recent?.(10) }),
     });
     if (!res.ok) throw new Error(`Blad ${res.status}`);
 

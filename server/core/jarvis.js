@@ -139,6 +139,10 @@ ${LIFE_TAG_PROMPT}
   - graj | zapytanie - znajduje i od razu odtwarza konkretny utwor/wykonawce (Spotify, a bez niego YouTube), np. [AKCJA: graj | metallica nothing else matters]. Uzywaj ZAMIAST otworz-spotify/pobudka, gdy user prosi o konkretna muzyke. WYMAGA parametru.
   - przepis | nazwa - agent ekranu wykonuje zapamietany przepis (zadanie pokazane wczesniej przez uzytkownika), np. [AKCJA: przepis | faktura]. WYMAGA parametru.
   - ekran-na-zywo | wlacz albo wylacz - Jarvis widzi ekran na biezaco (tylko w rozmowie glosowej). WYMAGA parametru.
+  - holo-kamera - przelacza obraz z kamery na calym ekranie pod hologramem. BEZ parametru.
+  - gesty-dloni - przelacza sterowanie interfejsem dlonmi przez kamere. BEZ parametru.
+  - graf-wiedzy - otwiera holograficzny Graf wiedzy. BEZ parametru.
+  - tryb-kina - przelacza tryb kina. BEZ parametru.
   - zaznacz-ekran - uzytkownik zaznacza mysza fragment ekranu, a Ty go analizujesz (co to jest, tlumaczenie, tekst). BEZ parametru.
   - skanuj-kamera | cel - aparat: odczyt kartki, paragonu, etykiety, pisma; cel: auto, notatka, zadanie, wydatek, tlumacz, tekst. Parametr opcjonalny.
   - muzyka | polecenie - sterowanie tym, co gra: pauza, wznow, dalej, wstecz, glosniej, ciszej albo glosnosc 0-100 (np. [AKCJA: muzyka | pauza], [AKCJA: muzyka | glosnosc 40]). WYMAGA parametru.
@@ -366,7 +370,9 @@ async function proposeAssemblyParts(userMessage) {
   return parsed;
 }
 
-export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
+const nl_ = String.fromCharCode(10);
+
+export async function chatStream(userMessage, onChunk, coords, isOwner = true, uiContext = []) {
   if (isOwner) {
     try {
       const handed = await delegateCoding(userMessage);
@@ -386,6 +392,10 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true) {
   if (isOwner) memory.appendHistory('user', userMessage);
 
   let systemInstruction = await buildSystemInstruction(userMessage, coords, isOwner);
+  if (isOwner && Array.isArray(uiContext) && uiContext.length) {
+    const lines = uiContext.slice(-10).map((x) => String(x).replace(/\s+/g, ' ').slice(0, 160));
+    systemInstruction += `${nl_}CO OSTATNIO DZIALO SIE W APLIKACJI (zdarzenia z interfejsu, najnowsze na koncu - wiesz o nich i mozesz sie do nich odniesc, gdy pasuja do rozmowy; nie wymieniaj ich bez potrzeby):${nl_}${lines.map((l) => '- ' + l).join(nl_)}`;
+  }
 
   // Projekt liczymy DETERMINISTYCZNIE, zanim model cokolwiek powie - tak
   // samo jak obrazy. Poleganie na tym, ze sam wystawi znacznik, nie dzialalo:

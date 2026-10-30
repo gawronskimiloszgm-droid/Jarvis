@@ -19,6 +19,7 @@
       const r = await api(`/api/life/${coll}`, json('POST', body));
       delete cache[coll];
       window.dispatchEvent(new CustomEvent('jarvis:life', { detail: { coll } }));
+      UI.activity?.emit('dane', `Dodano do "${coll}": ${String(body.text || body.name || body.title || body.q || body.url || '').slice(0, 80)}`);
       return r.items;
     },
     async patch(coll, id, body) {

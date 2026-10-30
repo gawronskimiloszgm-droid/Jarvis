@@ -26,6 +26,7 @@
   let lastTime = -1;
   let swipe = { dx: 0, t: 0 };
   let dragEl = null;
+  let shared = false;
 
   async function loadLandmarker() {
     if (landmarker) return landmarker;
@@ -77,8 +78,11 @@
     const x = pos.x * innerWidth;
     const y = pos.y * innerHeight;
     if (e.type === 'tap') {
-      const n = clickable(underCursor(e.x * innerWidth, e.y * innerHeight)) || underCursor(e.x * innerWidth, e.y * innerHeight);
+      const under = underCursor(e.x * innerWidth, e.y * innerHeight);
+      // Tylko elementy do klikania (i plotna) - szczypniecie w puste miejsce niczego nie uruchamia.
+      const n = clickable(under) || (under && under.tagName === 'CANVAS' ? under : null);
       if (n) {
+        UI.activity?.emit('gesty', `Klik gestem w "${String(n.textContent || n.title || n.tagName).trim().slice(0, 40)}"`);
         UI.buzz?.(10);
         if (n.focus && /^(input|textarea|select)$/i.test(n.tagName)) n.focus();
         else n.click?.();
@@ -144,7 +148,10 @@
     if (on) return;
     if (!navigator.mediaDevices?.getUserMedia) return toast('Ta przegladarka nie udostepnia kamery.');
     try {
-      const [lm, s] = await Promise.all([loadLandmarker(), navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false })]);
+      const s = await (UI.camera ? UI.camera.acquire() : navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false }));
+          stream = s;
+          shared = Boolean(UI.camera);
+          const lm = await loadLandmarker();
       stream = s;
       video = el('video');
       video.muted = true;
@@ -160,6 +167,7 @@
       on = true;
       document.body.classList.add('hand-ui');
       toast('Gesty dloni: szczypnij, zeby kliknac; przeciagnij zeby przewinac.', 'ok');
+      UI.activity?.emit('gesty', 'Gesty dloni aktywne w calym interfejsie', { react: true });
       const loop = () => {
         if (!on) return;
         raf = requestAnimationFrame(loop);
@@ -194,15 +202,19 @@
       loop();
     } catch (e) {
       stop();
-      toast(e && e.name === 'NotAllowedError' ? 'Brak zgody na kamere.' : `Gesty nie wystartowaly: ${e.message || e}`);
+      toast(UI.camera ? await UI.camera.explain(e) : `Gesty nie wystartowaly: ${e.message || e}`);
     }
   }
 
   function stop() {
     on = false;
     cancelAnimationFrame(raf);
-    stream?.getTracks().forEach((t) => t.stop());
+    if (stream) {
+      if (shared) UI.camera.release();
+      else stream.getTracks().forEach((t) => t.stop());
+    }
     stream = null;
+    shared = false;
     video = null;
     cursor?.remove();
     preview?.remove();

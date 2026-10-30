@@ -47,6 +47,7 @@
         /* DND tylko dla wlasciciela */
       }
       toast(on ? 'Tryb kina: wlaczony.' : 'Tryb kina: wylaczony.', 'ok');
+      UI.activity?.emit('kino', on ? 'Wlaczono tryb kina' : 'Wylaczono tryb kina');
     },
   };
   UI.cinema = cinema;
