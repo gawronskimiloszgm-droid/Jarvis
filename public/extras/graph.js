@@ -191,7 +191,15 @@
       let W = 600;
       let H = 480;
       const pointer = { x: -999, y: -999, down: false, hand: false };
-      const hand = { on: false, status: 'wyłączone', cursor: null, pinch: false, mode: 'none' };
+      const hand = { on: false, status: 'wyłączone', cursor: null, pinch: false, mode: 'none', vrx: 0, vry: 0, zoomTo: null };
+      const HAND_LABEL = { point: 'KURSOR', open: 'OBRÓT', pinch: 'SZCZYPNIĘCIE', freeze: 'PAUZA', zoom: 'ZOOM', lost: 'SZUKAM DŁONI', other: 'DŁOŃ', none: 'BRAK DŁONI' };
+      // Pozycja dłoni na płótnie. Przy holo-kamerze obraz wypełnia cały ekran, więc liczymy od ekranu:
+      // wtedy kursor leży na Twojej dłoni widocznej w tle.
+      const handXY = (p) => {
+        if (!UI.holoCam?.isOn()) return { x: p.x * W, y: p.y * H };
+        const r = cv.getBoundingClientRect();
+        return { x: p.x * innerWidth - r.left, y: p.y * innerHeight - r.top };
+      };
       const dpr = Math.min(devicePixelRatio || 1, 2);
       const g = cv.getContext('2d');
       const adj = () => nodes.map(() => []);
@@ -345,6 +353,17 @@
           physics(0.04); // delikatny ruch "unoszenia"
         }
         if (spin && !pointer.down && dragNode < 0 && !hand.on) cam.ry += 0.0016;
+        // Bezwładność obrotu i płynny zoom przy sterowaniu dłonią.
+        if (hand.on) {
+          cam.ry += hand.vry;
+          cam.rx = Math.max(-1.5, Math.min(1.5, cam.rx + hand.vrx));
+          hand.vry *= 0.9;
+          hand.vrx *= 0.9;
+          if (hand.zoomTo != null) {
+            cam.zoom += (hand.zoomTo - cam.zoom) * 0.2;
+            if (Math.abs(hand.zoomTo - cam.zoom) < 0.002) hand.zoomTo = null;
+          }
+        }
 
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.clearRect(0, 0, W, H);
@@ -430,9 +449,10 @@
 
         // kursor dłoni
         if (hand.on && hand.cursor) {
-          const cx = hand.cursor.x * W;
-          const cy = hand.cursor.y * H;
-          g.strokeStyle = hand.pinch ? '#ffb347' : '#33e0ff';
+          const hp = handXY(hand.cursor);
+          const cx = hp.x;
+          const cy = hp.y;
+          g.strokeStyle = hand.pinch ? '#ffb347' : hand.mode === 'freeze' ? '#8aa' : '#33e0ff';
           g.fillStyle = hand.pinch ? 'rgba(255,179,71,.35)' : 'rgba(51,224,255,.12)';
           g.lineWidth = 2;
           g.beginPath();
@@ -446,8 +466,9 @@
         }
 
         // najechanie: wskaźnik (mysz lub dłoń)
-        const px = hand.on && hand.cursor ? hand.cursor.x * W : pointer.x;
-        const py = hand.on && hand.cursor ? hand.cursor.y * H : pointer.y;
+        const hc = hand.on && hand.cursor ? handXY(hand.cursor) : null;
+        const px = hc ? hc.x : pointer.x;
+        const py = hc ? hc.y : pointer.y;
         const h2 = dragNode >= 0 ? dragNode : pick(px, py);
         if (h2 !== hover) {
           hover = h2;
@@ -490,7 +511,7 @@
         stats.appendChild(hudRefs.mode);
 
         const help = el('div', 'gk-help');
-        [['ROZSUNIĘTE PALCE', 'kursor / najechanie'], ['OTWARTA DŁOŃ + RUCH', 'obrót 3D'], ['SZCZYPNIĘCIE', 'wybór węzła'], ['SZCZYP. + PRZYTRZYMANIE', 'chwyt węzła'], ['SZCZYP. + RUCH', 'przesuwanie widoku'], ['2 DŁONIE ROZSUŃ / ZBLIŻ', 'zoom +/-']].forEach(([a, b]) => {
+        [['PALEC WSKAZUJĄCY', 'kursor / najechanie'], ['OTWARTA DŁOŃ + RUCH', 'obrót 3D'], ['PIĘŚĆ', 'pauza: przesuń rękę bez skutków'], ['SZCZYPNIĘCIE', 'wybór węzła'], ['SZCZYP. + PRZYTRZYMANIE', 'chwyt węzła'], ['SZCZYP. + RUCH', 'przesuwanie widoku'], ['2 DŁONIE ROZSUŃ / ZBLIŻ', 'zoom +/-']].forEach(([a, b]) => {
           const r = el('div');
           r.append(el('i', null, a), el('span', null, b));
           help.appendChild(r);
@@ -548,10 +569,11 @@
         hudRefs.nodes.textContent = String(nodes.length);
         hudRefs.links.textContent = String(edges.length);
         hudRefs.dens.textContent = nodes.length ? (edges.length / nodes.length).toFixed(2) : '0';
-        hudRefs.mode.textContent = `${demo ? 'SIEĆ DEMO' : 'TWOJE DANE'} · ${hand.on ? 'GESTY: ' + hand.mode.toUpperCase() : 'MYSZ'}`;
+        hudRefs.mode.textContent = `${demo ? 'SIEĆ DEMO' : 'TWOJE DANE'} · ${hand.on ? 'GESTY: ' + (HAND_LABEL[hand.mode] || 'DŁOŃ') : 'MYSZ'}`;
         hudRefs.zoom.textContent = `ZOOM: ${Math.round(cam.zoom * 100)}%`;
-        const px = hand.on && hand.cursor ? hand.cursor.x * W : pointer.x > -900 ? pointer.x : W / 2;
-        const py = hand.on && hand.cursor ? hand.cursor.y * H : pointer.y > -900 ? pointer.y : H / 2;
+        const hc = hand.on && hand.cursor ? handXY(hand.cursor) : null;
+        const px = hc ? hc.x : pointer.x > -900 ? pointer.x : W / 2;
+        const py = hc ? hc.y : pointer.y > -900 ? pointer.y : H / 2;
         const list = nodes.map((n, i) => ({ n, i, d: Math.hypot(vs[i].sx - px, vs[i].sy - py) })).sort((a, b) => a.d - b.d).slice(0, 5);
         hudRefs.near.innerHTML = '';
         hudRefs.near.appendChild(el('div', 'gk-neart', 'WĘZŁY BLISKO'));
@@ -669,7 +691,9 @@
       let stream = null;
       let sharedCam = false;
       let handRaf = 0;
-      const tracker = G ? G.createTracker() : null;
+      const tracker = G ? G.createTracker(G.loadOptions()) : null;
+      const syncOptions = () => tracker?.setOptions(G.loadOptions());
+      window.addEventListener('jarvis:hand-options', syncOptions);
       let lastVideoTime = -1;
 
       async function loadLandmarker() {
@@ -701,6 +725,7 @@
           feed.playsInline = true;
           feed.srcObject = s;
           await feed.play();
+          tracker.setOptions({ aspect: (feed.videoWidth || 4) / (feed.videoHeight || 3) });
           video.srcObject = s;
           if (!video.hidden) await video.play();
           hand.on = true;
@@ -720,6 +745,8 @@
             } catch {
               return;
             }
+            // Przy holo-kamerze bez marginesu kadru: kursor ma leżeć dokładnie na dłoni.
+            tracker.setOptions({ edge: UI.holoCam?.isOn() ? 0 : G.loadOptions().edge });
             const out = tracker.update(res.landmarks || [], performance.now());
             hand.cursor = out.visible ? out.cursor : null;
             hand.pinch = out.pinch;
@@ -754,25 +781,30 @@
 
       function onGesture(e) {
         if (e.type === 'rotate') {
-          cam.ry += e.dx * 2.4;
-          cam.rx = Math.max(-1.5, Math.min(1.5, cam.rx + e.dy * 2.4));
+          hand.vry = hand.vry * 0.5 + e.dx * 1.2;
+          hand.vrx = hand.vrx * 0.5 + e.dy * 1.2;
         } else if (e.type === 'zoom') {
-          cam.zoom = Math.max(0.4, Math.min(4, cam.zoom * e.factor));
+          hand.zoomTo = Math.max(0.4, Math.min(4, (hand.zoomTo ?? cam.zoom) * e.factor));
         } else if (e.type === 'pan') {
           cam.px += e.dx * W;
           cam.py += e.dy * H;
         } else if (e.type === 'tap') {
-          const i = pick(e.x * W, e.y * H);
+          const p = handXY(e);
+          const i = pick(p.x, p.y);
           select(i >= 0 && i !== selected ? i : -1);
         } else if (e.type === 'grab-start') {
-          const i = pick(e.x * W, e.y * H);
+          const p = handXY(e);
+          const i = pick(p.x, p.y);
           if (i >= 0) {
             dragNode = i;
             UI.activity?.emit('graf', `Chwycono wezel "${nodes[i].label}" gestem`);
             select(i);
           }
         } else if (e.type === 'grab-move') {
-          if (dragNode >= 0) moveNodeTo(dragNode, e.x * W, e.y * H);
+          if (dragNode >= 0) {
+            const p = handXY(e);
+            moveNodeTo(dragNode, p.x, p.y);
+          }
         } else if (e.type === 'grab-end') {
           if (dragNode >= 0) alpha = Math.max(alpha, 0.3);
           dragNode = -1;

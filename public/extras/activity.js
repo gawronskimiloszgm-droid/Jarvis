@@ -197,7 +197,7 @@
           setTimeout(draw, 2000);
         };
         body.append(row, vr, el('div', 'sub', 'OSTATNIE ZDARZENIA'), feed);
-        draw();
+        setTimeout(draw, 500); // panel jest dolaczany do strony dopiero po zbudowaniu
       },
     },
   });

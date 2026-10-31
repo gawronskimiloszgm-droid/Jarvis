@@ -338,3 +338,14 @@ body.m-oled .w, body.m-oled .stage-panel .card { background-color: #000; }
 .hu-preview { position: fixed; right: 12px; bottom: 44px; z-index: 9998; width: 160px; height: 120px; pointer-events: none; opacity: .85;
   border: 1px solid color-mix(in srgb, var(--blue) 50%, transparent); border-radius: 6px; background: rgba(2, 10, 16, .6); }
 .hu-hover { outline: 2px solid #ffb347 !important; outline-offset: 2px; box-shadow: 0 0 16px rgba(255, 179, 71, .5) !important; }
+
+/* ---------- gesty: stany kursora, zawis, kalibracja ---------- */
+.hu-cursor.freeze { border-color: #8aa; box-shadow: 0 0 10px rgba(140, 170, 170, .6); opacity: .6 !important; }
+.hu-cursor { --p: 0%; }
+.hu-cursor { background: conic-gradient(#ffb347 var(--p), transparent 0), radial-gradient(circle, color-mix(in srgb, var(--blue) 30%, transparent), transparent 70%); }
+.hu-label { position: fixed; right: 12px; bottom: 170px; z-index: 9998; pointer-events: none; font: 700 9px/1 var(--mono, monospace); letter-spacing: .18em; color: var(--blue); padding: 4px 8px; border-radius: 10px; background: rgba(2, 10, 16, .7); border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent); }
+.hu-opts { margin-top: 10px; }
+.hu-opts input[type='range'] { width: 170px; accent-color: var(--blue); }
+.hu-meter { position: relative; height: 12px; margin: 6px 0 10px; border-radius: 6px; background: color-mix(in srgb, var(--blue) 10%, transparent); overflow: visible; }
+.hu-meter i { display: block; height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, #ffb347, var(--blue)); transition: width .1s linear; }
+.hu-meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; }

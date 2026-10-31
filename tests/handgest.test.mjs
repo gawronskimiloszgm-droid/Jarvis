@@ -59,6 +59,7 @@ test('tracker: przytrzymane szczypniecie = chwyt, potem koniec chwytu', () => {
   step(hand({ ext: [true, false, false, false] }));
   for (let i = 0; i < 14; i++) step(hand({ pinch: true, ext: [true, false, false, false] })); // ~460 ms
   step(hand({ ext: [true, false, false, false] }));
+  step(hand({ ext: [true, false, false, false] })); // puszczenie liczy sie po 2 klatkach
   const types = ev.map((e) => e.type);
   assert.ok(types.includes('grab-start'), types.join());
   assert.ok(types.includes('grab-move'));
@@ -112,5 +113,145 @@ test('tracker: brak dloni konczy chwyt', () => {
   const step = (hs) => { now += 33; ev.push(...t.update(hs, now).events); };
   for (let i = 0; i < 16; i++) step([hand({ pinch: true, ext: [true, false, false, false] })]);
   step([]);
+  assert.ok(!ev.some((e) => e.type === 'grab-end'), 'krotka utrata dloni nie przerywa chwytu');
+  now += G.GRACE_MS;
+  step([]);
   assert.ok(ev.some((e) => e.type === 'grab-end'));
+});
+
+test('analiza: proporcje kadru i glebia zmieniaja odleglosc palcow', () => {
+  const lm = hand();
+  const wide = G.analyze(lm, 16 / 9).pinch;
+  const narrow = G.analyze(lm, 9 / 16).pinch;
+  assert.notEqual(wide.toFixed(3), narrow.toFixed(3));
+  const flat = hand({ pinch: true });
+  const inDepth = flat.map((p, i) => (i === 4 ? { ...p, z: 0.5 } : p));
+  assert.ok(G.analyze(flat).pinch < G.PIN_ON);
+  assert.ok(G.analyze(inDepth).pinch > G.PIN_OFF, 'kciuk tylko nalozony w obrazie to nie szczypniecie');
+});
+
+test('tracker: jednoklatkowe mignięcie szczypniecia nic nie robi', () => {
+  const t = G.createTracker();
+  const ev = [];
+  let now = 0;
+  const point = { ext: [true, false, false, false] };
+  const step = (h) => { now += 33; ev.push(...t.update([h], now).events); };
+  for (let i = 0; i < 3; i++) step(hand(point));
+  step(hand({ ...point, pinch: true }));
+  for (let i = 0; i < 4; i++) step(hand(point));
+  assert.equal(ev.filter((e) => e.type === 'tap').length, 0);
+});
+
+test('tracker: krotka utrata dloni nie przerywa szczypniecia', () => {
+  const t = G.createTracker();
+  const ev = [];
+  let now = 0;
+  const pin = hand({ pinch: true, ext: [true, false, false, false] });
+  const step = (hs, ms = 33) => { now += ms; const o = t.update(hs, now); ev.push(...o.events); return o; };
+  for (let i = 0; i < 4; i++) step([pin]);
+  const lost = step([], 100);
+  assert.equal(lost.mode, 'lost');
+  assert.equal(lost.pinch, true);
+  const back = step([pin]);
+  assert.equal(back.pinch, true);
+  assert.equal(ev.filter((e) => e.type === 'tap').length, 0);
+});
+
+test('tracker: piesc to pauza - kursor stoi, brak zdarzen', () => {
+  const t = G.createTracker();
+  const ev = [];
+  let now = 0;
+  const step = (h) => { now += 33; const o = t.update([h], now); ev.push(...o.events); return o; };
+  const before = step(hand({ ext: [true, false, false, false] })).cursor;
+  let o;
+  for (let i = 0; i < 6; i++) o = step(hand({ ext: [false, false, false, false], dx: i * 0.02 }));
+  assert.equal(o.mode, 'freeze');
+  assert.deepEqual(o.cursor, before);
+  assert.equal(ev.length, 0);
+});
+
+test('tracker: szybki ruch otwarta dlonia = jeden swipe z kierunkiem i przerwa', () => {
+  const t = G.createTracker();
+  const ev = [];
+  let now = 0;
+  const step = (h) => { now += 33; ev.push(...t.update([h], now).events); };
+  for (let i = 0; i < 9; i++) step(hand({ dx: -0.2 + i * 0.05 }));
+  const sw = ev.filter((e) => e.type === 'swipe');
+  assert.equal(sw.length, 1);
+  assert.ok(sw[0].dir === -1 || sw[0].dir === 1);
+  // powolny ruch nie jest swipe
+  const t2 = G.createTracker();
+  const ev2 = [];
+  let n2 = 0;
+  for (let i = 0; i < 30; i++) { n2 += 33; ev2.push(...t2.update([hand({ dx: -0.2 + i * 0.005 })], n2).events); }
+  assert.equal(ev2.filter((e) => e.type === 'swipe').length, 0);
+});
+
+test('tracker: falszywa druga dlon przez 1-2 klatki nie wlacza zoomu', () => {
+  const t = G.createTracker();
+  let now = 0;
+  const modes = [];
+  const step = (hs) => { now += 33; modes.push(t.update(hs, now).mode); };
+  const a = hand({ ext: [true, false, false, false] });
+  step([a]);
+  step([a, hand({ dx: 0.3 })]);
+  step([a, hand({ dx: 0.3 })]);
+  step([a]);
+  assert.ok(!modes.includes('zoom'), modes.join());
+  for (let i = 0; i < 3; i++) step([a, hand({ dx: 0.3 })]);
+  assert.equal(modes.at(-1), 'zoom');
+});
+
+test('tracker: margines kadru pozwala siegnac do rogu ekranu', () => {
+  const t = G.createTracker({ edge: 0.15 });
+  let o;
+  // czubek wskazujacego przy x=.45 -> po lustrze .55; przesuwamy dlon tak, by czubek byl w 10% od krawedzi kadru
+  for (let i = 0; i < 20; i++) o = t.update([hand({ ext: [true, false, false, false], dx: 0.45, dy: -0.25 })], i * 33);
+  assert.ok(o.cursor.x <= 0.01, `x=${o.cursor.x}`);
+  assert.ok(o.cursor.y <= 0.01, `y=${o.cursor.y}`);
+});
+
+test('tracker: klik trafia w miejsce sprzed zamykania palcow', () => {
+  const t = G.createTracker({ edge: 0 });
+  const ev = [];
+  let now = 0;
+  const point = { ext: [true, false, false, false] };
+  const step = (h) => { now += 33; ev.push(...t.update([h], now).events); };
+  for (let i = 0; i < 20; i++) step(hand(point));
+  // zamykajac palce czubek opada o 2% - klik ma zostac przy pozycji startowej
+  step(hand({ ...point, pinch: true, dy: 0.01 }));
+  step(hand({ ...point, pinch: true, dy: 0.02 }));
+  step(hand({ ...point, pinch: true, dy: 0.02 }));
+  step(hand(point));
+  step(hand(point));
+  const tap = ev.find((e) => e.type === 'tap');
+  assert.ok(tap, JSON.stringify(ev));
+  assert.ok(Math.abs(tap.y - 0.34) < 0.012, `y=${tap.y}`);
+});
+
+test('zawis: klik raz po czasie, ruch i zmiana celu zeruja licznik', () => {
+  const d = G.createDwell({ ms: 500, radius: 0.03 });
+  assert.equal(d.update(0.5, 0.5, 'a', 0).fire, false);
+  assert.ok(Math.abs(d.update(0.5, 0.5, 'a', 250).progress - 0.5) < 0.01);
+  assert.equal(d.update(0.5, 0.5, 'a', 510).fire, true);
+  assert.equal(d.update(0.5, 0.5, 'a', 1200).fire, false, 'tylko raz na wejscie');
+  assert.equal(d.update(0.5, 0.5, 'b', 1300).progress, 0);
+  assert.equal(d.update(0.6, 0.5, 'b', 1600).progress, 0, 'ruch zeruje');
+  assert.equal(d.update(0.6, 0.5, null, 1700).progress, 0);
+});
+
+test('filtr: stoi w miejscu przy drzeniu, nadąża przy szybkim ruchu', () => {
+  const f = G.oneEuro();
+  let v = f.next(0.5, 0);
+  let spread = 0;
+  for (let i = 1; i < 60; i++) {
+    v = f.next(0.5 + (i % 2 ? 0.004 : -0.004), i * 33);
+    if (i > 20) spread = Math.max(spread, Math.abs(v - 0.5));
+  }
+  assert.ok(spread < 0.0035, `drzenie ${spread}`);
+  const g = G.oneEuro();
+  g.next(0, 0);
+  let out = 0;
+  for (let i = 1; i <= 6; i++) out = g.next(i * 0.05, i * 33);
+  assert.ok(out > 0.2, `opoznienie ${out}`);
 });
