@@ -124,12 +124,12 @@
   setInterval(() => {
     if (cfg().direct) probeSyn();
   }, 30000);
-  window.addEventListener('jarvis:ready', async () => {
-    const h = await probeSyn();
-    // Pierwsze wykrycie zainstalowanego syntezatora z probka: wlaczamy go raz, potem decyduje uzytkownik.
-    if (synUp && localStorage.getItem('jarvis.synthAuto') !== '1') {
-      localStorage.setItem('jarvis.synthAuto', '1');
-      save({ ...cfg(), on: true, live: true, direct: true, url: 'http://127.0.0.1:8020', format: 'xtts', glos: h.settings?.voice || 'jarvis' });
+  // Syntezator glosu jest wylaczony domyslnie (wlaczasz go sam w Ustawienia -> SYNTEZATOR GLOSU).
+  // Jednorazowo cofamy automatyczne wlaczenie z wczesniejszej wersji.
+  window.addEventListener('jarvis:ready', () => {
+    if (localStorage.getItem('jarvis.synthAuto') === '1' && localStorage.getItem('jarvis.synthReverted') !== '1') {
+      localStorage.setItem('jarvis.synthReverted', '1');
+      if (cfg().direct) save({ ...cfg(), on: false, live: false });
     }
   });
   UI.localVoiceLive = () => {

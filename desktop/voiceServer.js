@@ -18,6 +18,8 @@ async function alreadyRunning() {
 }
 
 async function start() {
+  // Domyslnie wylaczone: serwer glosu startuje z aplikacja tylko, gdy ustawisz voiceAutostart (settings.js).
+  if (!settings.get('voiceAutostart')) return;
   const home = settings.get('voiceHome') || 'D:\\JarvisVoice';
   const py = path.join(home, 'venv', 'Scripts', 'python.exe');
   const script = path.join(home, 'server.py');
