@@ -22,6 +22,7 @@ import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
 import { maybeRecurring, maybeNudges } from '../extras/life.js';
 import { maybeMorningPlan } from '../extras/suggest.js';
 import { maybeLearn } from '../extras/graphmem.js';
+import { maybeSnapshot } from '../extras/backupplus.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +102,7 @@ export function startUpkeep() {
       await maybeNudges();
       await maybeMorningPlan();
       await maybeLearn();
+      await maybeSnapshot();
     } catch (err) {
       console.error('Raport E.D.I.T.H. nieudany:', err.message);
     }

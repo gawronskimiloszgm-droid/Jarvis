@@ -3986,73 +3986,188 @@ function doLogout() {
 
 // ---------- Sekwencja startowa ----------
 
-const BOOT_LINES = [
-  'Budze rdzen...',
-  'Laczenie z pamiecia...',
-  'Otwieranie kanalu glosowego...',
-  'Gotowe.',
-];
-
+// Ekran startowy w stylu hologramu: siatka-podloga, czastki unoszace sie w gore, rdzen z obracajacymi
+// sie pierscieniami i druciana bryla. Pasek i lista pokazuja PRAWDZIWY postep startu (patrz boot()).
 function bootVisual(cv) {
   const ctx = cv.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const size = cv.getBoundingClientRect().width;
-  cv.width = cv.height = Math.round(size * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  let t = 0;
-  let lastT = performance.now();
-
-  const draw = () => {
-    // Po zakonczeniu startu element znika z DOM - bez tego sprawdzenia
-    // petla rysujaca rzucalaby wyjatkiem przy kazdej klatce.
-    const bootEl = $('#boot');
-    if (!bootEl || bootEl.classList.contains('gone')) return;
-    ctx.clearRect(0, 0, size, size);
-    const c = size / 2;
-    // Czas od zegara, nie od liczby klatek - patrz ten sam zabieg w
-    // startCoreVisual/startGalaxy (ekrany >60 Hz inaczej kreciłyby to szybciej).
-    const now = performance.now();
-    const dt = Math.min(0.1, (now - lastT) / 1000);
-    lastT = now;
-    t += dt * 1.2; // = dawne "0.02 na klatke" przy zalozeniu 60 Hz
-
-    // Miekka poswiata + smukly pierscien wypelniania - minimalistyczny
-    // splash zamiast dawnego terminalowego dziennika rozruchu.
-    const glow = ctx.createRadialGradient(c, c, 0, c, c, c);
-    glow.addColorStop(0, 'rgba(51, 224, 255, 0.22)');
-    glow.addColorStop(1, 'rgba(51, 224, 255, 0)');
-    ctx.beginPath();
-    ctx.arc(c, c, c, 0, Math.PI * 2);
-    ctx.fillStyle = glow;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(c, c, c * 0.72, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(c, c, c * 0.72, t * 2.2, t * 2.2 + Math.PI * 0.6);
-    const grad = ctx.createLinearGradient(0, 0, size, size);
-    grad.addColorStop(0, '#33e0ff');
-    grad.addColorStop(1, '#9df3ff');
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    requestAnimationFrame(draw);
+  const still = localStorage.getItem('jarvis.motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0;
+  let H = 0;
+  const resize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth || innerWidth;
+    H = cv.clientHeight || innerHeight;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
-  draw();
+  resize();
+  window.addEventListener('resize', resize);
+  const parts = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), z: Math.random(), s: 0.03 + Math.random() * 0.09 }));
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const V = [[-1, PHI, 0], [1, PHI, 0], [-1, -PHI, 0], [1, -PHI, 0], [0, -1, PHI], [0, 1, PHI], [0, -1, -PHI], [0, 1, -PHI], [PHI, 0, -1], [PHI, 0, 1], [-PHI, 0, -1], [-PHI, 0, 1]];
+  const E = [];
+  for (let i = 0; i < 12; i++) for (let j = i + 1; j < 12; j++) if (Math.abs(Math.hypot(V[i][0] - V[j][0], V[i][1] - V[j][1], V[i][2] - V[j][2]) - 2) < 0.01) E.push([i, j]);
+  const col = (a) => `rgba(51,224,255,${a})`;
+  const t0 = performance.now();
+  let last = t0;
+
+  const draw = (now) => {
+    const bootEl = $('#boot');
+    if (!bootEl) {
+      window.removeEventListener('resize', resize);
+      return;
+    }
+    if (!still) requestAnimationFrame(draw);
+    const dt = Math.min(0.1, (now - last) / 1000) || 0.016;
+    last = now;
+    const t = (now - t0) / 1000;
+    const prog = store.bootProgress || 0;
+    ctx.clearRect(0, 0, W, H);
+
+    // podloga w perspektywie
+    const hor = H * 0.62;
+    const glow = ctx.createLinearGradient(0, hor - H * 0.3, 0, hor);
+    glow.addColorStop(0, col(0));
+    glow.addColorStop(1, col(0.1));
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, hor - H * 0.3, W, H * 0.3);
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 16; i++) {
+      const k = (i + ((t * 0.5) % 1)) / 16;
+      const y = hor + Math.pow(k, 2.2) * (H - hor);
+      ctx.strokeStyle = col(0.04 + k * 0.2);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    for (let i = -14; i <= 14; i++) {
+      ctx.strokeStyle = col(i % 7 === 0 ? 0.22 : 0.09);
+      ctx.beginPath();
+      ctx.moveTo(W / 2 + i * W * 0.012, hor);
+      ctx.lineTo(W / 2 + i * W * 0.2, H);
+      ctx.stroke();
+    }
+
+    // czastki: antygrawitacja
+    parts.forEach((p) => {
+      p.y -= p.s * dt;
+      if (p.y < -0.02) {
+        p.y = 1.02;
+        p.x = Math.random();
+      }
+      ctx.fillStyle = col(0.15 + p.z * 0.55);
+      const r = 0.6 + p.z * 1.5;
+      ctx.fillRect(p.x * W + Math.sin(t * 0.7 + p.z * 20) * 7, p.y * H, r, r);
+    });
+
+    // rdzen
+    const cx = W / 2;
+    const cy = H * 0.36;
+    const R = Math.min(W, H) * 0.17;
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.9);
+    halo.addColorStop(0, col(0.3 + prog * 0.2));
+    halo.addColorStop(0.45, col(0.08));
+    halo.addColorStop(1, col(0));
+    ctx.fillStyle = halo;
+    ctx.fillRect(cx - R * 2, cy - R * 2, R * 4, R * 4);
+
+    const arc = (r, a0, len, w, alpha) => {
+      ctx.strokeStyle = col(alpha);
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, a0, a0 + len);
+      ctx.stroke();
+    };
+    ctx.lineCap = 'round';
+    arc(R, 0, Math.PI * 2, 1, 0.22);
+    arc(R, -Math.PI / 2, Math.PI * 2 * prog, 3, 0.95); // pierscien postepu
+    for (let i = 0; i < 3; i++) arc(R * 1.18, t * 0.9 + (i * Math.PI * 2) / 3, 1.1, 1.6, 0.55);
+    for (let i = 0; i < 4; i++) arc(R * 0.82, -t * 1.4 + (i * Math.PI) / 2, 0.7, 1.4, 0.5);
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2 + t * 0.12;
+      ctx.strokeStyle = col(i % 6 === 0 ? 0.7 : 0.25);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * R * 1.32, cy + Math.sin(a) * R * 1.32);
+      ctx.lineTo(cx + Math.cos(a) * R * (i % 6 === 0 ? 1.42 : 1.37), cy + Math.sin(a) * R * (i % 6 === 0 ? 1.42 : 1.37));
+      ctx.stroke();
+    }
+
+    // druciana bryla w srodku
+    const ay = t * 0.8;
+    const ax = t * 0.5;
+    const size = R * 0.33 * (1 + 0.03 * Math.sin(t * 3));
+    const pts = V.map(([x, y, z]) => {
+      const x1 = x * Math.cos(ay) - z * Math.sin(ay);
+      const z1 = x * Math.sin(ay) + z * Math.cos(ay);
+      const y1 = y * Math.cos(ax) - z1 * Math.sin(ax);
+      return [cx + x1 * size, cy + y1 * size];
+    });
+    ctx.strokeStyle = col(0.75);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    E.forEach(([a, b]) => {
+      ctx.moveTo(pts[a][0], pts[a][1]);
+      ctx.lineTo(pts[b][0], pts[b][1]);
+    });
+    ctx.stroke();
+  };
+  requestAnimationFrame(draw);
 }
 
-async function runBoot() {
+// Napis JARVIS "dekoduje sie" z losowych znakow.
+function bootDecode(node) {
+  const text = node.textContent;
+  const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%';
+  const t0 = performance.now();
+  const step = (now) => {
+    if (!node.isConnected) return;
+    const done = Math.floor((now - t0) / 70);
+    node.textContent = [...text].map((c, i) => (i < done || c === '.' ? c : CH[Math.floor(Math.random() * CH.length)])).join('');
+    if (done <= text.length) requestAnimationFrame(step);
+    else node.textContent = text;
+  };
+  requestAnimationFrame(step);
+}
+
+function bootProgress(pct, status) {
+  store.bootProgress = Math.max(store.bootProgress || 0, pct);
+  const v = Math.round(store.bootProgress * 100);
+  const bar = $('#bootBar');
+  if (bar) bar.style.width = `${v}%`;
+  const label = $('#bootPct');
+  if (label) label.textContent = `${v}%`;
+  if (status && $('#bootStatus')) $('#bootStatus').textContent = status;
+}
+
+function bootLine(text, state = 'OK', kind = '') {
   const log = $('#bootLog');
+  if (!log) return null;
+  const row = el('div');
+  const flag = el('b', kind, state);
+  row.append(el('span', null, text), flag);
+  log.appendChild(row);
+  while (log.children.length > 4) log.firstChild.remove();
+  return flag;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function runBoot() {
   bootVisual($('#bootCanvas'));
-  for (const line of BOOT_LINES) {
-    log.textContent = line;
-    await new Promise((r) => setTimeout(r, 320));
+  bootDecode($('#bootName'));
+  const steps = [
+    [() => 'Rdzeń', 0.12],
+    [() => 'Pamięć podręczna', 0.24],
+    [() => 'Interfejs holograficzny', 0.38],
+    [() => `Moduły: ${MODULES.length}`, 0.5], // liczone na koncu: dodatki rejestruja sie w trakcie startu
+  ];
+  for (const [line, pct] of steps) {
+    await sleep(170);
+    bootLine(line());
+    bootProgress(pct, line());
   }
 }
 
@@ -4061,6 +4176,12 @@ async function runBoot() {
 async function boot() {
   const bootDone = runBoot();
 
+  // Darmowy serwer budzi sie nawet pol minuty: pokazujemy, na co czekamy, zamiast udawac postep.
+  let serverFlag = null;
+  const slow = setTimeout(() => {
+    serverFlag = bootLine('Budzę serwer (może potrwać do 30 s)', '...', 'wait');
+    bootProgress(0.55, 'Budzę serwer');
+  }, 2500);
   try {
     const res = await fetch('/api/health', { headers: authHeaders() });
     const health = await res.json();
@@ -4071,11 +4192,29 @@ async function boot() {
     if (!health.authConfigured) {
       toast('Serwer nie ma ustawionego OWNER_PASSWORD - dziala tylko tryb goscia.', 'ok');
     }
+    clearTimeout(slow);
+    await bootDone;
+    if (serverFlag) serverFlag.textContent = 'OK';
+    else bootLine('Łącze z serwerem');
+    bootProgress(0.8, 'Łącze z serwerem');
+    await sleep(120);
+    bootLine(`Rola: ${health.role === 'owner' ? 'właściciel' : 'gość'}`);
+    bootProgress(0.92, 'Autoryzacja');
   } catch {
+    clearTimeout(slow);
+    await bootDone;
+    if (serverFlag) {
+      serverFlag.textContent = 'BŁĄD';
+      serverFlag.className = 'bad';
+    } else bootLine('Łącze z serwerem', 'BŁĄD', 'bad');
+    bootProgress(0.92, 'Bez połączenia');
     toast('Brak polaczenia z serwerem.');
   }
 
-  await bootDone;
+  await sleep(140);
+  bootLine('System gotowy');
+  bootProgress(1, 'Gotowe');
+  await sleep(260);
   $('#boot').classList.add('gone');
   setTimeout(() => $('#boot').remove(), 800);
 

@@ -22,6 +22,7 @@ import life from './life.js';
 import suggest from './suggest.js';
 import graphmem from './graphmem.js';
 import phonecam from './phonecam.js';
+import backupplus from './backupplus.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam, backupplus];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

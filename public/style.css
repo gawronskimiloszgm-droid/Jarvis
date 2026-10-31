@@ -87,42 +87,63 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: var(--bg-deep);
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 38%, #06202b 0%, #020a0f 55%, var(--bg-deep) 100%);
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  gap: 20px;
-  transition: opacity .6s var(--ease);
+  transition: opacity .55s var(--ease), transform .7s var(--ease), filter .55s var(--ease);
 }
 
-.boot.gone { opacity: 0; pointer-events: none; }
-.boot-canvas { width: min(28vw, 130px); height: min(28vw, 130px); }
+/* Wyjscie jak wylaczenie projekcji: obraz rozjasnia sie i rozplywa. */
+.boot.gone { opacity: 0; transform: scale(1.12); filter: brightness(1.8) blur(6px); pointer-events: none; }
+.boot-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.boot-corner { position: absolute; width: 38px; height: 38px; border: 2px solid var(--blue); opacity: .8; filter: drop-shadow(0 0 7px var(--blue)); }
+.boot-corner.tl { top: 18px; left: 18px; border-right: 0; border-bottom: 0; }
+.boot-corner.tr { top: 18px; right: 18px; border-left: 0; border-bottom: 0; }
+.boot-corner.bl { bottom: 18px; left: 18px; border-right: 0; border-top: 0; }
+.boot-corner.br { bottom: 18px; right: 18px; border-left: 0; border-top: 0; }
+
+.boot-scan { position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(120, 230, 255, .035) 0 1px, transparent 1px 3px); }
+.boot-scan::after { content: ''; position: absolute; left: 0; right: 0; height: 22%; top: -22%; background: linear-gradient(180deg, transparent, rgba(51, 224, 255, .08), transparent); animation: boot-roll 3.2s linear infinite; }
+@keyframes boot-roll { to { top: 122%; } }
+
+.boot-panel { position: relative; width: min(86vw, 460px); margin-bottom: max(7vh, 34px); text-align: center; }
 
 .boot-name {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: clamp(16px, 4.4vw, 22px);
-  letter-spacing: .3em;
-  text-indent: .3em;
+  font-size: clamp(22px, 5vw, 34px);
+  letter-spacing: .34em;
+  text-indent: .34em;
   color: var(--bright);
-  text-shadow: 0 0 18px rgba(51, 224, 255, .6);
-  animation: hg-blink 2.6s infinite;
+  text-shadow: 0 0 22px rgba(51, 224, 255, .75);
 }
+.boot-sub { margin-top: 6px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .42em; text-indent: .42em; color: var(--dim); text-transform: uppercase; }
+
+.boot-bar { position: relative; height: 3px; margin-top: 18px; background: rgba(51, 224, 255, .14); overflow: visible; }
+.boot-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, rgba(51, 224, 255, .3), var(--blue) 70%, #fff); box-shadow: 0 0 12px var(--blue); transition: width .35s var(--ease); }
+.boot-meta { display: flex; justify-content: space-between; margin-top: 7px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; color: var(--ice); text-transform: uppercase; }
+.boot-meta b { font-weight: 600; color: var(--blue); }
 
 .boot-log {
-  margin: 0;
-  width: min(80vw, 360px);
-  max-height: 10vh;
+  height: 62px;
+  margin-top: 10px;
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: .1em;
-  line-height: 1.8;
+  font-size: 10px;
+  letter-spacing: .08em;
+  line-height: 15.5px;
   color: var(--dim);
-  text-align: center;
+  text-align: left;
   text-transform: uppercase;
 }
+.boot-log div { display: flex; justify-content: space-between; animation: boot-line .25s var(--ease); }
+.boot-log div b { font-weight: 500; color: var(--good); }
+.boot-log div b.wait { color: var(--amber); }
+.boot-log div b.bad { color: var(--red); }
+@keyframes boot-line { from { opacity: 0; transform: translateX(-8px); } }
 
 /* --- Logowanie --- */
 

@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import { readStore, writeStore, backendName, isRemote } from '../core/store.js';
+import { readStore, writeStore, backendName, isRemote, storeStatus, retryRemoteRead } from '../core/store.js';
 
 // summary - zwijana kronika starszych rozmow. Sama historia ma skonczona
 // dlugosc, wiec bez tego wszystko sprzed kilkuset wypowiedzi znikaloby
@@ -32,6 +32,19 @@ export async function hydrate() {
     `Pamiec: ${backendName()}, faktow: ${cache.facts.length}, zadan: ${cache.todos.length}` +
       (isRemote ? '' : ' (UWAGA: bez zewnetrznego magazynu pamiec ginie przy restarcie na Renderze)')
   );
+  // Magazyn nie odpowiedzial przy starcie: ponawiamy, a gdy wroci, wczytujemy prawdziwe dane.
+  if (storeStatus().readFailed) {
+    const iv = setInterval(async () => {
+      const back = await retryRemoteRead();
+      if (back === null && storeStatus().readFailed) return;
+      clearInterval(iv);
+      if (back) {
+        cache = { ...EMPTY_STORE, ...back };
+        console.log('Pamiec: magazyn wrocil, dane wczytane.');
+      }
+    }, 60000);
+    iv.unref?.();
+  }
   return cache;
 }
 

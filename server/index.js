@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { storeStatus } from './core/store.js';
 import { webcrypto } from 'crypto';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -237,6 +238,7 @@ app.get('/api/health', (req, res) => {
     ...keyStatus(),
     calendarConnected: calendar.isConnected(),
     memoryPersistent: Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN),
+    storeOk: storeStatus().lastWriteOk !== false && !storeStatus().readFailed,
     liveClonedVoiceDefault: LIVE_CLONED_VOICE_REQUESTED,
   });
 });

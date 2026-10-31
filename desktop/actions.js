@@ -162,6 +162,26 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     }
   },
   'zaznacz-ekran': async () => region.selectRegion(),
+  // Codzienna kopia danych na dysk tego komputera (Dokumenty/Jarvis-kopie, 14 ostatnich).
+  'zapisz-kopie': async (p) => {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const dir = path.join(os.homedir(), 'Documents', 'Jarvis-kopie');
+    const body = String(p?.json || '');
+    if (body.length < 2 || body.length > 50000000) return { ok: false, error: 'Nieprawidlowa kopia.' };
+    try {
+      JSON.parse(body);
+      fs.mkdirSync(dir, { recursive: true });
+      const day = new Date().toISOString().slice(0, 10);
+      const file = path.join(dir, `jarvis-${day}.json`);
+      fs.writeFileSync(file, body);
+      fs.readdirSync(dir).filter((f) => /^jarvis-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().reverse().slice(14).forEach((f) => fs.rmSync(path.join(dir, f), { force: true }));
+      return { ok: true, file };
+    } catch (e) {
+      return { ok: false, error: 'Nie udalo sie zapisac kopii: ' + (e.message || e) };
+    }
+  },
   // Ostatnio otwierane pliki: skroty z historii Windows (same nazwy i daty).
   'ostatnie-pliki': async (p) => {
     const os = require('os');
