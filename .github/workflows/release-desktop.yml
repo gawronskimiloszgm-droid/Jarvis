@@ -1,6 +1,7 @@
 name: Wydanie aplikacji desktopowej
-# Tag desktop-v0.2.1 -> buduje instalator Windows i publikuje go w GitHub
+# Tag desktop-v0.6.0 -> buduje instalator Windows i publikuje go w GitHub
 # Releases. Zainstalowane aplikacje same pobiora aktualizacje (electron-updater).
+# Publikacja robiona jawnie (gh release create), bo electron-builder zostawial wydania jako szkice.
 on:
   push:
     tags: ['desktop-v*']
@@ -18,14 +19,21 @@ jobs:
         working-directory: desktop
         run: |
           npm install
-          npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Opublikuj wydanie (szkic -> publiczne, inaczej aplikacje nie zobacza aktualizacji)
+          npx electron-builder --win --publish never
+      - name: Co zbudowano
+        shell: bash
+        run: ls -la desktop/dist
+      - name: Publikacja wydania
         shell: bash
         run: |
-          id=$(gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.tag_name=="${{ github.ref_name }}") | .id' | head -1)
-          if [ -z "$id" ]; then echo "Nie znaleziono wydania dla ${{ github.ref_name }}"; gh api "repos/${{ github.repository }}/releases" --jq '.[] | [.tag_name, .draft] | @tsv'; exit 1; fi
-          gh api -X PATCH "repos/${{ github.repository }}/releases/$id" -F draft=false --jq '.html_url'
+          set -e
+          tag="${{ github.ref_name }}"
+          # usun ewentualne wczesniejsze (szkice) wydania o tym tagu
+          for id in $(gh api "repos/${{ github.repository }}/releases" --jq ".[] | select(.tag_name==\"$tag\") | .id"); do
+            gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
+          done
+          files=$(ls desktop/dist/*.exe desktop/dist/*.exe.blockmap desktop/dist/latest.yml)
+          echo "$files"
+          gh release create "$tag" $files --title "Aplikacja desktopowa ${tag#desktop-v}" --notes "Instalator J.A.R.V.I.S. dla Windows. Zainstalowane aplikacje zaktualizuja sie same." --verify-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
