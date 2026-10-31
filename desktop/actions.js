@@ -162,6 +162,31 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     }
   },
   'zaznacz-ekran': async () => region.selectRegion(),
+  // Home Assistant w sieci domowej: adres i token z ustawien tego komputera, nigdy z serwera.
+  dom: async (p) => {
+    const settings = require('./settings');
+    const base = String(settings.get('haUrl') || '').replace(/\/+$/, '');
+    const token = settings.get('haToken');
+    if (!base || !token) return { ok: false, error: 'Wpisz adres i token Home Assistant w module Dom.' };
+    if (!/^https?:\/\//.test(base)) return { ok: false, error: 'Adres musi zaczynać się od http:// albo https://.' };
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    try {
+      if (p?.op === 'states') {
+        const r = await fetch(`${base}/api/states`, { headers, signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return { ok: false, error: r.status === 401 ? 'Home Assistant odrzucił token.' : `Home Assistant: błąd ${r.status}.` };
+        return { ok: true, states: (await r.json()).map((s) => ({ entity_id: s.entity_id, state: s.state, attributes: { friendly_name: s.attributes?.friendly_name, unit_of_measurement: s.attributes?.unit_of_measurement, brightness: s.attributes?.brightness } })) };
+      }
+      if (p?.op === 'call') {
+        const safe = /^[a-z_]+$/;
+        if (!safe.test(String(p.domain)) || !safe.test(String(p.service))) return { ok: false, error: 'Nieprawidłowe polecenie.' };
+        const r = await fetch(`${base}/api/services/${p.domain}/${p.service}`, { method: 'POST', headers, body: JSON.stringify(p.data || {}), signal: AbortSignal.timeout(8000) });
+        return r.ok ? { ok: true } : { ok: false, error: `Home Assistant: błąd ${r.status}.` };
+      }
+      return { ok: false, error: 'Nieznane polecenie.' };
+    } catch (e) {
+      return { ok: false, error: `Brak połączenia z Home Assistant: ${e.message || e}` };
+    }
+  },
   // Codzienna kopia danych na dysk tego komputera (Dokumenty/Jarvis-kopie, 14 ostatnich).
   'zapisz-kopie': async (p) => {
     const os = require('os');

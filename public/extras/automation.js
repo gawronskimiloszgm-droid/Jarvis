@@ -125,6 +125,7 @@
     P.awayAt = Date.now();
     P.guardShots = 0;
     UI.logEvent?.('obecnosc', 'odszedles od komputera', 'info');
+    UI.activity?.emit('obecnosc', 'Użytkownik odszedł od komputera');
     if (flag('jarvis.awayPause', '1') && UI.nowPlaying?.playing) UI.musicControl?.('pauza').catch(() => {});
     if (flag('jarvis.awayLock', '0') && D()) D().runAction('zablokuj-ekran').catch(() => {});
     if (flag('jarvis.guard', '0')) await camStart();
@@ -133,6 +134,7 @@
   function onReturn() {
     const awayMs = Date.now() - P.awayAt;
     P.away = false;
+    UI.activity?.emit('obecnosc', `Użytkownik wrócił do komputera po ${Math.round(awayMs / 60000)} min`);
     clearTimeout(P.pendingGuard);
     P.pendingGuard = null;
     if (mode() !== 'kamera') camStop();
@@ -177,6 +179,7 @@
       }
       toast(`Tryb gry: ${c.name}. Powiadomienia wstrzymane - powodzenia, sir.`, 'ok');
       UI.logEvent?.('tryb gry', `start: ${c.name}`, 'ok');
+      UI.activity?.emit('gra', `start: ${c.name}`);
     } else {
       if (G.setDnd) {
         await api('/api/dnd', json({ minutes: 0 })).catch(() => {});
@@ -185,6 +188,7 @@
       }
       toast(`Koniec gry (${c.name}${c.minutes ? `, ${c.minutes} min` : ''}).`, 'ok');
       UI.logEvent?.('tryb gry', `koniec: ${c.name} po ${c.minutes || 0} min`, 'ok');
+      UI.activity?.emit('gra', `koniec: ${c.name}`);
     }
     autoTick(true);
   }

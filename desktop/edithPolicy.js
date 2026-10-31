@@ -69,6 +69,7 @@ const SAFE_ACTIONS = new Set([
   'zrzut-maly',
   'zaznacz-ekran',
   'ostatnie-pliki',
+  'dom',
   'zapisz-kopie',
   'aktywne-okno',
   'stan-gry',

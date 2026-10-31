@@ -56,6 +56,42 @@
         btns.style.marginTop = '4px';
         const draftBtn = el('button', 'btn ghost', 'SZKIC ODPOWIEDZI');
         btns.appendChild(draftBtn);
+        const calBtn = el('button', 'btn ghost', 'DO KALENDARZA');
+        btns.appendChild(calBtn);
+        calBtn.addEventListener('click', async () => {
+          area.innerHTML = '';
+          calBtn.disabled = true;
+          try {
+            const ev = await api('/api/triage/mail/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: m.id }) });
+            if (!ev.jest) {
+              toast('W tym mailu nie widzę konkretnego terminu.', 'ok');
+              return;
+            }
+            const t = el('input', 'inp');
+            t.value = ev.tytul || m.subject;
+            const s = el('input', 'inp');
+            s.type = 'datetime-local';
+            s.value = String(ev.start || '').slice(0, 16);
+            const e2 = el('input', 'inp');
+            e2.type = 'datetime-local';
+            e2.value = String(ev.koniec || '').slice(0, 16);
+            const add = el('button', 'btn primary', 'DODAJ DO KALENDARZA');
+            add.addEventListener('click', async () => {
+              try {
+                await api('/api/calendar/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: t.value, startISO: s.value, endISO: e2.value || undefined, description: `Z maila: ${m.subject}` }) });
+                toast('Dodano do kalendarza.', 'ok');
+                area.innerHTML = '';
+              } catch (e) {
+                toast(e.message);
+              }
+            });
+            area.append(el('div', 'sub', 'SPRAWDŹ I ZATWIERDŹ'), t, s, e2, add);
+          } catch (e) {
+            toast(e.message);
+          } finally {
+            calBtn.disabled = false;
+          }
+        });
         const area = el('div');
         draftBtn.addEventListener('click', async () => {
           area.innerHTML = '';

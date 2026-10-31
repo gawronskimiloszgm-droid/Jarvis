@@ -105,4 +105,26 @@ router.post('/api/triage/mail/draft', requireOwner, async (req, res) => {
   }
 });
 
+// Termin z maila: model wyciaga wydarzenie, a uzytkownik je sprawdza, zanim trafi do kalendarza.
+router.post('/api/triage/mail/event', requireOwner, async (req, res) => {
+  const item = cache.items.find((x) => x.id === req.body?.id);
+  if (!item) return res.status(404).json({ error: 'Nie ma tego maila w ostatnim przegladzie - odswiez liste.' });
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Warsaw' });
+    const result = await withModel((m) =>
+      ai.models.generateContent({
+        model: m,
+        contents: `Dzisiaj jest ${today} (strefa Europe/Warsaw). Czy ten mail zawiera konkretny termin spotkania lub wydarzenia? Temat: ${item.subject}\nOd: ${item.from}\nFragment: ${item.snippet}\n\nJesli tak, podaj tytul po polsku oraz start i koniec w formacie RRRR-MM-DDTHH:MM (bez koniec: godzina po starcie). Nie zgaduj daty, gdy jej nie ma: wtedy jest=false.`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: { type: Type.OBJECT, properties: { jest: { type: Type.BOOLEAN }, tytul: { type: Type.STRING }, start: { type: Type.STRING }, koniec: { type: Type.STRING } }, required: ['jest'] },
+        },
+      })
+    );
+    res.json(JSON.parse(result.text));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

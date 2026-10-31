@@ -130,6 +130,7 @@
     } else if (e.type === 'rotate') {
       if (Math.abs(e.dy) > Math.abs(e.dx)) nudge(scroller(underCursor(x, y)), e.dy * innerHeight * 0.9 * opts.scrollSpeed);
     } else if (e.type === 'swipe') {
+      if (UI.workshopSwipe?.(e.dir)) return;
       const btns = [...document.querySelectorAll('#dock .dock-btn')].filter((b) => !b.classList.contains('off'));
       const i = btns.findIndex((b) => b.classList.contains('on'));
       feedback();

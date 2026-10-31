@@ -2090,6 +2090,7 @@ function startCoreVisual(cv, seed = 42, theme = CORE_THEMES.jarvis) {
 }
 
 function setCoreState(text) {
+  store.coreState = text;
   for (const id of ['#coreState', '#sideState']) {
     const n = $(id);
     if (n) n.textContent = text;
@@ -3065,6 +3066,8 @@ function paramsForAction(name, raw) {
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
   if (name === 'nie-przeszkadzac') return { minuty: raw };
   if (name === 'stoper') return { akcja: raw };
+  if (name === 'dom') return { polecenie: raw };
+  if (name === 'warsztat-plan') return { temat: raw };
   if (name === 'graf-wiedzy-pokaz') return { temat: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };

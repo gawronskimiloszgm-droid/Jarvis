@@ -185,7 +185,8 @@ function init({ getWindow, quit }) {
   applyAutostart();
   registerHotkey();
 
-  ipcMain.handle('jarvis-setting-get', (e, key) => settings.get(key));
+  // Token Home Assistant mozna ustawic, ale strona nie moze go odczytac.
+  ipcMain.handle('jarvis-setting-get', (e, key) => (key === 'haToken' ? Boolean(settings.get(key)) : settings.get(key)));
   ipcMain.handle('jarvis-setting-set', (e, key, value) => {
     const v = settings.set(key, value);
     if (key === 'autostart') applyAutostart();

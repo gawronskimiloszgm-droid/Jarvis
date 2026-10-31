@@ -143,6 +143,8 @@ ${LIFE_TAG_PROMPT}
   - przepis | nazwa - agent ekranu wykonuje zapamietany przepis (zadanie pokazane wczesniej przez uzytkownika), np. [AKCJA: przepis | faktura]. WYMAGA parametru.
   - ekran-na-zywo | wlacz albo wylacz - Jarvis widzi ekran na biezaco (tylko w rozmowie glosowej). WYMAGA parametru.
   - graf-wiedzy-pokaz | temat - otwiera Graf wiedzy na danym pojeciu. WYMAGA parametru.
+  - dom | polecenie - inteligentny dom, np. [AKCJA: dom | wlacz salon]. WYMAGA parametru.
+  - warsztat-plan | temat - tryb warsztatu krok po kroku dla naprawy, np. [AKCJA: warsztat-plan | wymiana oleju]. WYMAGA parametru.
   - stoper | start, stop, zeruj albo odczyt - stoper na ekranie (np. [AKCJA: stoper | start]). WYMAGA parametru.
   - holo-kamera - przelacza obraz z kamery na calym ekranie pod hologramem. BEZ parametru.
   - gesty-dloni - przelacza sterowanie interfejsem dlonmi przez kamere. BEZ parametru.

@@ -341,6 +341,16 @@ const ALL_TOOLS = [
     parameters: { type: 'object', properties: { wlacz: { type: 'boolean' } }, required: ['wlacz'] },
   },
   {
+    name: 'dom',
+    description: 'Inteligentny dom (Home Assistant): swiatla, gniazdka, rolety, sceny, ogrzewanie, czujniki. Polecenie po polsku, np. "wlacz salon", "zgas biurko", "ustaw sypialnie 40%", "stan temperatura garaz".',
+    parameters: { type: 'object', properties: { polecenie: { type: 'string' } }, required: ['polecenie'] },
+  },
+  {
+    name: 'warsztat',
+    description: 'Tryb warsztatu przy naprawach i pracy z rekami: plan (uloz kroki dla tematu), dalej, wstecz, powtorz, koniec. Uzyj, gdy uzytkownik mowi o naprawie krok po kroku albo w trybie warsztatu mowi "dalej", "wroc", "powtorz".',
+    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['plan', 'dalej', 'wstecz', 'powtorz', 'koniec'] }, temat: { type: 'string', description: 'Tylko dla akcji plan.' } }, required: ['akcja'] },
+  },
+  {
     name: 'stoper',
     description: 'Stoper na ekranie: start, stop, zeruj albo odczyt (ile pokazuje).',
     parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['start', 'stop', 'zeruj', 'odczyt'] } }, required: ['akcja'] },
@@ -1184,6 +1194,13 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
               } else if (call.name === 'co_wiem_o') {
                 result = await runLifeTool('co_wiem_o', call.args || {});
                 if (!result?.nic) safeSend(JSON.stringify({ type: 'deviceAction', action: 'graf-wiedzy-pokaz', params: { temat: (call.args || {}).temat } }));
+              } else if (call.name === 'dom') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'dom', params: { polecenie: (call.args || {}).polecenie } }));
+                result = { ok: true, note: 'wynik przyjdzie zaraz jako zdarzenie' };
+              } else if (call.name === 'warsztat') {
+                const a = call.args || {};
+                safeSend(JSON.stringify(a.akcja === 'plan' ? { type: 'deviceAction', action: 'warsztat-plan', params: { temat: a.temat } } : { type: 'deviceAction', action: 'warsztat', params: { akcja: a.akcja } }));
+                result = { ok: true, note: 'krok pojawi sie na ekranie, zaraz dostaniesz jego tresc' };
               } else if (call.name === 'stoper') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'stoper', params: { akcja: (call.args || {}).akcja || 'start' } }));
                 result = { ok: true, note: 'wynik przyjdzie zaraz jako zdarzenie' };

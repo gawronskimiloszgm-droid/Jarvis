@@ -22,6 +22,14 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isDay = (v) => typeof v === 'string' && DAY.test(v);
 const tags = (v) => (Array.isArray(v) ? v.filter((t) => typeof t === 'string').map((t) => t.trim().toLowerCase().slice(0, 24)).filter(Boolean).slice(0, 8) : []);
 
+const cleanWhen = (w) => ({
+  type: str(w.type, 30),
+  ...(w.at != null && { at: /^\d{2}:\d{2}$/.test(str(w.at, 5)) ? str(w.at, 5) : '08:00' }),
+  ...(Array.isArray(w.days) && { days: w.days.map(Number).filter((d) => d >= 0 && d <= 6).slice(0, 7) }),
+  ...(w.contains != null && { contains: str(w.contains, 80) }),
+});
+const cleanThen = (list) => list.slice(0, 8).map((a) => ({ type: str(a?.type, 20), value: str(a?.value, 300) }));
+
 // Walidatory: zwracaja obiekt z polami kolekcji albo null. `partial` = aktualizacja (tylko podane pola).
 const SCHEMAS = {
   shopping: {
@@ -105,6 +113,20 @@ const SCHEMAS = {
     max: 120,
     make: (b) => (str(b.name, 60) && /^\d{2}-\d{2}$/.test(str(b.date, 5)) ? { name: str(b.name, 60), date: str(b.date, 5) } : null),
     patch: (b) => ({ ...(b.name != null && { name: str(b.name, 60) }), ...(/^\d{2}-\d{2}$/.test(str(b.date, 5)) && { date: str(b.date, 5) }) }),
+  },
+  automations: {
+    max: 60,
+    make: (b) => {
+      const name = str(b.name, 80);
+      if (!name || !b.when || typeof b.when !== 'object' || !Array.isArray(b.then) || !b.then.length) return null;
+      return { name, on: b.on !== false, when: cleanWhen(b.when), then: cleanThen(b.then), cooldown: Math.max(0, Math.min(86400, num(b.cooldown, 60))) };
+    },
+    patch: (b) => ({
+      ...(b.name != null && { name: str(b.name, 80) }),
+      ...(b.on != null && { on: bool(b.on) }),
+      ...(b.when && { when: cleanWhen(b.when) }),
+      ...(Array.isArray(b.then) && { then: cleanThen(b.then) }),
+    }),
   },
   planner: {
     max: 600,
@@ -401,6 +423,46 @@ ${text}` })
     res.json({ text: String(r.text || '').trim(), to });
   } catch (err) {
     res.status(502).json({ error: `Tlumaczenie nie powiodlo sie: ${err.message || err}` });
+  }
+});
+
+// ---------- tryb warsztatu: kroki ze zrodel ----------
+router.post('/api/workshop/plan', requireOwner, async (req, res) => {
+  const temat = str(req.body?.temat, 200);
+  if (!temat) return res.status(400).json({ error: 'Powiedz, co robimy.' });
+  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'Brak klucza AI na serwerze.' });
+  try {
+    const { Type } = await import('@google/genai');
+    const { searchWithContent } = await import('../connect/websearch.js');
+    const found = await searchWithContent(`${temat} krok po kroku poradnik`, 3).catch(() => []);
+    const list = Array.isArray(found) ? found : found?.results || [];
+    const context = list.map((r) => `${r.title || r.url}: ${String(r.content || r.snippet || '').slice(0, 1800)}`).join('\n\n');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const r = await withModel((model) =>
+      ai.models.generateContent({
+        model,
+        contents: `Uloz po polsku plan pracy: ${temat}. Kazdy krok krotki, do przeczytania na glos, jedna czynnosc. Podawaj konkretne wartosci (momenty, ilosci, wymiary) TYLKO, gdy wynikaja ze zrodel; inaczej powiedz, co sprawdzic. W "uwaga" tylko realne zagrozenia.\n\nZRODLA:\n${context || 'brak: oprzyj sie na ogolnej wiedzy i zaznacz, co trzeba sprawdzic w instrukcji.'}`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              tytul: { type: Type.STRING },
+              narzedzia: { type: Type.ARRAY, items: { type: Type.STRING } },
+              steps: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { tekst: { type: Type.STRING }, uwaga: { type: Type.STRING } }, required: ['tekst'] } },
+            },
+            required: ['tytul', 'steps'],
+          },
+        },
+      })
+    );
+    const plan = JSON.parse(r.text);
+    if (!plan.steps?.length) throw new Error('model nie zwrocil krokow');
+    plan.steps = plan.steps.slice(0, 40);
+    plan.zrodla = list.slice(0, 3).map((x) => { try { return new URL(x.url).hostname; } catch { return ''; } }).filter(Boolean);
+    res.json({ plan });
+  } catch (err) {
+    res.status(502).json({ error: `Nie udało się ułożyć kroków: ${err.message || err}` });
   }
 });
 

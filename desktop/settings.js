@@ -14,6 +14,8 @@ const DEFAULTS = {
   worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
   hotkey: 'CommandOrControl+Alt+J',
+  haUrl: '', // Home Assistant w sieci domowej
+  haToken: '',
   voiceAutostart: false, // uruchamiaj lokalny syntezator glosu razem z aplikacja (voice-server/)
   overlayOn: false, // nakladka HUD (zegar, CPU/RAM, teraz gra) - patrz overlay.js
   overlayCorner: 'tr',

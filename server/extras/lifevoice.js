@@ -129,6 +129,8 @@ export const LIFE_TOOLS = [
 ];
 
 const CHANGELOG = [
+  'Automatyzacje gdy X zrob Y, sterowanie domem przez Home Assistant, tryb warsztatu krok po kroku',
+  'Powiadomienia na telefon, codzienne kopie danych, terminy z maili do kalendarza',
   'Poprawna polska wymowa i polskie znaki w calej aplikacji',
   'Sam proponuje dzialania z przyciskami i uklada plan dnia',
   'Graf wiedzy uczy sie z rozmow, pytanie co wiem o danym temacie',
@@ -223,7 +225,7 @@ export async function runLifeTool(name, args = {}) {
       };
     }
     case 'co_nowego':
-      return { wersja: '0.8.0', nowosci: CHANGELOG };
+      return { wersja: '0.9.0', nowosci: CHANGELOG };
     case 'podsumowanie_tygodnia':
       return { podsumowanie: lifeWeekSummary() };
     case 'zegar_swiata': {

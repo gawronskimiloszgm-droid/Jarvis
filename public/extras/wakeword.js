@@ -16,7 +16,7 @@
   const CACHE = 'jarvis-vosk-v1';
   const KEY = 'jarvis.wakeVosk';
 
-  const W = { state: 'off', model: null, rec: null, ctx: null, stream: null, node: null, lastHit: 0, hits: 0 };
+  const W = { state: 'off', model: null, rec: null, ctx: null, stream: null, node: null, lastHit: 0, hits: 0, recent: [] };
   UI.wakeword = W;
 
   const get = (k, d) => {
@@ -36,6 +36,11 @@
   // Domyslnie wlaczone w aplikacji desktopowej (tam nie ma innego slowa budzacego),
   // w przegladarce zostaje wbudowane rozpoznawanie Chrome, chyba ze wlaczysz to recznie.
   const wanted = () => get(KEY, D() ? '1' : '0') === '1';
+
+  const THR = 'jarvis.wakeThreshold';
+  const threshold = () => Number(get(THR, String(window.WakeLogic?.DEFAULT_THRESHOLD ?? 0.8))) || 0.8;
+  // Jarvis mowi albo dopiero skonczyl: glos z glosnikow nie moze go znow wlaczac.
+  const jarvisSpeaking = () => UI.store?.coreState === 'MOWIE' || Boolean(window.speechSynthesis?.speaking);
 
   function setState(s) {
     W.state = s;
@@ -80,9 +85,15 @@
       W.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
       W.ctx = new AudioContext({ sampleRate: 16000 });
       W.rec = new W.model.KaldiRecognizer(16000, JSON.stringify(['jarvis', 'hey jarvis', '[unk]']));
+      W.rec.setWords?.(true); // pewnosc i dlugosc kazdego slowa
       W.rec.on('result', (m) => {
-        const text = String(m?.result?.text || '');
-        if (/\bjarvis\b/.test(text)) onHit();
+        const verdict = window.WakeLogic.accept(m?.result, { threshold: threshold(), speaking: jarvisSpeaking(), music: Boolean(UI.nowPlaying?.playing) });
+        if (verdict.conf != null || verdict.ok) {
+          W.recent.unshift({ at: Date.now(), ok: verdict.ok, conf: verdict.conf, reason: verdict.reason });
+          W.recent.length = Math.min(W.recent.length, 8);
+          window.dispatchEvent(new Event('jarvis:wake-state'));
+        }
+        if (verdict.ok) onHit();
       });
       const src = W.ctx.createMediaStreamSource(W.stream);
       W.node = W.ctx.createScriptProcessor(4096, 1, 1);
@@ -186,6 +197,46 @@
         def.build(body);
       });
       row.append(t, s);
+      const tune = el('div');
+      const slider = el('input');
+      slider.type = 'range';
+      slider.min = '0.5';
+      slider.max = '0.98';
+      slider.step = '0.01';
+      slider.value = String(threshold());
+      slider.style.cssText = 'width:170px;accent-color:var(--blue)';
+      const val = el('b', null, slider.value);
+      slider.addEventListener('input', () => {
+        put(THR, slider.value);
+        val.textContent = slider.value;
+      });
+      const lab = el('label', 'kv');
+      lab.append(el('span', null, 'Wymagana pewność (wyżej = mniej fałszywych włączeń)'), slider, val);
+      const fb = el('div', 'field');
+      fb.style.cssText = 'gap:6px;flex-wrap:wrap;margin:6px 0';
+      const setThr = (kind) => {
+        const v = window.WakeLogic.adjust(threshold(), kind);
+        put(THR, String(v));
+        slider.value = String(v);
+        val.textContent = String(v);
+        toast(`Próg ustawiony na ${v}.`, 'ok');
+      };
+      const fa = el('button', 'btn ghost', 'WŁĄCZA SIĘ SAM');
+      fa.addEventListener('click', () => setThr('false-alarm'));
+      const miss = el('button', 'btn ghost', 'NIE REAGUJE');
+      miss.addEventListener('click', () => setThr('miss'));
+      fb.append(fa, miss);
+      const log = el('div', 'w-list');
+      const drawLog = () => {
+        if (!document.body.contains(log)) return;
+        log.innerHTML = '';
+        W.recent.forEach((r) => log.appendChild(el('div', 'w-dim', `${new Date(r.at).toLocaleTimeString('pl-PL', { hour12: false })} ${r.ok ? 'włączone' : 'odrzucone'}${r.conf != null ? ` · pewność ${r.conf.toFixed(2)}` : ''}${r.ok ? '' : ` · ${r.reason}`}`)));
+        if (!W.recent.length) log.appendChild(el('div', 'w-dim', 'Powiedz „Jarvis”, a tutaj zobaczysz, co usłyszał.'));
+      };
+      window.addEventListener('jarvis:wake-state', drawLog);
+      setTimeout(drawLog, 300);
+      tune.append(lab, fb, el('div', 'sub', 'CO USŁYSZAŁ'), log);
+      body.append(tune);
       body.append(st, row, el('div', 'sub', 'Rozpoznawanie dziala w aplikacji, offline (Vosk). Dzwiek z mikrofonu nie wychodzi z urzadzenia - tylko po uslyszeniu "Jarvis" startuje zwykla rozmowa.'));
     },
   };
