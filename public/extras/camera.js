@@ -20,7 +20,10 @@
         if (!stream) {
           if (!pending) {
             const id = localStorage.getItem('jarvis.camId');
-            pending = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, ...(id ? { deviceId: { ideal: id } } : { facingMode: 'user' }) }, audio: false });
+            if (id === 'phone' && UI.phoneCam) {
+              toast('Czekam na obraz z telefonu: otwórz na nim moduł „Telefon jako kamera”.', 'ok');
+              pending = UI.phoneCam.getStream();
+            } else pending = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, ...(id ? { deviceId: { ideal: id } } : { facingMode: 'user' }) }, audio: false });
           }
           stream = await pending;
           pending = null;
@@ -39,6 +42,7 @@
       if (!users && stream) {
         stream.getTracks().forEach((t) => t.stop());
         stream = null;
+        if (localStorage.getItem('jarvis.camId') === 'phone') UI.phoneCam?.stop();
       }
     },
     isOpen: () => Boolean(stream),
@@ -50,10 +54,11 @@
     // Zrozumialy komunikat zamiast surowego bledu przegladarki.
     async explain(e) {
       const name = e && e.name;
+      if (name === 'PhoneTimeout') return e.message;
       if (name === 'NotAllowedError') return 'Brak zgody na kamere. Zezwol na nia w ustawieniach przegladarki.';
       const cams = await UI.camera.list().catch(() => []);
       const onlyObs = cams.length > 0 && cams.every((c) => /obs/i.test(c.label));
-      if (onlyObs) return 'Masz tylko wirtualna kamere OBS. Podlacz kamere albo wlacz w OBS "Start Virtual Camera".';
+      if (onlyObs) return 'Masz tylko wirtualną kamerę OBS. Użyj telefonu jako kamery (moduł „Telefon jako kamera”) albo włącz w OBS "Start Virtual Camera".';
       if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Nie znaleziono kamery. Podlacz ja i sprobuj ponownie.';
       if (name === 'NotReadableError') return 'Kamera jest zajeta przez inny program albo nieaktywna. Zamknij go i sprobuj ponownie.';
       return `Kamera nie wystartowala: ${(e && e.message) || e}`;
@@ -140,6 +145,7 @@
           const cams = await UI.camera.list().catch(() => []);
           pick.innerHTML = '';
           pick.appendChild(Object.assign(el('option', null, 'Domyslna kamera'), { value: '' }));
+          pick.appendChild(Object.assign(el('option', null, 'Telefon (modul Telefon jako kamera)'), { value: 'phone' }));
           cams.forEach((c, i) => pick.appendChild(Object.assign(el('option', null, c.label || `Kamera ${i + 1}`), { value: c.deviceId })));
           pick.value = localStorage.getItem('jarvis.camId') || '';
         };

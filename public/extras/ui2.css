@@ -351,6 +351,10 @@ body.m-oled .w, body.m-oled .stage-panel .card { background-color: #000; }
 .hu-meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; }
 
 /* ---------- zadania z priorytetem, dyktowanie ---------- */
+.pc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 10px; }
+.pc-col b { display: block; font: 700 10px/1.3 var(--mono, monospace); letter-spacing: .16em; color: var(--blue); margin-bottom: 8px; }
+.pc-preview { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #020608; border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent); border-radius: 6px; }
+.pc-qr { display: block; margin-bottom: 10px; border-radius: 6px; }
 .sg-card, .sg-plan { padding: 8px 10px; margin-bottom: 6px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent); background: color-mix(in srgb, var(--blue) 5%, transparent); }
 .sg-plan { border-color: var(--blue); }
 .sg-card b, .sg-plan b { display: block; font: 700 10px/1.3 var(--mono, monospace); letter-spacing: .14em; color: var(--blue); text-transform: uppercase; }

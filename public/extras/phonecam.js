@@ -32,6 +32,7 @@
     tx.pc?.close();
     const pc = new RTCPeerConnection(RTC);
     tx.pc = pc;
+    tx.connectAt = Date.now();
     tx.stream.getTracks().forEach((t) => pc.addTrack(t, tx.stream));
     pc.addEventListener('connectionstatechange', () => {
       if (tx.pc !== pc) return;
@@ -46,7 +47,11 @@
   async function txPoll() {
     const r = await api('/api/phonecam/signal?role=phone').catch(() => null);
     for (const m of r?.messages || []) {
-      if (m.type === 'request' && tx.pc?.connectionState !== 'connected') await txConnect();
+      if (m.type === 'request') {
+        // Zaproszenie przychodzi co kilka sekund: nie przerywamy polaczenia, ktore wlasnie sie zestawia.
+        const busy = tx.pc && (tx.pc.connectionState === 'connected' || (['new', 'connecting'].includes(tx.pc.connectionState) && Date.now() - tx.connectAt < 12000));
+        if (!busy) await txConnect();
+      }
       else if (m.type === 'answer' && tx.pc?.signalingState === 'have-local-offer') await tx.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
       else if (m.type === 'stop') {
         tx.pc?.close();
@@ -100,6 +105,7 @@
   function getStream(timeoutMs = 60000) {
     return new Promise((resolve, reject) => {
       rxStop(false);
+      rx.stream = new MediaStream();
       const started = Date.now();
       let settled = false;
       let lastAsk = 0;
@@ -115,7 +121,8 @@
           e.name = 'PhoneTimeout';
           return finish(reject, e);
         }
-        if (!settled && Date.now() - lastAsk > 4000) {
+        const lost = settled && ['failed', 'closed', 'disconnected'].includes(rx.pc?.connectionState);
+        if ((!settled || lost) && Date.now() - lastAsk > 4000) {
           lastAsk = Date.now();
           send('phone', { type: 'request' }).catch(() => {});
         }
@@ -126,8 +133,11 @@
           rx.pc?.close();
           const pc = new RTCPeerConnection(RTC);
           rx.pc = pc;
+          // Jeden staly strumien: po ponownym polaczeniu (np. telefon wlaczony od nowa) podmieniamy w nim
+          // sciezke, wiec holo-kamera i gesty dzialaja dalej bez restartu.
           pc.addEventListener('track', (ev) => {
-            rx.stream = ev.streams[0];
+            rx.stream.getTracks().forEach((t) => rx.stream.removeTrack(t));
+            rx.stream.addTrack(ev.track);
             finish(resolve, rx.stream);
           });
           pc.addEventListener('connectionstatechange', () => {
@@ -144,7 +154,20 @@
     });
   }
 
-  UI.phoneCam = { getStream, stop: () => rxStop(true), startSending: txStart, stopSending: txStop, isSending: () => tx.on };
+  // Liczniki klatek obu stron (diagnostyka: czy obraz naprawde plynie).
+  async function stats() {
+    const pick = async (pc, kind) => {
+      if (!pc) return null;
+      const out = {};
+      (await pc.getStats()).forEach((r) => {
+        if (r.type === kind && r.kind === 'video') Object.assign(out, { frames: r.framesDecoded ?? r.framesEncoded, sent: r.framesSent, width: r.frameWidth, height: r.frameHeight, fps: r.framesPerSecond, limit: r.qualityLimitationReason, codec: r.codecId });
+      });
+      return out;
+    };
+    return { send: await pick(tx.pc, 'outbound-rtp'), recv: await pick(rx.pc, 'inbound-rtp'), state: { tx: tx.pc?.connectionState, rx: rx.pc?.connectionState } };
+  }
+
+  UI.phoneCam = { getStream, stop: () => rxStop(true), startSending: txStart, stopSending: txStop, isSending: () => tx.on, stats };
 
   // ---------- modul ----------
   const panel = {
