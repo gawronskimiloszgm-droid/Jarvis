@@ -21,3 +21,11 @@ jobs:
           npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Opublikuj wydanie (szkic -> publiczne, inaczej aplikacje nie zobacza aktualizacji)
+        shell: bash
+        run: |
+          id=$(gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.tag_name=="${{ github.ref_name }}") | .id' | head -1)
+          if [ -z "$id" ]; then echo "Nie znaleziono wydania dla ${{ github.ref_name }}"; gh api "repos/${{ github.repository }}/releases" --jq '.[] | [.tag_name, .draft] | @tsv'; exit 1; fi
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$id" -F draft=false --jq '.html_url'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
