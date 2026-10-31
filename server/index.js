@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { storeStatus } from './core/store.js';
+import { createLimiter, guestLimit } from './core/ratelimit.js';
 import { webcrypto } from 'crypto';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -128,7 +129,34 @@ process.on('unhandledRejection', (err) => console.error('Nieobsluzone odrzucenie
 process.on('uncaughtException', (err) => console.error('Nieprzechwycony wyjatek:', err));
 
 const app = express();
-app.use(cors());
+// Render stoi przed aplikacja jako proxy: bez tego kazdy klient mialby ten sam adres IP.
+app.set('trust proxy', 1);
+// Dostep z przegladarki tylko z wlasnej strony i z aplikacji; obce strony nie wywolaja API.
+const CORS_OK = /^(https:\/\/jarvis-u4vw\.onrender\.com|https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|capacitor:\/\/localhost)$/;
+app.use(
+  cors((req, cb) => {
+    const origin = req.headers.origin;
+    const same = origin && req.headers.host && origin.replace(/^https?:\/\//, '') === req.headers.host;
+    cb(null, { origin: !origin || same || CORS_OK.test(origin) });
+  })
+);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  next();
+});
+// Publiczne trasy kosztujace limit AI: gosc ma limit, wlasciciel nie.
+const isOwnerReq = (req) => roleFromRequest(req) === 'owner';
+const chatLimit = guestLimit({ windowMs: 60000, max: 15, isOwner: isOwnerReq });
+const ttsLimit = guestLimit({ windowMs: 60000, max: 15, isOwner: isOwnerReq });
+const imageLimit = guestLimit({ windowMs: 600000, max: 5, isOwner: isOwnerReq });
+const voiceGuestLimit = createLimiter({ windowMs: 600000, max: 6 });
+// Logowanie: 8 nieudanych prob z adresu i 40 z calego swiata na 15 minut.
+const loginIp = createLimiter({ windowMs: 15 * 60000, max: 8 });
+const loginAll = createLimiter({ windowMs: 15 * 60000, max: 40 });
 // Wczytywanie plikow i zrzutow ekranu (server/extras/documents.js) ma wlasny,
 // wiekszy limit na poziomie trasy - globalny 8 MB odcialby je wczesniej.
 const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/step', '/api/notes/audio', '/api/backup/restore', '/api/remote/result', '/api/vision/scan', '/api/agent/learn', '/api/transcribe']);
@@ -248,10 +276,17 @@ app.post('/api/login', (req, res) => {
   if (!isAuthConfigured()) {
     return res.status(500).json({ error: 'Brak skonfigurowanego OWNER_PASSWORD na serwerze.' });
   }
+  if (loginIp.blocked(req.ip) || loginAll.blocked('all')) {
+    const wait = Math.max(loginIp.retryAfter(req.ip), loginAll.retryAfter('all'));
+    res.setHeader('Retry-After', String(wait));
+    return res.status(429).json({ error: `Za dużo nieudanych prób. Spróbuj za ${Math.ceil(wait / 60)} min.` });
+  }
   // Uzytkownik i haslo sprawdzamy razem i odpowiadamy JEDNYM komunikatem -
   // rozne bledy dla zlej nazwy i zlego hasla podpowiadalyby, ktora czesc
   // zgadla osoba postronna.
   if (!verifyUser(req.body?.user) || !verifyPassword(req.body?.password)) {
+    loginIp.hit(req.ip);
+    loginAll.hit('all');
     // Nieudane logowanie to sygnal dla modulu obrony, nie tylko wpis w logu.
     bus.publish('auth', 'login.failed', `nieudane logowanie z ${req.ip}`, {
       level: 'warn',
@@ -259,13 +294,14 @@ app.post('/api/login', (req, res) => {
     });
     return res.status(401).json({ error: 'Nieprawidlowy uzytkownik lub haslo.' });
   }
+  loginIp.reset(req.ip);
   bus.publish('auth', 'owner.login', 'wlasciciel zalogowany', { level: 'ok' });
   recordLogin(req);
   res.json({ token: issueToken(), role: 'owner' });
 });
 
 // --- Chat (streaming) ---
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimit, async (req, res) => {
   const { message, location, ui } = req.body;
   if (!message || !String(message).trim()) {
     return res.status(400).json({ error: 'Brak wiadomosci.' });
@@ -392,12 +428,27 @@ app.get('/api/push/vapid-public-key', (req, res) => {
   res.json({ publicKey: push.getPublicKey() });
 });
 
-app.post('/api/push/subscribe', (req, res) => {
-  memory.addPushSubscription(req.body);
+// Tylko wlasciciel: powiadomienia niosa tresc przypomnien i prosby o zatwierdzenie.
+app.post('/api/push/subscribe', requireOwner, (req, res) => {
+  const b = req.body || {};
+  if (typeof b.endpoint !== 'string' || !/^https:\/\//.test(b.endpoint) || !b.keys?.p256dh || !b.keys?.auth) {
+    return res.status(400).json({ error: 'Nieprawidłowa subskrypcja.' });
+  }
+  memory.addPushSubscription({ endpoint: b.endpoint, keys: { p256dh: String(b.keys.p256dh), auth: String(b.keys.auth) }, label: String(b.label || '').slice(0, 60) });
   res.status(201).json({ ok: true });
 });
 
-app.post('/api/push/unsubscribe', (req, res) => {
+app.get('/api/push/devices', requireOwner, (req, res) => {
+  res.json({ configured: push.isConfigured(), devices: memory.getPushSubscriptions().map((s) => ({ endpoint: s.endpoint, label: s.label || '' })) });
+});
+
+app.post('/api/push/test', requireOwner, async (req, res) => {
+  const devices = memory.getPushSubscriptions().length;
+  if (devices) await push.sendToAll({ title: 'J.A.R.V.I.S.', body: 'Powiadomienia działają, sir.' }).catch(() => {});
+  res.json({ ok: true, devices });
+});
+
+app.post('/api/push/unsubscribe', requireOwner, (req, res) => {
   memory.removePushSubscription(req.body.endpoint);
   res.json({ ok: true });
 });
@@ -420,7 +471,7 @@ app.get('/api/cron/tick', async (req, res) => {
 });
 
 // --- Image generation ---
-app.post('/api/image', async (req, res) => {
+app.post('/api/image', imageLimit, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'Brak opisu obrazu.' });
@@ -690,7 +741,7 @@ app.get('/api/events', requireOwner, (req, res) => {
 });
 
 // --- TTS ---
-app.post('/api/tts', async (req, res) => {
+app.post('/api/tts', ttsLimit, async (req, res) => {
   try {
     const { text, speaker, voice } = req.body;
     if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Brak tekstu.' });
@@ -748,6 +799,17 @@ server.on('upgrade', (req, socket, head) => {
     socket.write(`HTTP/1.1 404 Not Found\r\n\r\n`);
     socket.destroy();
     return;
+  }
+  // Rozmowa na zywo kosztuje limit AI: gosc ma limit polaczen.
+  if (target === wss) {
+    const url = new URL(req.url, 'http://localhost');
+    const owner = isOwnerToken(url.searchParams.get('token'));
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'x').split(',')[0].trim();
+    if (!owner && !voiceGuestLimit.hit(ip).ok) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+      socket.destroy();
+      return;
+    }
   }
   target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
 });

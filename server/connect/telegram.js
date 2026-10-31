@@ -56,10 +56,9 @@ router.get('/status', requireOwner, (req, res) => {
 
 // Webhook Telegrama - patrz uzasadnienie braku requireOwner w komentarzu na gorze pliku.
 router.post('/webhook', (req, res) => {
-  if (WEBHOOK_SECRET) {
-    const got = req.headers['x-telegram-bot-api-secret-token'];
-    if (got !== WEBHOOK_SECRET) return res.status(403).json({ error: 'Zly sekret webhooka.' });
-  }
+  // Bez sekretu kazdy moglby podrzucic wiadomosci, ktore potem czyta model.
+  const got = req.headers['x-telegram-bot-api-secret-token'];
+  if (!WEBHOOK_SECRET || got !== WEBHOOK_SECRET) return res.status(403).json({ error: 'Zly sekret webhooka.' });
   const msg = req.body?.message;
   if (msg && (msg.text || msg.caption)) {
     const entry = {
