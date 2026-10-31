@@ -341,6 +341,11 @@ const ALL_TOOLS = [
     parameters: { type: 'object', properties: { wlacz: { type: 'boolean' } }, required: ['wlacz'] },
   },
   {
+    name: 'stoper',
+    description: 'Stoper na ekranie: start, stop, zeruj albo odczyt (ile pokazuje).',
+    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['start', 'stop', 'zeruj', 'odczyt'] } }, required: ['akcja'] },
+  },
+  {
     name: 'holo_interfejs',
     description: 'Steruj holograficznym interfejsem: kamera (obraz z kamery na calym ekranie pod hologramem), gesty (sterowanie dlonmi), graf (otworz Graf wiedzy), kino (tryb kina).',
     parameters: { type: 'object', properties: { co: { type: 'string', enum: ['kamera', 'gesty', 'graf', 'kino'] }, wlacz: { type: 'boolean', description: 'Wlacz albo wylacz; pomin, zeby przelaczyc.' } }, required: ['co'] },
@@ -1176,6 +1181,12 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 const wlacz = Boolean((call.args || {}).wlacz);
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'ekran-na-zywo', params: { wlacz } }));
                 result = { ok: true, note: wlacz ? 'podglad ekranu wlaczony - klatki beda przychodzic same; komentuj tylko gdy cos waznego albo gdy pyta' : 'podglad ekranu wylaczony' };
+              } else if (call.name === 'co_wiem_o') {
+                result = await runLifeTool('co_wiem_o', call.args || {});
+                if (!result?.nic) safeSend(JSON.stringify({ type: 'deviceAction', action: 'graf-wiedzy-pokaz', params: { temat: (call.args || {}).temat } }));
+              } else if (call.name === 'stoper') {
+                safeSend(JSON.stringify({ type: 'deviceAction', action: 'stoper', params: { akcja: (call.args || {}).akcja || 'start' } }));
+                result = { ok: true, note: 'wynik przyjdzie zaraz jako zdarzenie' };
               } else if (call.name === 'holo_interfejs') {
                 const a = call.args || {};
                 const action = { kamera: 'holo-kamera', gesty: 'gesty-dloni', graf: 'graf-wiedzy', kino: 'tryb-kina' }[a.co];

@@ -138,6 +138,14 @@ export function setTodoDone(id, done) {
   return data.todos;
 }
 
+export function setTodoPriority(id, priority) {
+  const data = load();
+  const todo = data.todos.find((t) => t.id === id);
+  if (todo) todo.priority = Math.max(0, Math.min(3, Math.round(Number(priority) || 0)));
+  save(data);
+  return data.todos;
+}
+
 export function removeTodo(id) {
   const data = load();
   data.todos = data.todos.filter((t) => t.id !== id);

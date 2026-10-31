@@ -15,7 +15,7 @@
   const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
   const CATS = {
-    pamiec: ['PAMIĘĆ', '#33e0ff'], notatki: ['NOTATKI', '#ffb347'], zakladki: ['ZAKŁADKI', '#c58bff'], cele: ['CELE', '#5aff8c'],
+    wiedza: ['WIEDZA', '#7dffe0'], pamiec: ['PAMIĘĆ', '#33e0ff'], notatki: ['NOTATKI', '#ffb347'], zakladki: ['ZAKŁADKI', '#c58bff'], cele: ['CELE', '#5aff8c'],
     nawyki: ['NAWYKI', '#ff6b9d'], tablica: ['TABLICA', '#ffe14d'], fiszki: ['FISZKI', '#7aa8ff'], zadania: ['ZADANIA', '#ffffff'], dziennik: ['DZIENNIK', '#9fd8e8'],
     psych: ['PSYCHOLOGIA', '#ff6b9d'], fiz: ['FIZYKA', '#33e0ff'], sys: ['SYSTEMY', '#5aff8c'], eko: ['EKONOMIA', '#ffe14d'], tech: ['TECHNOLOGIA', '#7aa8ff'], filo: ['FILOZOFIA', '#c58bff'],
   };
@@ -65,13 +65,18 @@
   async function collect() {
     const L = UI.life;
     const safe = (p, d) => p.catch(() => d);
-    const [mem, notes, todos, bm, goals, habits, kan, cards, qn, jr] = await Promise.all([
-      safe(api('/api/memory'), {}), safe(api('/api/notes'), {}), safe(api('/api/todos'), {}),
+    const [know, mem, notes, todos, bm, goals, habits, kan, cards, qn, jr] = await Promise.all([
+      safe(api('/api/graph'), {}), safe(api('/api/memory'), {}), safe(api('/api/notes'), {}), safe(api('/api/todos'), {}),
       safe(L.list('bookmarks', true), []), safe(L.list('goals', true), []), safe(L.list('habits', true), []), safe(L.list('kanban', true), []),
       safe(L.list('flashcards', true), []), safe(L.list('quicknotes', true), []), safe(L.list('journal', true), []),
     ]);
     const out = [];
     const add = (cat, label, text, tags) => out.push({ cat, label: String(label).slice(0, 48), text: String(text || label).slice(0, 400), tags: tags || [] });
+    (know.concepts || []).forEach((c) => {
+      add('wiedza', c.name, c.summary ? `${c.name}: ${c.summary}` : c.name);
+      out[out.length - 1].conceptId = c.id;
+    });
+    out.relations = know.relations || [];
     (mem.facts || []).slice(0, 60).forEach((f) => { const t = typeof f === 'string' ? f : f.text || ''; if (t) add('pamiec', t.length > 40 ? t.slice(0, 38) + '…' : t, t); });
     (notes.notes || []).slice(0, 40).forEach((n) => add('notatki', n.tytul, `${n.tytul}. ${n.streszczenie || ''}`));
     bm.slice(0, 40).forEach((b) => add('zakladki', b.title, `${b.title} - ${b.url}`, b.tags));
@@ -100,8 +105,16 @@
     };
     items.forEach((it, i) => {
       const idx = nodes.length;
-      nodes.push({ id: `n${i}`, cat: it.cat, label: it.label, text: it.text, kw: words(`${it.label} ${it.text} ${(it.tags || []).join(' ')}`), tags: it.tags || [] });
+      nodes.push({ id: `n${i}`, conceptId: it.conceptId, cat: it.cat, label: it.label, text: it.text, kw: words(`${it.label} ${it.text} ${(it.tags || []).join(' ')}`), tags: it.tags || [] });
       edges.push([hub(it.cat), idx, 1]);
+    });
+    // Powiązania wyciągnięte z rozmów przez model (silniejsze niż wspólne słowa).
+    const byConcept = new Map();
+    nodes.forEach((n, i) => n.conceptId && byConcept.set(n.conceptId, i));
+    (items.relations || []).forEach((r) => {
+      const a = byConcept.get(r.a);
+      const b = byConcept.get(r.b);
+      if (a != null && b != null) edges.push([a, b, Math.min(3, (r.w || 1) + 1)]);
     });
     // Powiązania między elementami: wspólne rzadkie słowa i tagi.
     const freq = {};
@@ -154,6 +167,7 @@
   }
 
   // ---------- panel ----------
+  let graphReady = false;
   const graph = {
     title: 'GRAF WIEDZY',
     glyph: '⌬',
@@ -550,7 +564,22 @@
           }),
           mkBtn('RESET', () => Object.assign(cam, { rx: -0.35, ry: 0.5, zoom: 1.35, px: 0, py: 0 })),
           mkBtn('DEMO', () => load(true)),
-          mkBtn('MOJE DANE', () => load(false))
+          mkBtn('MOJE DANE', () => load(false)),
+          mkBtn('UCZ SIĘ Z ROZMÓW', async (b) => {
+            b.disabled = true;
+            b.textContent = 'UCZĘ SIĘ...';
+            try {
+              const r = await api('/api/graph/learn', { method: 'POST' });
+              toast(`Graf wiedzy: nowych pojęć ${Math.max(0, r.added)}, razem ${r.total}.`, 'ok');
+              UI.activity?.emit('graf', `Graf wiedzy nauczył się z rozmów: ${r.total} pojęć`);
+              await load(false);
+            } catch (e) {
+              toast(e.message || 'Nie udało się.');
+            } finally {
+              b.disabled = false;
+              b.textContent = 'UCZ SIĘ Z ROZMÓW';
+            }
+          })
         );
         bar.querySelectorAll('.gk-btn2')[1].classList.add('on');
         bar.querySelectorAll('.gk-btn2')[2].classList.add('on');
@@ -607,6 +636,14 @@
         x.addEventListener('click', () => select(-1));
         head.append(chip, x);
         card.append(head, el('div', 'gk-ct', n.label), el('div', 'gk-cb', n.text));
+        if (n.conceptId) {
+          const forget = el('button', 'gk-link', 'ZAPOMNIJ');
+          forget.addEventListener('click', async () => {
+            await api('/api/graph/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n.conceptId }) }).catch((e) => toast(e.message));
+            await load(false);
+          });
+          card.appendChild(forget);
+        }
         if (nbr[i].length) {
           card.appendChild(el('div', 'gk-cl', `POWIĄZANIA (${nbr[i].length})`));
           const row = el('div', 'gk-links');
@@ -811,10 +848,48 @@
         }
       }
 
-      load(false).then(() => requestAnimationFrame(frame));
+      // Pokaż pojęcie: glosem ("co wiem o X") albo z czatu.
+      UI.graphFocus = (term) => {
+        const q = deaccent(String(term || '').toLowerCase()).trim();
+        if (!q) return false;
+        const score = (n) => {
+          const l = deaccent(n.label.toLowerCase());
+          return l === q ? 3 : l.includes(q) ? 2 : deaccent(n.text.toLowerCase()).includes(q) ? 1 : 0;
+        };
+        let best = -1;
+        let bs = 0;
+        nodes.forEach((n, i) => {
+          const v = score(n);
+          if (v > bs) {
+            bs = v;
+            best = i;
+          }
+        });
+        if (best < 0) return false;
+        const v = view(nodes[best]);
+        cam.px -= v.sx - W / 2;
+        cam.py -= v.sy - H / 2;
+        select(best);
+        return true;
+      };
+      load(false).then(() => {
+        graphReady = true;
+        requestAnimationFrame(frame);
+      });
     },
   };
 
+
+  if (UI.clientActions) {
+    UI.clientActions['graf-wiedzy-pokaz'] = async (p) => {
+      UI.openWindow('graph');
+      for (let i = 0; i < 40 && !graphReady; i++) await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 250));
+      const ok = UI.graphFocus?.(p?.temat);
+      if (!ok) toast(`Nie mam w grafie pojęcia „${p?.temat}”.`);
+      return { ok: Boolean(ok) };
+    };
+  }
 
   // ---------- mini podgląd na Pulpicie ----------
   UI.addHomeWidget?.({

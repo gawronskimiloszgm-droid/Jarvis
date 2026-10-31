@@ -20,6 +20,8 @@ import { sweep as sweepSentinel } from '../home/sentinel.js';
 import { runCheck as runProactiveCheck } from '../home/proactive.js';
 import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
 import { maybeRecurring, maybeNudges } from '../extras/life.js';
+import { maybeMorningPlan } from '../extras/suggest.js';
+import { maybeLearn } from '../extras/graphmem.js';
 
 const PING_MS = Number(process.env.UPKEEP_PING_MS || 10 * 60 * 1000); // 10 min
 const LEARN_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -97,6 +99,8 @@ export function startUpkeep() {
       await maybeWeeklyReport();
       await maybeRecurring();
       await maybeNudges();
+      await maybeMorningPlan();
+      await maybeLearn();
     } catch (err) {
       console.error('Raport E.D.I.T.H. nieudany:', err.message);
     }

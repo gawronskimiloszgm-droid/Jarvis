@@ -37,6 +37,7 @@ const POLECENIE_RE = /\[POLECENIE:\s*([^\]]+)\]/gi;
 const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/gi;
 const PROJEKT_RE = /\[PROJEKT:\s*([^\]]+)\]/gi;
 const WYDATEK_RE = /\[WYDATEK:\s*([^,\]]+),\s*([^,\]]+)(?:,\s*([^\]]+))?\]/gi;
+const PROPOZYCJA_RE = /\[PROPOZYCJA:\s*([^\]]+)\]/gi;
 const TAG_STRIP_PATTERNS = [ZAPAMIETAJ_RE, ZADANIE_RE, PRZYPOMNIENIE_RE, WYDATEK_RE, PROJEKT_RE, ...LIFE_TAG_PATTERNS];
 
 function stripTags(text) {
@@ -44,7 +45,7 @@ function stripTags(text) {
 }
 
 function stripTagsForHistory(text) {
-  return stripTags(text).replace(AKCJA_RE, '').replace(POLECENIE_RE, '').replace(TRYB_RE, '');
+  return stripTags(text).replace(AKCJA_RE, '').replace(POLECENIE_RE, '').replace(TRYB_RE, '').replace(PROPOZYCJA_RE, '');
 }
 
 function extractTag(text, re) {
@@ -121,6 +122,7 @@ Masz do dyspozycji nastepujace znaczniki, ktore mozesz dodac w dowolnym miejscu 
 - [PRZYPOMNIENIE: RRRR-MM-DDTHH:MM, tresc] - gdy uzytkownik prosi o przypomnienie o czyms o konkretnym czasie (wylicz dokladna date i godzine w formacie ISO na podstawie aktualnej daty ponizej i tego co powiedzial uzytkownik)
 - [WYDATEK: kwota, kategoria, opis] - gdy uzytkownik wspomni, ze cos kupil albo za cos zaplacil ("wydalem 45 zl na paliwo"). Kwota sama liczba (45 albo 45.50), kategoria jednym slowem (paliwo, jedzenie, zakupy...), opis opcjonalny.
 ${LIFE_TAG_PROMPT}
+- [PROPOZYCJA: tresc | akcja | parametr] - gdy sam widzisz sensowne dzialanie, ale wlasciciel o nie nie prosil: proponujesz je, a on zatwierdza przyciskiem. Akcja to jedna z nazw z listy [AKCJA] nizej, parametr opcjonalny (np. [PROPOZYCJA: Wlaczyc skupienie na 25 minut? | tryb-kina]). Najwyzej jedna na odpowiedz. Gdy wlasciciel wyraznie prosi o wykonanie, uzyj od razu [AKCJA], bez propozycji.
 - [PROJEKT: obciazenie=6.8, wysieg=45, szerokosc=60, grubosc=5, material=PLA] - gdy uzytkownik prosi o zaprojektowanie uchwytu, wspornika, polki albo o sprawdzenie czy cos wytrzyma obciazenie.
   UZYJ TEGO ZNACZNIKA ZAMIAST OPISYWANIA KONSTRUKCJI SLOWAMI. To nie jest porada - masz realny generator modeli 3D i on policzy wymiary, naprezenia i werdykt, a nastepnie pokaze uzytkownikowi obracany model i plik do druku.
   NIE wymyslaj wlasnych wymiarow, gruboscі scianek, katow ani zalecen materialowych "z glowy" - to bylyby liczby wzięte z powietrza. Podaj w znaczniku tylko to, co wynika z prosby (reszta ma sensowne wartosci domyslne), obciazenie ZAWSZE w kilogramach (funty przelicz: 1 lb = 0.4536 kg).
@@ -140,6 +142,8 @@ ${LIFE_TAG_PROMPT}
   - graj | zapytanie - znajduje i od razu odtwarza konkretny utwor/wykonawce (Spotify, a bez niego YouTube), np. [AKCJA: graj | metallica nothing else matters]. Uzywaj ZAMIAST otworz-spotify/pobudka, gdy user prosi o konkretna muzyke. WYMAGA parametru.
   - przepis | nazwa - agent ekranu wykonuje zapamietany przepis (zadanie pokazane wczesniej przez uzytkownika), np. [AKCJA: przepis | faktura]. WYMAGA parametru.
   - ekran-na-zywo | wlacz albo wylacz - Jarvis widzi ekran na biezaco (tylko w rozmowie glosowej). WYMAGA parametru.
+  - graf-wiedzy-pokaz | temat - otwiera Graf wiedzy na danym pojeciu. WYMAGA parametru.
+  - stoper | start, stop, zeruj albo odczyt - stoper na ekranie (np. [AKCJA: stoper | start]). WYMAGA parametru.
   - holo-kamera - przelacza obraz z kamery na calym ekranie pod hologramem. BEZ parametru.
   - gesty-dloni - przelacza sterowanie interfejsem dlonmi przez kamere. BEZ parametru.
   - graf-wiedzy - otwiera holograficzny Graf wiedzy. BEZ parametru.
@@ -285,7 +289,7 @@ async function streamAndClean(chatSession, input, onChunk, isOwner = true) {
     // Gosc nie ma prawa do akcji na urzadzeniu, wiec znacznik [AKCJA]
     // (normalnie przepuszczany do klienta) usuwamy juz tutaj - inaczej
     // dotarlby do przegladarki i zostal wykonany.
-    return isOwner ? stripped : stripped.replace(AKCJA_RE, '');
+    return isOwner ? stripped : stripped.replace(AKCJA_RE, '').replace(PROPOZYCJA_RE, '');
   };
 
   for await (const chunk of stream) {

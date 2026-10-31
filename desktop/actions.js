@@ -162,6 +162,25 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     }
   },
   'zaznacz-ekran': async () => region.selectRegion(),
+  // Ostatnio otwierane pliki: skroty z historii Windows (same nazwy i daty).
+  'ostatnie-pliki': async (p) => {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const dir = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Recent');
+    try {
+      const limit = Math.max(1, Math.min(30, Number(p?.limit) || 8));
+      const items = fs
+        .readdirSync(dir)
+        .filter((f) => f.toLowerCase().endsWith('.lnk') && /\.[a-z0-9]{1,6}\.lnk$/i.test(f))
+        .map((f) => ({ name: f.slice(0, -4), at: fs.statSync(path.join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, limit);
+      return { ok: true, files: items };
+    } catch (e) {
+      return { ok: false, error: 'Nie moge odczytac listy ostatnich plikow: ' + (e.message || e) };
+    }
+  },
   // Uruchamianie dowolnych aplikacji systemowych (np. "notepad", "calc", "chrome", "steam")
   'otworz-aplikacje': async (params) => {
     const appName = String(params.nazwa || params.app || '').trim();

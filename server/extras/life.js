@@ -404,6 +404,26 @@ ${text}` })
   }
 });
 
+// ---------- przepisywanie dyktowanej notatki ----------
+router.post('/api/transcribe', requireOwner, express.json({ limit: '30mb' }), async (req, res) => {
+  const data = str(req.body?.data, 40000000);
+  const mimeType = /^audio\/[\w.+-]+/.exec(str(req.body?.mimeType, 80))?.[0] || 'audio/webm';
+  if (!data) return res.status(400).json({ error: 'Brak nagrania.' });
+  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: 'Brak klucza AI na serwerze.' });
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const r = await withModel((model) =>
+      ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data } }, { text: 'Przepisz dokladnie to, co powiedziano, poprawna polszczyzna z polskimi znakami i interpunkcja. Zwroc TYLKO tekst. Jesli nikt nic nie mowi, zwroc pusty tekst.' }] }],
+      })
+    );
+    res.json({ text: String(r.text || '').trim() });
+  } catch (err) {
+    res.status(502).json({ error: `Przepisywanie nie powiodlo sie: ${err.message || err}` });
+  }
+});
+
 // ---------- statystyki uzycia ----------
 router.get('/api/life/stats/all', requireOwner, (req, res) => {
   const l = life();

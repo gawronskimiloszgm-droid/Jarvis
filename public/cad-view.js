@@ -97,6 +97,55 @@
     const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
 
     const light = [0.4, 0.7, 0.55];
+
+    // Czesci modelu: trojkaty polaczone wspolnymi wierzcholkami (do widoku rozstrzelonego).
+    let explode = 0;
+    const parts = (() => {
+      if (!mesh.length || mesh.length > 20000) return { of: [], centers: [] };
+      const up = new Map();
+      const find = (a) => {
+        let r = a;
+        while (up.get(r) !== r) r = up.get(r);
+        while (up.get(a) !== r) {
+          const n = up.get(a);
+          up.set(a, r);
+          a = n;
+        }
+        return r;
+      };
+      const key = (v) => `${v[0].toFixed(2)},${v[1].toFixed(2)},${v[2].toFixed(2)}`;
+      mesh.forEach((t) => {
+        const ks = [key(t.a), key(t.b), key(t.c)];
+        ks.forEach((k) => {
+          if (!up.has(k)) up.set(k, k);
+        });
+        up.set(find(ks[1]), find(ks[0]));
+        up.set(find(ks[2]), find(ks[0]));
+      });
+      const ids = new Map();
+      const sums = [];
+      const of = mesh.map((t) => {
+        const root = find(key(t.a));
+        if (!ids.has(root)) {
+          ids.set(root, sums.length);
+          sums.push([0, 0, 0, 0]);
+        }
+        const id = ids.get(root);
+        for (const v of [t.a, t.b, t.c]) {
+          sums[id][0] += v[0];
+          sums[id][1] += v[1];
+          sums[id][2] += v[2];
+          sums[id][3]++;
+        }
+        return id;
+      });
+      return { of, centers: sums.map((s) => [s[0] / s[3], s[1] / s[3], s[2] / s[3]]) };
+    })();
+    const shifted = (v, part) => {
+      if (!explode) return v;
+      const c = parts.centers[part];
+      return [v[0] + (c[0] - center[0]) * explode, v[1] + (c[1] - center[1]) * explode, v[2] + (c[2] - center[2]) * explode];
+    };
     const accent = () => getComputedStyle(document.documentElement).getPropertyValue('--blue').trim() || '#33e0ff';
     const rgb = () => {
       const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(accent());
@@ -274,9 +323,9 @@
       const drawn = [];
       mesh.forEach((tri, i) => {
         if (cut < 0.999 && Math.min(tri.a[1], tri.b[1], tri.c[1]) > cutY) return;
-        const pa = project(tri.a, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
-        const pb = project(tri.b, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
-        const pc = project(tri.c, rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
+        const pa = project(shifted(tri.a, parts.of[i]), rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
+        const pb = project(shifted(tri.b, parts.of[i]), rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
+        const pc = project(shifted(tri.c, parts.of[i]), rotX, rotY, scale, cx, cy - hover * scale * zoom, center, zoom);
         drawn.push({ t: tri, i, pa, pb, pc, depth: (pa[2] + pb[2] + pc[2]) / 3 });
       });
       drawn.sort((p, q) => q.depth - p.depth);
@@ -427,6 +476,21 @@
     cutIn.addEventListener('input', () => { cut = Number(cutIn.value) / 100; });
     cutWrap.appendChild(cutIn);
     bar.appendChild(cutWrap);
+    if (parts.centers.length > 1) {
+      const exWrap = document.createElement('label');
+      exWrap.className = 'cad-cut';
+      exWrap.textContent = `ROZSTRZEL (${parts.centers.length}) `;
+      const exIn = document.createElement('input');
+      exIn.type = 'range';
+      exIn.min = '0';
+      exIn.max = '150';
+      exIn.value = '0';
+      exIn.addEventListener('input', () => {
+        explode = Number(exIn.value) / 100;
+      });
+      exWrap.appendChild(exIn);
+      bar.appendChild(exWrap);
+    }
     btn('PNG', () => {
       const a = document.createElement('a');
       a.href = canvas.toDataURL('image/png');

@@ -432,9 +432,13 @@
 
   // ---------- uklad pulpitu: ukrywanie, kolejnosc, rozmiar ----------
   const LAYOUT_KEY = 'jarvis.homeLayout';
+  // Pierwsze uruchomienie: kilkanascie najprzydatniejszych widzetow zamiast wszystkich naraz.
+  const DEFAULT_VISIBLE = new Set(['np', 'today', 'wx', 'tasks-prio', 'timers', 'advice', 'suggest', 'habits-today', 'water', 'pc', 'edith', 'quick', 'graph-mini', 'orbit', 'events']);
   function layout() {
     try {
-      const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}');
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return { hidden: WIDGETS.filter((w) => !DEFAULT_VISIBLE.has(w.id)).map((w) => w.id), order: [...DEFAULT_VISIBLE], size: {} };
+      const v = JSON.parse(raw);
       return { hidden: Array.isArray(v.hidden) ? v.hidden : [], order: Array.isArray(v.order) ? v.order : [], size: v.size && typeof v.size === 'object' ? v.size : {} };
     } catch {
       return { hidden: [], order: [], size: {} };

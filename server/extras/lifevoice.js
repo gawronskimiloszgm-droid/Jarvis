@@ -3,6 +3,8 @@
 // kalkulator, przeliczanie jednostek i losowanie. Logika liczb pochodzi z public/extras/toolkit.js.
 import fs from 'node:fs';
 import { webcrypto } from 'node:crypto';
+import { whatDoIKnow } from './graphmem.js';
+import { currentSuggestions } from './suggest.js';
 import { lifeAdd, lifeList, lifeDaily, lifeToggleHabit, lifeWeekSummary, warsawDay } from './life.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto; // Node 18: toolkit.js korzysta z globalnego crypto
@@ -101,6 +103,16 @@ export const LIFE_TOOLS = [
     parameters: { type: 'object', properties: {} },
   },
   {
+    name: 'co_wiem_o',
+    description: 'Sprawdz w pamieci i grafie wiedzy, co wiadomo o danym temacie, osobie lub projekcie. Otwiera tez ten temat w Grafie wiedzy.',
+    parameters: { type: 'object', properties: { temat: { type: 'string' } }, required: ['temat'] },
+  },
+  {
+    name: 'propozycje',
+    description: 'Co warto teraz zrobic: odkladane zadania, zagrozone serie nawykow, zblizajace sie terminy. Uzyj na "co proponujesz", "o czym zapomnialem", "co dalej".',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
     name: 'zegar_swiata',
     description: 'Podaj aktualna godzine w danym miescie lub strefie (np. Tokio, Nowy Jork, Londyn).',
     parameters: { type: 'object', properties: { miasto: { type: 'string' } }, required: ['miasto'] },
@@ -130,7 +142,7 @@ const CHANGELOG = [
 
 export const LIFE_TOOL_NAMES = LIFE_TOOLS.map((t) => t.name);
 
-export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci.`;
+export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci. co_wiem_o: gdy pyta, co wiesz o kims lub czyms. propozycje: gdy pyta, co dalej albo o czym zapomnial.`;
 
 export async function runLifeTool(name, args = {}) {
   switch (name) {
@@ -183,6 +195,12 @@ export async function runLifeTool(name, args = {}) {
         return { error: e.message };
       }
     }
+    case 'co_wiem_o': {
+      const r = whatDoIKnow(args.temat);
+      return r || { nic: true, note: 'brak informacji w pamieci - powiedz to wprost' };
+    }
+    case 'propozycje':
+      return { propozycje: currentSuggestions().slice(0, 5).map((s) => s.text) };
     case 'podsumowanie_dnia': {
       const day = warsawDay();
       const d = lifeDaily({}, day);

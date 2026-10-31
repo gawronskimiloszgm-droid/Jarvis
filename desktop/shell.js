@@ -81,6 +81,7 @@ function registerHotkey() {
     'CommandOrControl+Alt+N': () => overlay.openCapture(),
     'CommandOrControl+Alt+Space': () => require('./actions').runAction('odtworz-pauza', {}, {}).catch(() => {}),
     'CommandOrControl+Alt+P': () => send('jarvis-command', { type: 'next-profile' }),
+    'CommandOrControl+Alt+D': () => send('jarvis-command', { type: 'dictate' }),
   };
   for (const [combo, fn] of Object.entries(extra)) {
     try {

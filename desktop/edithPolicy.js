@@ -68,6 +68,7 @@ const SAFE_ACTIONS = new Set([
   'proces-dziala',
   'zrzut-maly',
   'zaznacz-ekran',
+  'ostatnie-pliki',
   'aktywne-okno',
   'stan-gry',
   'lokalny-tts'
@@ -78,7 +79,7 @@ const SAFE_ACTIONS = new Set([
 const READ_ONLY = new Set([
   'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
   'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
-  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
+  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
 ]);
 
 const MODES = ['podglad', 'pytaj', 'zaufany'];

@@ -3040,8 +3040,9 @@ const TRYB_RE = /\[TRYB:\s*([^\]]+)\]/g;
 // tag po prostu wyswietlal sie i byl czytany na glos jako tekst.
 const CMD_RE = /\[POLECENIE:\s*([^\]]+)\]/g;
 
+const PROP_RE = /\[PROPOZYCJA:\s*([^\]]+)\]/g;
 function stripActionTags(text) {
-  return text.replace(ACT_RE, '').replace(TRYB_RE, '').replace(CMD_RE, '').replace(IMG_RE, '').replace(CAD_RE, '');
+  return text.replace(PROP_RE, '').replace(ACT_RE, '').replace(TRYB_RE, '').replace(CMD_RE, '').replace(IMG_RE, '').replace(CAD_RE, '');
 }
 
 // [AKCJA: nazwa] sam w sobie nie moze niczego przekazac - np.
@@ -3063,6 +3064,8 @@ function paramsForAction(name, raw) {
   if (name === 'wczytaj-plik-pc') return { sciezka: raw };
   if (name === 'wykonaj-na-ekranie') return { cel: raw };
   if (name === 'nie-przeszkadzac') return { minuty: raw };
+  if (name === 'stoper') return { akcja: raw };
+  if (name === 'graf-wiedzy-pokaz') return { temat: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };
   if (name === 'ekran-na-zywo') return { wlacz: !/^(wylacz|stop|off|nie|0)/i.test(deaccent(String(raw || 'wlacz'))) };
@@ -3179,6 +3182,10 @@ async function sendTyped(text) {
       im.src = `/api/image/${img[1]}`;
       im.alt = 'Wygenerowany obraz';
       node.appendChild(im);
+    }
+    for (const m of full.matchAll(PROP_RE)) {
+      const [propText, propAction, propParam] = m[1].split('|').map((s) => s.trim());
+      if (propText && propAction) window.JarvisUI?.renderProposal?.(node, propText, propAction, propParam);
     }
     speak(stripActionTags(full).trim());
     if (isOwner()) refreshOwnerPanes();

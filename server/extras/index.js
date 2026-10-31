@@ -19,6 +19,8 @@ import greeting from './greeting.js';
 import visionplus from './visionplus.js';
 import agentlearn from './agentlearn.js';
 import life from './life.js';
+import suggest from './suggest.js';
+import graphmem from './graphmem.js';
 
-export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life];
+export const extraRouters = [system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };
