@@ -18,7 +18,7 @@ test('loader: kazdy wymieniony dodatek istnieje i ma poprawna skladnie', () => {
 });
 
 test('index.html i app.js maja poprawna skladnie, a cad-view tez', () => {
-  for (const f of ['app.js', 'cad-view.js', 'edith.js', 'sfx.js']) {
+  for (const f of ['app.js', 'cad-view.js', 'edith.js', 'sfx.js', 'extras/loader.js']) {
     assert.doesNotThrow(() => new vm.Script(fs.readFileSync(new URL(f, root), 'utf8'), { filename: f }), `blad skladni w ${f}`);
   }
 });
@@ -37,4 +37,16 @@ test('lista nocnej rozbudowy ma co najmniej 200 punktow', () => {
   const doc = fs.readFileSync(new URL('../docs/NOC-200.md', import.meta.url), 'utf8');
   const items = doc.match(/^\d+\. \[[ x~]\]/gm) || [];
   assert.ok(items.length >= 200, `tylko ${items.length} punktow`);
+});
+
+test('paczka startowa: wszystkie dodatki, poprawna skladnia, zly plik pominiety', async () => {
+  const { buildBundle } = await import('../server/extras/bundle.js');
+  const b = buildBundle();
+  assert.deepEqual(b.skipped, []);
+  assert.equal(b.files.length, files.length);
+  assert.doesNotThrow(() => new vm.Script(b.body));
+  assert.match(b.body, /__bundleOk = true/);
+  const broken = buildBundle((f) => (f === 'loader.js' ? "const FILES = ['a', 'b'];" : f === 'a.js' ? 'function (' : 'var ok = 1;'));
+  assert.deepEqual(broken.skipped, ['a']);
+  assert.ok(!broken.body.includes('function ('));
 });
