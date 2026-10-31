@@ -129,6 +129,10 @@ export const LIFE_TOOLS = [
 ];
 
 const CHANGELOG = [
+  'Poprawna polska wymowa i polskie znaki w calej aplikacji',
+  'Sam proponuje dzialania z przyciskami i uklada plan dnia',
+  'Graf wiedzy uczy sie z rozmow, pytanie co wiem o danym temacie',
+  'Telefon moze byc kamera komputera',
   'Holo-kamera: obraz z kamery na calym ekranie pod hologramem, gesty dloni w calym interfejsie',
   'Jarvis widzi, co dzieje sie w aplikacji, i sam na to reaguje',
   'Hologram: szesc stylow tla, lewitujace panele, smuga kursora, fale, pochylanie kart',
@@ -219,7 +223,7 @@ export async function runLifeTool(name, args = {}) {
       };
     }
     case 'co_nowego':
-      return { wersja: '0.7.0', nowosci: CHANGELOG };
+      return { wersja: '0.8.0', nowosci: CHANGELOG };
     case 'podsumowanie_tygodnia':
       return { podsumowanie: lifeWeekSummary() };
     case 'zegar_swiata': {

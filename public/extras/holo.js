@@ -351,7 +351,7 @@
       const cy = (s.y + Math.sin(t * 0.5 + i * 2) * 0.012 + py * 0.015 * (i + 1)) * h;
       const ax = s.ax + t * s.sp * 0.6;
       const ay = s.ay + t * s.sp;
-      const a = 0.22 + S.pulse * 0.3;
+      const a = 0.13 + S.pulse * 0.3; // tlo: nie moze konkurowac z tekstem paneli
       if (s.type === 'ico') wire(ctx, ICO, ICO_E, cx, cy, s.size * (1 + S.pulse * 0.2), ax, ay, col, a);
       else if (s.type === 'cube') wire(ctx, CUBE, CUBE_E, cx, cy, s.size, ax, ay, col, a);
       else ring(ctx, cx, cy, s.size, ax, ay, col, a);

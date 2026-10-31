@@ -433,7 +433,7 @@
   // ---------- uklad pulpitu: ukrywanie, kolejnosc, rozmiar ----------
   const LAYOUT_KEY = 'jarvis.homeLayout';
   // Pierwsze uruchomienie: kilkanascie najprzydatniejszych widzetow zamiast wszystkich naraz.
-  const DEFAULT_VISIBLE = new Set(['np', 'today', 'wx', 'tasks-prio', 'timers', 'advice', 'suggest', 'habits-today', 'water', 'pc', 'edith', 'quick', 'graph-mini', 'orbit', 'events']);
+  const DEFAULT_VISIBLE = new Set(['np', 'today', 'wx', 'tasks-prio', 'timers', 'suggest', 'habits-today', 'water', 'pc', 'edith', 'quick', 'graph-mini', 'orbit', 'events']);
   function layout() {
     try {
       const raw = localStorage.getItem(LAYOUT_KEY);
@@ -567,7 +567,6 @@
         });
       }
       grid.appendChild(w);
-      renderOne(def.id);
       if (def.every) {
         timers.push(
           setInterval(() => {
@@ -577,6 +576,8 @@
       }
     });
     body.appendChild(grid);
+    // Dopiero teraz: widzet rysuje sie tylko, gdy jego pudelko jest juz na stronie (przebudowa po UKLAD, reset).
+    visible.forEach((def) => renderOne(def.id));
   }
 
   WIDGETS.forEach((def) => (def.events || []).forEach((ev) => window.addEventListener(ev, () => renderOne(def.id))));
