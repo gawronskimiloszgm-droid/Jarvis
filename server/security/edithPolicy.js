@@ -70,6 +70,12 @@ export const SAFE_ACTIONS = new Set([
   'zaznacz-ekran',
   'ostatnie-pliki',
   'dom',
+  'blender-status',
+  'blender-postep',
+  'blender-instaluj',
+  'blender-buduj',
+  'blender-anuluj',
+  'blender-otworz',
   'zapisz-kopie',
   'aktywne-okno',
   'stan-gry',
@@ -79,6 +85,8 @@ export const SAFE_ACTIONS = new Set([
 // Akcje, ktore niczego nie zmieniaja w systemie (tylko czytaja/patrza/liczą).
 // Tryb "tylko podglad" przepuszcza WYLACZNIE te.
 export const READ_ONLY = new Set([
+  'blender-status',
+  'blender-postep',
   'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
   'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
   'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'zapisz-kopie', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
@@ -93,7 +101,7 @@ const MODES = ['podglad', 'pytaj', 'zaufany'];
 // procesu (moze ubic cos innego niz uzytkownik mial na mysli) i wylaczenie
 // sieci (odcina tez Jarvisa/Edith od swiata, dopoki ktos tego nie wlaczy
 // z powrotem recznie).
-const CONFIRM_ALWAYS = new Set(['wylacz-komputer', 'restart-komputera', 'zamknij-proces', 'zawies-proces']);
+const CONFIRM_ALWAYS = new Set(['blender-instaluj', 'wylacz-komputer', 'restart-komputera', 'zamknij-proces', 'zawies-proces']);
 
 function describeAction(name, params = {}) {
   const extra = Object.entries(params || {}).filter(([, v]) => typeof v !== 'object').map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(', ');

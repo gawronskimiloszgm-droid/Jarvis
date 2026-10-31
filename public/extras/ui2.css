@@ -388,3 +388,69 @@ body.dictating::before { content: 'DYKTUJĘ'; position: fixed; top: 12px; left: 
 .ws-bar { display: flex; flex-wrap: wrap; gap: 8px; }
 .ws-bar .btn { min-height: 54px; padding: 0 20px; font-size: 13px; }
 .ws-cam { width: min(100%, 420px); border-radius: 8px; border: 1px solid var(--blue); transform: none; }
+
+/* Studio 3D */
+.st-wrap { display: flex; flex-direction: column; gap: 8px; }
+.st-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.st-head .inp { flex: 1 1 280px; min-width: 0; }
+.st-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--dim); cursor: pointer; }
+.st-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.st-job { display: flex; flex-direction: column; gap: 4px; }
+.st-job-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; margin: 4px 0; }
+.st-job-bar i { display: block; height: 100%; background: var(--blue); box-shadow: 0 0 10px var(--blue); transition: width .4s; }
+.st-stage { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 10px; }
+.st-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.st-view { position: relative; height: clamp(300px, calc(100vh - 345px), 640px); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; background: radial-gradient(120% 90% at 50% 15%, #0c2230 0%, #040a12 70%); touch-action: none; }
+.st-canvas { display: block; width: 100%; height: 100%; }
+.st-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--dim); font-size: 13px; pointer-events: none; }
+.st-empty[hidden] { display: none; }
+.st-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.st-label { position: absolute; transform: translate(-50%, -130%); padding: 2px 6px; font: 600 10px/1.3 var(--mono, monospace); color: var(--blue); background: rgba(3, 12, 20, .78); border: 1px solid var(--line); border-radius: 2px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.st-tip { position: absolute; padding: 3px 7px; font-size: 11px; color: #fff; background: rgba(3, 12, 20, .92); border: 1px solid var(--line); border-radius: 2px; pointer-events: none; white-space: nowrap; }
+.st-tip[hidden] { display: none; }
+.st-plan-overlay { position: absolute; left: 8px; top: 8px; max-width: 42%; max-height: 60%; opacity: .78; border: 1px solid var(--line); background: #fff; pointer-events: none; }
+.st-plan-overlay[hidden] { display: none; }
+.st-caption { padding: 6px 10px; font-size: 12.5px; border-left: 2px solid var(--blue); background: var(--panel-2); min-height: 28px; }
+.st-caption[hidden] { display: none; }
+.st-timeline { display: flex; flex-direction: column; gap: 6px; }
+.st-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st-row .inp { flex: 1 1 110px; min-width: 0; }
+.st-seek { flex: 1 1 140px; min-width: 90px; accent-color: var(--blue); }
+.st-step { font: 600 11px var(--mono, monospace); color: var(--blue); min-width: 44px; text-align: right; }
+.st-side { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-2); height: calc(clamp(300px, calc(100vh - 345px), 640px) + 92px); }
+.st-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.st-tab { flex: 1 1 auto; padding: 7px 4px; font: 600 9px/1 var(--mono, monospace); letter-spacing: .08em; color: var(--dim); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
+.st-tab.on, .st-tab:hover { color: var(--blue); border-bottom-color: var(--blue); }
+.st-pane { flex: 1 1 auto; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 5px; min-height: 0; }
+.st-sub { margin-top: 8px; font: 600 9.5px/1.3 var(--mono, monospace); letter-spacing: .1em; color: var(--blue); }
+.st-desc { line-height: 1.4; }
+.st-warn { padding: 5px 8px; font-size: 11.5px; line-height: 1.4; color: #ffc97a; border-left: 2px solid #ffb347; background: rgba(255, 179, 71, .07); }
+.st-fact { font-size: 11.5px; padding-left: 8px; border-left: 1px solid var(--line); }
+.st-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.st-group b { flex: 1 1 110px; min-width: 0; }
+.st-part { display: flex; align-items: center; gap: 6px; padding: 3px 5px; font-size: 11.5px; border-radius: 2px; cursor: pointer; }
+.st-part:hover { background: var(--panel-3); }
+.st-part.on { background: var(--panel-3); outline: 1px solid var(--blue); }
+.st-part.off { opacity: .4; }
+.st-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.st-src { flex: none; padding: 1px 4px; font-size: 9px; border-radius: 2px; color: var(--dim); border: 1px solid var(--line-2); }
+.st-src.plany { color: #7dffb0; border-color: #2c8a58; }
+.st-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 4px; }
+.st-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 10px; color: var(--dim); }
+.st-field .inp { width: 100%; min-width: 0; padding: 4px 5px; font-size: 11.5px; }
+.st-field input[type="color"] { width: 100%; height: 26px; padding: 0; background: none; border: 1px solid var(--line); }
+.st-wide { grid-column: span 3; }
+.st-stepitem { padding: 6px 7px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 2px; cursor: pointer; }
+.st-stepitem:hover { border-color: var(--blue); }
+.st-names { margin-top: 2px; font-size: 10.5px; opacity: .8; }
+.st-plans { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.st-plan img { display: block; width: 100%; max-height: 190px; object-fit: contain; background: #fff; border-radius: 2px; }
+.st-link { display: block; font-size: 11.5px; color: var(--blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-btns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.st-render { display: block; width: 100%; border: 1px solid var(--line); border-radius: 2px; }
+@media (max-width: 900px) {
+  .st-stage { grid-template-columns: minmax(0, 1fr); }
+  .st-side { height: auto; max-height: 70vh; }
+  .st-view { height: 52vh; }
+}

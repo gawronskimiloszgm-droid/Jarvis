@@ -94,7 +94,7 @@ const MODULES = [
   { id: 'perimeter', title: 'Perymetr', sub: 'kamery RTSP i alerty', owner: true, panels: ['perimeter'] },
   { id: 'machine', title: 'Maszyna', sub: 'obciazenie laptopa', owner: true, panels: ['machine'] },
   { id: 'sentinel', title: 'Wartownik', sub: 'sledzone tematy', owner: true, panels: ['sentinel'] },
-  { id: 'cad', title: 'Projekt 3D', sub: 'model i wytrzymalosc', owner: true, panels: ['cad'] },
+  { id: 'cad', title: 'Studio 3D', sub: 'projekty, plany, Blender', owner: true, panels: ['cad'] },
   { id: 'find', title: 'Wyszukiwanie', sub: 'wyniki z sieci', panels: ['find'] },
   { id: 'dev', title: 'Urzadzenie', sub: 'sterowanie i uprawnienia', owner: true, panels: ['grip', 'bubble'] },
   { id: 'agent', title: 'Agent', sub: 'wieloetapowe rozumowanie', owner: true, panels: ['agent'] },
@@ -3068,6 +3068,9 @@ function paramsForAction(name, raw) {
   if (name === 'stoper') return { akcja: raw };
   if (name === 'dom') return { polecenie: raw };
   if (name === 'warsztat-plan') return { temat: raw };
+  if (name === 'studio-projekt' || name === 'studio-replika') return { opis: raw };
+  if (name === 'studio-edytuj') return { polecenie: raw };
+  if (name === 'studio-steruj') return { akcja: raw };
   if (name === 'graf-wiedzy-pokaz') return { temat: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };
@@ -4445,11 +4448,11 @@ window.JarvisUI = {
     Object.assign(PANEL_DEFS, def.panels || {});
   },
   // Dopisuje panele do ISTNIEJACEGO modulu (np. kopia zapasowa w Ustawieniach).
-  extend(moduleId, panels) {
+  extend(moduleId, panels, opts = {}) {
     const mod = MODULES.find((m) => m.id === moduleId);
     if (!mod) return;
     for (const [pid, def] of Object.entries(panels)) {
-      if (!mod.panels.includes(pid)) mod.panels.push(pid);
+      if (!mod.panels.includes(pid)) mod.panels[opts.first ? 'unshift' : 'push'](pid);
       PANEL_DEFS[pid] = def;
     }
   },

@@ -129,6 +129,7 @@ export const LIFE_TOOLS = [
 ];
 
 const CHANGELOG = [
+  'Studio 3D: projekty z wielu czesci, replika po znalezieniu planow, animacja rozbierania, dodawanie elementow, Blender na PC',
   'Automatyzacje gdy X zrob Y, sterowanie domem przez Home Assistant, tryb warsztatu krok po kroku',
   'Powiadomienia na telefon, codzienne kopie danych, terminy z maili do kalendarza',
   'Poprawna polska wymowa i polskie znaki w calej aplikacji',
@@ -225,7 +226,7 @@ export async function runLifeTool(name, args = {}) {
       };
     }
     case 'co_nowego':
-      return { wersja: '0.9.0', nowosci: CHANGELOG };
+      return { wersja: '0.10.0', nowosci: CHANGELOG };
     case 'podsumowanie_tygodnia':
       return { podsumowanie: lifeWeekSummary() };
     case 'zegar_swiata': {

@@ -10,6 +10,7 @@ const taskScheduler = require('./scheduler');
 const insights = require('./insights');
 const region = require('./region');
 const { patrol } = require('./patrol');
+const blender = require('./blender');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -162,6 +163,12 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     }
   },
   'zaznacz-ekran': async () => region.selectRegion(),
+  'blender-status': async () => blender.status(),
+  'blender-postep': async () => blender.progress(),
+  'blender-instaluj': async () => blender.install(),
+  'blender-buduj': async (p) => blender.build(p),
+  'blender-anuluj': async () => blender.cancel(),
+  'blender-otworz': async (p) => blender.open(p),
   // Home Assistant w sieci domowej: adres i token z ustawien tego komputera, nigdy z serwera.
   dom: async (p) => {
     const settings = require('./settings');

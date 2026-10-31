@@ -6,6 +6,7 @@ import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weat
 import { looksLikeImageRequest, generateImage, storeImage } from '../vision/image.js';
 import { imagePart } from '../vision/vision.js';
 import * as cad from '../home/cad.js';
+import { wantsResearch } from '../extras/studio.js';
 import { looksLikeDesignRequest, parseDesignSpec, looksLikeGeneralDesignRequest } from '../../modules/cad/index.js';
 import { delegateCoding } from '../connect/coders.js';
 
@@ -144,6 +145,10 @@ ${LIFE_TAG_PROMPT}
   - ekran-na-zywo | wlacz albo wylacz - Jarvis widzi ekran na biezaco (tylko w rozmowie glosowej). WYMAGA parametru.
   - graf-wiedzy-pokaz | temat - otwiera Graf wiedzy na danym pojeciu. WYMAGA parametru.
   - dom | polecenie - inteligentny dom, np. [AKCJA: dom | wlacz salon]. WYMAGA parametru.
+  - studio-projekt | opis - Studio 3D: zaprojektuj DOWOLNY przedmiot z wielu nazwanych czesci (maszyna, pojazd, budowla, mebel), z animacja rozbierania i Blenderem. Np. [AKCJA: studio-projekt | stolik kawowy z szuflada]. Zaprojektowanie trwa do minuty, wynik pojawi sie sam.
+  - studio-replika | opis - jak wyzej, ale najpierw szuka planow, wymiarow i rysunkow w sieci. Uzyj dla istniejacych rzeczy, replik i prosb o pokazanie budowy, np. [AKCJA: studio-replika | Sokol Millennium].
+  - studio-edytuj | polecenie - zmiana otwartego projektu, np. [AKCJA: studio-edytuj | dodaj dwa smigla z tylu].
+  - studio-steruj | akcja - otwarty projekt: rozbierz, zloz, od zera, stop, krok 3, hologram, rentgen, blender, wideo, zapisz; albo gotowy przyklad: saturn, silnik, dron.
   - warsztat-plan | temat - tryb warsztatu krok po kroku dla naprawy, np. [AKCJA: warsztat-plan | wymiana oleju]. WYMAGA parametru.
   - stoper | start, stop, zeruj albo odczyt - stoper na ekranie (np. [AKCJA: stoper | start]). WYMAGA parametru.
   - holo-kamera - przelacza obraz z kamery na calym ekranie pod hologramem. BEZ parametru.
@@ -408,6 +413,7 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true, u
   // samo jak obrazy. Poleganie na tym, ze sam wystawi znacznik, nie dzialalo:
   // wolal napisac elaborat z wymiarami wzietymi z powietrza.
   let designId = null;
+  let studioTag = null;
   if (isOwner && looksLikeDesignRequest(userMessage)) {
     try {
       const model = cad.create(parseDesignSpec(userMessage));
@@ -431,27 +437,11 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true, u
     } catch {
       systemInstruction += '\n\nProba policzenia modelu zawiodla - powiedz o tym krotko.';
     }
-  } else if (isOwner && looksLikeGeneralDesignRequest(userMessage)) {
-    // Ten sam determinizm co wyzej, ale dla dowolnego przedmiotu: najpierw
-    // osobne wywolanie modelu rozklada go na bryly (JSON, nie wolna proza),
-    // dopiero potem geometria liczy sie deterministycznie z tego JSON-u.
-    try {
-      const spec = await proposeAssemblyParts(userMessage);
-      const model = cad.createAssembly(spec);
-      designId = model.id;
-      systemInstruction += '\n' + [
-        '',
-        'Wlasnie zbudowales dla uzytkownika prosty model 3D ze zlozenia brył:',
-        `- wymiary ${model.sizeMm.join(' x ')} mm, masa okolo ${model.massEstimateG} g, material ${model.params.material}`,
-        'Model juz sie wyswietla uzytkownikowi razem z plikiem do druku.',
-        'Skomentuj to KROTKO swoim stylem. To prosty model geometryczny - NIE ma tu analizy',
-        'wytrzymalosciowej, nie wymyslaj jej ani nie podawaj innych wymiarow niz powyzej.',
-      ].join('\n');
-    } catch {
-      systemInstruction +=
-        '\n\nProba zbudowania modelu 3D zawiodla (albo przedmiot jest zbyt organiczny na proste bryly) - ' +
-        'powiedz o tym krotko i zaproponuj obraz zamiast tego.';
-    }
+  } else if (isOwner && (looksLikeGeneralDesignRequest(userMessage) || wantsResearch(userMessage) && /(pokaz|pokaż|zbuduj|model|replik|rozbier|wyswietl|wyświetl)/i.test(userMessage))) {
+    // Studio 3D pracuje dluzej niz jedna odpowiedz: wlaczamy je tagiem, a wynik pojawia sie sam.
+    const opis = String(userMessage).replace(/[\[\]|]/g, ' ').trim().slice(0, 400);
+    studioTag = `[AKCJA: ${wantsResearch(userMessage) ? 'studio-replika' : 'studio-projekt'} | ${opis}]`;
+    systemInstruction += '\n\nStudio 3D wlasnie zaczelo prace nad ta prosba' + (wantsResearch(userMessage) ? ' i szuka planow w sieci' : '') + '. Potwierdz to jednym krotkim zdaniem. NIE podawaj wymiarow ani szczegolow, nie masz ich jeszcze. Nie dopisuj tagu AKCJA.';
   }
   let imageId = null;
   let imageNote = '';
@@ -490,6 +480,7 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true, u
   if (imageId) onChunk(`\n[[IMG:${imageId}]]`);
   // Marker dla klienta: otwiera modul Projekt 3D z gotowym modelem.
   if (designId) onChunk(`\n[[CAD:${designId}]]`);
+  if (studioTag) onChunk(`\n${studioTag}`);
 
   if (isOwner) {
     memory.appendHistory('assistant', cleanedFull + (imageId ? ' [wygenerowano obraz]' : imageNote));

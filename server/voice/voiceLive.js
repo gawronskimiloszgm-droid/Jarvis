@@ -346,6 +346,11 @@ const ALL_TOOLS = [
     parameters: { type: 'object', properties: { polecenie: { type: 'string' } }, required: ['polecenie'] },
   },
   {
+    name: 'studio_3d',
+    description: 'GLOWNE narzedzie projektowania. Studio 3D: projekty z wielu nazwanych czesci, z animacja rozbierania i Blenderem. Akcje: projekt (zaprojektuj dowolny przedmiot: maszyna, pojazd, mebel, budowla), replika (istniejaca rzecz albo prosba o pokazanie budowy: najpierw szuka planow i wymiarow w sieci), edytuj (zmien otwarty projekt, dodaj lub usun elementy), steruj (polecenie dla otwartego projektu: rozbierz, zloz, od zera, stop, krok N, hologram, rentgen, blender, wideo, zapisz, albo przyklad: saturn, silnik, dron). Projekt powstaje do minuty i sam sie wyswietli; nie podawaj wymiarow, dopoki nie dostaniesz wyniku w zdarzeniu.',
+    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['projekt', 'replika', 'edytuj', 'steruj'] }, tresc: { type: 'string', description: 'Co zaprojektowac, co zmienic albo polecenie sterowania.' } }, required: ['akcja', 'tresc'] },
+  },
+  {
     name: 'warsztat',
     description: 'Tryb warsztatu przy naprawach i pracy z rekami: plan (uloz kroki dla tematu), dalej, wstecz, powtorz, koniec. Uzyj, gdy uzytkownik mowi o naprawie krok po kroku albo w trybie warsztatu mowi "dalej", "wroc", "powtorz".',
     parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['plan', 'dalej', 'wstecz', 'powtorz', 'koniec'] }, temat: { type: 'string', description: 'Tylko dla akcji plan.' } }, required: ['akcja'] },
@@ -591,8 +596,8 @@ const ALL_TOOLS = [
   {
     name: 'zaprojektuj',
     description:
-      'Policz MODEL 3D WSPORNIKA/UCHWYTU SCIENNEGO (plyta montazowa + polka + zebra) i sprawdz wytrzymalosc. ' +
-      'UWAGA - to jedyny ksztalt, jaki ten generator potrafi zrobic. NIE nadaje sie do gitary, obudowy, ' +
+      'Policz MODEL 3D WSPORNIKA/UCHWYTU SCIENNEGO (plyta montazowa + polka + zebra) i sprawdz wytrzymalosc pod obciazeniem. ' +
+      'Tylko do wspornika pod konkretny ciezar; wszystko inne projektuj narzedziem studio_3d. NIE nadaje sie do gitary, obudowy, ' +
       'kola zebatego ani czegokolwiek innego. Gdy uzytkownik chce inny przedmiot, powiedz wprost co potrafisz ' +
       'i zaproponuj obraz (narzedzie narysuj) zamiast wciskac mu wspornik.',
     parameters: {
@@ -611,7 +616,7 @@ const ALL_TOOLS = [
     name: 'zaprojektuj_model',
     description:
       'Zbuduj DOWOLNY prosty model 3D ze zlozenia podstawowych brył (prostopadloscian, walec, rura, plyta z jednym otworem) i wystaw go do druku. ' +
-      'Uzywaj tego dla WSZYSTKIEGO poza scienny wspornikiem z obciazeniem (obudowy, stojaki, dystanse, tacki, uchwyty na kable, zatyczki, podstawki, proste zlozenia z klockow). ' +
+      'Uzywaj tego TYLKO dla najprostszych rzeczy do szybkiego druku (dystans, zatyczka, tacka), a w kazdym innym wypadku studio_3d. ' +
       'Opisz przedmiot jako liste brył, kazda z wlasna pozycja x/y/z w mm wzgledem wspolnego poczatku (0,0,0) i opcjonalnym obrotem wokol jednej osi. ' +
       'To NIE jest generator organicznych ksztaltow (gitara, figurka, kolo zebate z prawdziwymi zebami) - dla takich powiedz wprost czego nie potrafisz i zaproponuj obraz (narysuj).',
     parameters: {
@@ -1197,6 +1202,11 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
               } else if (call.name === 'dom') {
                 safeSend(JSON.stringify({ type: 'deviceAction', action: 'dom', params: { polecenie: (call.args || {}).polecenie } }));
                 result = { ok: true, note: 'wynik przyjdzie zaraz jako zdarzenie' };
+              } else if (call.name === 'studio_3d') {
+                const a = call.args || {};
+                const map = { projekt: ['studio-projekt', 'opis'], replika: ['studio-replika', 'opis'], edytuj: ['studio-edytuj', 'polecenie'], steruj: ['studio-steruj', 'akcja'] }[a.akcja] || ['studio-projekt', 'opis'];
+                safeSend(JSON.stringify({ type: 'deviceAction', action: map[0], params: { [map[1]]: a.tresc } }));
+                result = { ok: true, note: a.akcja === 'projekt' || a.akcja === 'replika' ? 'pracuje, wynik przyjdzie jako zdarzenie: teraz powiedz tylko, ze sie tym zajmujesz' : 'wykonane na ekranie' };
               } else if (call.name === 'warsztat') {
                 const a = call.args || {};
                 safeSend(JSON.stringify(a.akcja === 'plan' ? { type: 'deviceAction', action: 'warsztat-plan', params: { temat: a.temat } } : { type: 'deviceAction', action: 'warsztat', params: { akcja: a.akcja } }));
