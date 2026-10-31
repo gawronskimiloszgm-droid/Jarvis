@@ -460,7 +460,7 @@
     },
   };
 
-  mod('table', 'Holo-stol', 'widzety w przestrzeni', '◇', 'Glowne', { table });
+  mod('table', 'Holo-stół', 'widzety w przestrzeni', '◇', 'Glowne', { table });
   mod('planner', 'Planer tygodnia', 'plan na 7 dni', '▦', 'Dom', { planner });
   mod('translate', 'Tlumacz', 'AI, 12 jezykow', '⇄', 'Wiedza', { translate });
   mod('clocks', 'Zegary swiata', 'strefy czasowe', '◷', 'Dom', { clocks });

@@ -407,7 +407,7 @@
     r.onend = () => {
       micRec = null;
       btn?.classList.remove('on');
-      if (root.querySelector('#edithCoreState')?.textContent === 'SLUCHA') setEdithState('GOTOWA');
+      if (/^S[LŁ]UCHA$/.test(root.querySelector('#edithCoreState')?.textContent || '')) setEdithState('GOTOWA');
     };
     try {
       r.start();

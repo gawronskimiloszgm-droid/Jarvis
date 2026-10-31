@@ -1,6 +1,7 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { GoogleGenAI } from '@google/genai';
 import * as bus from '../core/bus.js';
+import { plFix } from '../core/pltext.js';
 
 // Podstawowy silnik: ten sam model/glos co rozmowa na zywo (Gemini TTS,
 // darmowy w ramach free-tier), zeby powitanie i pisany czat brzmialy
@@ -64,7 +65,7 @@ async function synthesizeClone(text) {
 // Zabezpieczenie: gdyby model mimo instrukcji wypisal pelna, kropkowana
 // nazwe, syntezator odczytalby ja litera po literze - zamieniamy na "Jarvis".
 function normalizeForSpeech(text) {
-  return text.replace(/J\.\s*A\.\s*R\.\s*V\.\s*I\.\s*S\.?/gi, 'Jarvis');
+  return plFix(text.replace(/J\.\s*A\.\s*R\.\s*V\.\s*I\.\s*S\.?/gi, 'Jarvis'));
 }
 
 function pcmToWav(pcmBuffer, sampleRate = SAMPLE_RATE) {

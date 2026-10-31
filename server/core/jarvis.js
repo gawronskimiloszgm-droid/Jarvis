@@ -1,5 +1,6 @@
 import { LIFE_TAG_PATTERNS, LIFE_TAG_PROMPT, persistLifeTags } from '../extras/lifevoice.js';
 import { GoogleGenAI, Type } from '@google/genai';
+import { promptFix } from './pltext.js';
 import * as memory from '../memory/memory.js';
 import { looksLikeWeatherQuestion, getWeather, getWeatherByCoords } from './weather.js';
 import { looksLikeImageRequest, generateImage, storeImage } from '../vision/image.js';
@@ -472,7 +473,7 @@ export async function chatStream(userMessage, onChunk, coords, isOwner = true, u
   const cleanedFull = await withModel(
     (model) =>
       streamAndClean(
-        ai.chats.create({ model, history: pastHistory, config: { systemInstruction, temperature: 0.85 } }),
+        ai.chats.create({ model, history: pastHistory, config: { systemInstruction: promptFix(systemInstruction), temperature: 0.85 } }),
         userMessage,
         emit,
         isOwner
@@ -508,7 +509,7 @@ export async function visionStream(base64Data, mimeType, question, onChunk) {
   const cleanedFull = await withModel(
     (model) =>
       streamAndClean(
-        ai.chats.create({ model, history: pastHistory, config: { systemInstruction, temperature: 0.8 } }),
+        ai.chats.create({ model, history: pastHistory, config: { systemInstruction: promptFix(systemInstruction), temperature: 0.8 } }),
         [imagePart(base64Data, mimeType), { text: q }],
         emit
       ),

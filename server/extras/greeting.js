@@ -2,6 +2,7 @@
 // (wybudzenie, odblokowanie). Fakty zbieramy z tego, co serwer juz wie, a Jarvis
 // uklada je swoim stylem. Bez klucza AI - prosty szablon z tych samych faktow.
 
+import { promptFix } from '../core/pltext.js';
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { requireOwner } from '../core/auth.js';
@@ -73,7 +74,7 @@ router.get('/api/greeting', requireOwner, async (req, res) => {
           'Przywitaj go krotkim meldunkiem w swoim stylu: 2-3 zdania, po polsku, bez list i bez znacznikow. ' +
           'Wybierz z faktow tylko to, co wazne (nie wyliczaj wszystkiego). Nie dodawaj zadnych faktow spoza ponizszej listy.\n\nFakty:\n' +
           f.list.join('\n'),
-        config: { systemInstruction: PERSONALITY_CORE },
+        config: { systemInstruction: promptFix(PERSONALITY_CORE) },
       })
     );
     const text = String(result.text || '').replace(/\[[^\]]*\]/g, '').trim();

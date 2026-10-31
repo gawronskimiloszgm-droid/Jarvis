@@ -1,3 +1,4 @@
+import { promptFix } from '../core/pltext.js';
 import { Router } from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { requireOwner } from '../core/auth.js';
@@ -247,7 +248,7 @@ export async function edithReply(message) {
       model,
       contents: [...history, { role: 'user', parts: [{ text: message }] }],
       config: {
-        systemInstruction: `${EDITH_VOICE}\n\n${edithContext()}`,
+        systemInstruction: promptFix(`${EDITH_VOICE}\n\n${edithContext()}`),
       },
     })
   );

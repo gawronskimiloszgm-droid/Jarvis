@@ -16,6 +16,7 @@ import { profileBlock } from '../extras/profiles.js';
 import * as spotifyPlayer from '../connect/spotifyPlayer.js';
 import { findRecipe } from '../extras/agentlearn.js';
 import { LIFE_TOOLS, LIFE_VOICE_PROMPT, runLifeTool } from '../extras/lifevoice.js';
+import { promptFix, fixDescriptions } from '../core/pltext.js';
 import { EDITH_VOICE, edithApiKey, edithContext } from '../security/edith.js';
 import { GoogleGenAI, Modality, EndSensitivity, StartSensitivity } from '@google/genai';
 import * as memory from '../memory/memory.js';
@@ -719,9 +720,12 @@ const ALL_TOOLS = [
   },
 ];
 
+// Nazwy narzedzi w tresci promptu musza zostac dokladnie takie jak w deklaracjach.
+const TOOL_NAMES = new Set([...ALL_TOOLS, ...LIFE_TOOLS].map((t) => t.name));
+
 function toolsForRole(isOwner) {
   const declarations = isOwner ? [...ALL_TOOLS, ...LIFE_TOOLS] : ALL_TOOLS.filter((t) => GUEST_TOOL_NAMES.includes(t.name));
-  return [{ functionDeclarations: declarations }];
+  return [{ functionDeclarations: fixDescriptions(declarations) }];
 }
 
 async function executeTool(name, args, coords) {
@@ -975,8 +979,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         // mozna oddawac do syntezy na biezaco, tak samo jak przy TEXT.
         responseModalities: [Modality.AUDIO],
         systemInstruction: edith
-          ? `${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\n${edithContext()}`
-          : buildLiveSystemInstruction(Boolean(coords), isOwner) + (localVoice ? LOCAL_VOICE_STYLE : ''),
+          ? promptFix(`${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\n${edithContext()}`)
+          : promptFix(buildLiveSystemInstruction(Boolean(coords), isOwner) + (localVoice ? LOCAL_VOICE_STYLE : ''), TOOL_NAMES),
         ...(edith ? {} : { tools: toolsForRole(isOwner) }),
         outputAudioTranscription: {},
         ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : voiceOverride || VOICE_NAME } } } }),
