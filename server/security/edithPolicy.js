@@ -3,6 +3,7 @@
 
 export const SAFE_ACTIONS = new Set([
   'otworz-spotify',
+  'spotify-graj',
   'otworz-link',
   'pobudka',
   'otworz-youtube-music',

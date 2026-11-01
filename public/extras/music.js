@@ -24,9 +24,35 @@
     window.open(found.url, '_blank') || (location.href = found.url);
   }
 
+  // Bez tytulu nie ma czego szukac, a samo otwarcie Spotify nic nie gra.
+  const GENERIC = /^(cos|cokolwiek|muzyk\w*|(jak\w+|dowoln\w+|moj\w+|ulubion\w+) (muzyk\w*|utwor\w*|piosenk\w*)|spotify)?$/;
+  const isGeneric = (q) => GENERIC.test(q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').toLowerCase());
+  // Gdy nie ma czego wznowic (swieze konto, pusty odtwarzacz): utwor z pobudki, ktory i tak jest w ustawieniach.
+  const FALLBACK_TRACK = 'AC/DC Back in Black';
+
+  async function playAnything() {
+    try {
+      if ((await api('/api/spotify/status')).connected) {
+        await api('/api/spotify/control', json({ cmd: 'play' }));
+        UI.pushSaid?.('jv', 'Wznawiam muzykę.');
+        return;
+      }
+    } catch {
+      /* konto bez Premium albo brak urzadzenia: probujemy na tym komputerze */
+    }
+    if (D()) {
+      const r = await UI.runDeviceActionNow('spotify-graj');
+      if (r?.playing) {
+        UI.pushSaid?.('jv', r.tytul ? `Gram: ${r.tytul}` : 'Wznawiam muzykę.');
+        return;
+      }
+    }
+    return UI.clientActions.graj({ zapytanie: FALLBACK_TRACK });
+  }
+
   UI.clientActions['graj'] = async (p) => {
     const q = String(p?.zapytanie || '').trim();
-    if (!q) return toast('Co mam zagrac?');
+    if (isGeneric(q)) return playAnything();
     let r;
     try {
       r = await api('/api/music/play', json({ zapytanie: q }));

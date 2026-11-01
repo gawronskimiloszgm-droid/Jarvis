@@ -410,11 +410,10 @@ const ALL_TOOLS = [
   },
   {
     name: 'graj_muzyke',
-    description: 'Znajdz i OD RAZU odtworz konkretny utwor albo wykonawce (Spotify, a gdy niedostepne - YouTube). Uzywaj przy KAZDEJ prosbie o konkretna muzyke ("pusc Metallice", "zagraj Nothing Else Matters"). Zapytanie: wykonawca + tytul.',
+    description: 'Odtworz muzyke OD RAZU. Z zapytaniem: znajduje konkretny utwor albo wykonawce (Spotify, a gdy niedostepne - YouTube), np. "pusc Metallice". BEZ zapytania: wznawia ostatnio grana muzyke - uzywaj przy "wlacz muzyke", "pusc cos". Do muzyki nigdy nie uzywaj otworz-spotify, bo ono tylko otwiera aplikacje i nic nie gra.',
     parameters: {
       type: 'object',
-      properties: { zapytanie: { type: 'string', description: 'np. "metallica nothing else matters"' } },
-      required: ['zapytanie'],
+      properties: { zapytanie: { type: 'string', description: 'wykonawca + tytul, np. "metallica nothing else matters"; puste, gdy uzytkownik nie podal, co grac' } },
     },
   },
   {
@@ -1193,6 +1192,10 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 const heardNow = userTranscript.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
                 if (akcja === 'pobudka' && !/pobudk|obud|wstawa|back in black/i.test(heardNow)) {
                   result = { error: 'pobudka to tylko Back in Black na prosbe o pobudke. Do KAZDEJ innej muzyki uzyj narzedzia graj_muzyke z nazwa utworu/wykonawcy.' };
+                } else if (akcja === 'otworz-spotify' && /wlacz|w.acz|pusc|zagraj|graj|muzyk/i.test(heardNow) && !/otworz|uruchom/i.test(heardNow)) {
+                  // Prosba o muzyke, a nie o okno aplikacji: samo otwarcie zostawiloby cisze.
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'graj', params: { zapytanie: '' } }));
+                  result = { ok: true, note: 'wznawiam muzyke; powiedz krotko, ze gra' };
                 } else if (akcja === 'wlacz-edith' && !/e+d+[iyj]+[tcdh]|edit|edyt|ochron|bezpiecz|antywir|wirus|zagro[zż]|skan|raport/i.test(heardNow)) {
                   result = { error: 'uzytkownik nie prosil o E.D.I.T.H. w tej wypowiedzi - nie przelaczaj, odpowiedz normalnie' };
                 } else if (DEVICE_ACTIONS.includes(akcja)) {

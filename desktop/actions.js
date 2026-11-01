@@ -11,6 +11,7 @@ const insights = require('./insights');
 const region = require('./region');
 const { patrol } = require('./patrol');
 const blender = require('./blender');
+const mediaSession = require('./mediaSession');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -84,6 +85,12 @@ const ACTIONS = {
     await shell.openExternal('spotify:').catch(() => shell.openExternal('https://open.spotify.com'));
     return { ok: true };
   },
+  // "Wlacz muzyke" bez tytulu: wznawia to, co bylo ostatnio. Samo otworz-spotify zostawia cisze.
+  'spotify-graj': async () => {
+    if (process.platform !== 'win32') return { ok: true, playing: false };
+    const r = await runPowerShell(mediaSession.ensurePlayingScript({ openFirst: true, limit: 18 }));
+    return { ok: true, ...mediaSession.parseResult(r.output) };
+  },
   pobudka: async () => {
     await shell.openExternal(`spotify:track:${WAKE_TRACK_ID}:play`).catch(() => shell.openExternal(`https://open.spotify.com/track/${WAKE_TRACK_ID}`));
     return { ok: true };
@@ -94,6 +101,8 @@ const ACTIONS = {
     const ok = /^spotify:(track|album|playlist|artist):[A-Za-z0-9]{10,30}(:play)?$/.test(url) || /^https:\/\/(open\.spotify\.com\/(track|album|playlist|artist)\/[A-Za-z0-9]+|www\.youtube\.com\/watch\?v=[\w-]{11}|music\.youtube\.com\/watch\?v=[\w-]{11})([?&#][\w=&%.-]*)?$/.test(url);
     if (!ok) return { ok: false, error: 'Ten link nie jest dozwolony (tylko utwory Spotify/YouTube).' };
     await shell.openExternal(url);
+    // W tle: link zwykle gra sam, a gdyby zostal na pauzie, nie ma na co czekac z odpowiedzia.
+    if (process.platform === 'win32' && url.startsWith('spotify:')) runPowerShell(mediaSession.ensurePlayingScript({ forceAfter: 8, limit: 14 }));
     return { ok: true };
   },
   'otworz-youtube-music': async () => { await shell.openExternal('https://music.youtube.com'); return { ok: true }; },
