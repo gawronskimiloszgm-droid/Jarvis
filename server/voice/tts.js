@@ -7,7 +7,9 @@ import { plFix } from '../core/pltext.js';
 // darmowy w ramach free-tier), zeby powitanie i pisany czat brzmialy
 // TAK SAMO jak rozmowa glosowa - jeden Jarvis, jeden glos.
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+// Stary model Google wylacza 17 listopada 2026; do tego czasu jest zapasem, potem jego blad konczy sie Edge TTS.
+const TTS_MODEL_OLD = 'gemini-2.5-flash-preview-tts';
+const TTS_MODEL = process.env.GEMINI_TTS_MODEL && process.env.GEMINI_TTS_MODEL !== TTS_MODEL_OLD ? process.env.GEMINI_TTS_MODEL : 'gemini-3.8-flash-tts';
 const VOICE_NAME = process.env.GEMINI_LIVE_VOICE || 'Orus';
 const SAMPLE_RATE = 24000;
 
@@ -90,9 +92,9 @@ function pcmToWav(pcmBuffer, sampleRate = SAMPLE_RATE) {
   return Buffer.concat([header, pcmBuffer]);
 }
 
-async function synthesizeGemini(text, voiceName = VOICE_NAME) {
+async function synthesizeGemini(text, voiceName = VOICE_NAME, model = TTS_MODEL) {
   const response = await ai.models.generateContent({
-    model: TTS_MODEL,
+    model,
     contents: text,
     config: {
       responseModalities: ['AUDIO'],
@@ -101,7 +103,9 @@ async function synthesizeGemini(text, voiceName = VOICE_NAME) {
   });
   const base64 = response.data;
   if (!base64) throw new Error('Brak audio w odpowiedzi Gemini TTS.');
-  return { buffer: pcmToWav(Buffer.from(base64, 'base64')), contentType: 'audio/wav' };
+  const audio = Buffer.from(base64, 'base64');
+  // Nowe modele moga oddac gotowy WAV: drugi naglowek zagralby jako trzask.
+  return { buffer: audio.subarray(0, 4).toString('latin1') === 'RIFF' ? audio : pcmToWav(audio), contentType: 'audio/wav' };
 }
 
 async function synthesizeEdge(text) {
@@ -161,12 +165,14 @@ export async function synthesize(text, { speaker, voice } = {}) {
     }
   }
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const order = [...new Set([TTS_MODEL, TTS_MODEL_OLD])];
+  for (const model of [order[0], ...order]) {
     try {
-      return await synthesizeGemini(clean, voiceName);
+      return await synthesizeGemini(clean, voiceName, model);
     } catch (err) {
-      if (attempt === 1) console.error('Gemini TTS zawiodlo, uzywam Edge TTS:', err.message || err);
+      console.error(`Gemini TTS (${model}) zawiodlo:`, err.message || err);
     }
   }
+  console.error('Gemini TTS niedostepne, uzywam Edge TTS.');
   return synthesizeEdge(clean);
 }

@@ -25,12 +25,14 @@ import { searchWithContent } from '../connect/websearch.js';
 import * as cad from '../home/cad.js';
 import { generateImage, storeImage } from '../vision/image.js';
 import * as tts from './tts.js';
+import * as bus from '../core/bus.js';
+import { createLiveChoice, liveModelChain, SAFE_VOICE, toolsForModel } from './liveFallback.js';
 import { buildBrief } from '../core/briefing.js';
 import * as printer from '../home/printer.js';
 import * as calendar from '../connect/calendar.js';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
+const LIVE_MODELS = liveModelChain(process.env.GEMINI_LIVE_MODEL);
 // Orion - nizszy, glebszy glos niz Charon (zmierzone: ~106 Hz vs ~118 Hz).
 // UWAGA: dokumentacja API dla programistow go nie wymienia, ale dziala.
 // Nieznana nazwa glosu nie powoduje bledu polaczenia - sesja wstaje, tylko
@@ -800,8 +802,12 @@ const EDITH_LIVE_VOICE = process.env.EDITH_LIVE_VOICE || 'Kore';
 export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantClone = null, persona = null, voice = null, wantLocal = false) {
   const edith = persona === 'edith' && isOwner;
   // Glos wybrany w Ustawieniach (tylko z listy). Gdy model go nie przyjmie, wracamy do domyslnego.
-  let voiceOverride = !edith && typeof voice === 'string' && tts.GEMINI_VOICES.includes(voice) ? voice : null;
+  const voiceOverride = !edith && typeof voice === 'string' && tts.GEMINI_VOICES.includes(voice) ? voice : null;
+  const choice = createLiveChoice({ models: LIVE_MODELS, voices: edith ? [EDITH_LIVE_VOICE] : [voiceOverride, VOICE_NAME, SAFE_VOICE] });
   let sessionAnswered = false;
+  let sessionNr = 0;
+  let speaking = false;
+  let pendingReact = null;
   const client = edith ? new GoogleGenAI({ apiKey: edithApiKey() }) : ai;
   let liveSession = null;
   let closed = false;
@@ -980,9 +986,26 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   let reconnecting = false;
   let reconnectAttempts = 0;
 
+  // Przepiecie na inny model albo glos: stary uchwyt wznowienia nie jest juz wiarygodny.
+  const announceSwitch = (kind, why) => {
+    resumeHandle = null;
+    const text = `Rozmowa glosowa: ${why}, przechodze na ${kind === 'voice' ? `glos ${choice.voice()}` : `model ${choice.model()}`}.`;
+    console.warn(text);
+    bus.publish('glos', 'live.fallback', text, { level: 'warn' });
+  };
+
+  const sendReact = (text) => {
+    liveSession.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: `[ZDARZENIE W APLIKACJI - to nie wypowiedz uzytkownika] ${text} Zareaguj JEDNYM krotkim zdaniem w swoim charakterze (komentarz, ostrzezenie albo propozycja pomocy). Jesli to nieistotne - nic nie mow.` }] }],
+      turnComplete: true,
+    });
+  };
+
   async function openSession() {
+    const nr = ++sessionNr;
+    sessionAnswered = false;
     return client.live.connect({
-      model: LIVE_MODEL,
+      model: choice.model(),
       config: {
         // UWAGA - sprawdzone na zywym API: ten model ODRZUCA
         // responseModalities: [TEXT] ("requested combination of response
@@ -1001,9 +1024,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         systemInstruction: edith
           ? promptFix(`${EDITH_VOICE}\nRozmawiasz glosem na zywo - odpowiadasz 1-2 zdaniami.\n\n${edithContext()}`)
           : promptFix(buildLiveSystemInstruction(Boolean(coords), isOwner) + (localVoice ? LOCAL_VOICE_STYLE : ''), TOOL_NAMES),
-        ...(edith ? {} : { tools: toolsForRole(isOwner) }),
+        ...(edith ? {} : { tools: toolsForModel(toolsForRole(isOwner), choice.model()) }),
         outputAudioTranscription: {},
-        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: edith ? EDITH_LIVE_VOICE : voiceOverride || VOICE_NAME } } } }),
+        ...(clonedVoice ? {} : { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: choice.voice() } } } }),
         inputAudioTranscription: {},
         // Pusty obiekt wlacza wysylanie uchwytow wznowienia; z uchwytem
         // wracamy do tej samej rozmowy zamiast zaczynac od zera.
@@ -1029,12 +1052,17 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
       },
       callbacks: {
         onopen: () => {
-          reconnectAttempts = 0;
-          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice, localVoice }));
+          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice, localVoice, model: choice.model() }));
         },
         onmessage: async (msg) => {
-          if (closed) return;
+          if (closed || nr !== sessionNr) return;
           sessionAnswered = true;
+          // Licznik prob dopiero tutaj: gniazdo otwiera sie nawet wtedy, gdy model zaraz je zamknie.
+          reconnectAttempts = 0;
+          if (msg.data) {
+            choice.audio();
+            speaking = true;
+          }
 
           // W trybie klonowanym Gemini i tak GENERUJE swoj dzwiek (nie da
           // sie tego wylaczyc - patrz komentarz przy responseModalities),
@@ -1512,6 +1540,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             // (nawet jesli juz w locie) zostanie po cichu odrzucony.
             synthGen++;
             sentenceBuffer = '';
+            speaking = false;
             safeSend(JSON.stringify({ type: 'interrupted' }));
           }
           if (msg.serverContent?.turnComplete) {
@@ -1523,7 +1552,17 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             safeSend(JSON.stringify({ type: 'turnComplete', userText, assistantText }));
             userTranscript = '';
             assistantTranscript = '';
+            speaking = false;
             scheduleProactive();
+            const step = choice.turnEnded({ userText, assistantText });
+            if (step) {
+              announceSwitch(step, 'odpowiedz przyszla bez dzwieku');
+              reconnect('cisza');
+            } else if (pendingReact) {
+              const text = pendingReact;
+              pendingReact = null;
+              sendReact(text);
+            }
           }
 
           // Uchwyt do wznowienia - zapamietujemy najswiezszy, zeby po
@@ -1539,13 +1578,15 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           }
         },
         onerror: (e) => safeSend(JSON.stringify({ type: 'error', message: e.message || String(e) })),
-        onclose: () => {
+        onclose: (e) => {
+          // Zamkniecie sesji, ktora sami juz zastapilismy, niczego nie znaczy.
+          if (nr !== sessionNr) return;
           // Jesli klient wciaz jest podlaczony, to nie koniec rozmowy -
           // tylko wygasla sesja modelu. Wracamy po cichu.
-          if (voiceOverride && !sessionAnswered) {
-            // Model zamknal sesje, zanim cokolwiek odpowiedzial - najpewniej nie zna wybranego glosu.
-            console.warn('Glos ' + voiceOverride + ' odrzucony przez model - wracam do domyslnego.');
-            voiceOverride = null;
+          if (!closed && !sessionAnswered) {
+            // Model zamknal sesje, zanim cokolwiek odpowiedzial: nie zna glosu albo sam jest niedostepny.
+            const step = choice.rejected({ customVoice: Boolean(voiceOverride) });
+            announceSwitch(step, `model odrzucil polaczenie (${e?.reason || e?.code || 'bez powodu'})`);
           }
           if (!closed && clientWs.readyState === clientWs.OPEN) reconnect('close');
           else safeSend(JSON.stringify({ type: 'closed' }));
@@ -1577,6 +1618,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
         }
       } catch (err) {
         console.error('Wznowienie nieudane:', err.message);
+        announceSwitch(choice.rejected({ customVoice: Boolean(voiceOverride) }), `nie udalo sie polaczyc (${err.message})`);
         reconnecting = false;
         return reconnect('retry');
       }
@@ -1584,22 +1626,16 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
     }, delay);
   }
 
-  try {
-    liveSession = await openSession();
-  } catch (err) {
-    if (voiceOverride) {
-      voiceOverride = null;
-      try {
-        liveSession = await openSession();
-      } catch (err2) {
-        safeSend(JSON.stringify({ type: 'error', message: err2.message }));
+  for (let attempt = 0; !liveSession; attempt++) {
+    try {
+      liveSession = await openSession();
+    } catch (err) {
+      if (attempt >= LIVE_MODELS.length) {
+        safeSend(JSON.stringify({ type: 'error', message: err.message }));
         clientWs.close();
         return;
       }
-    } else {
-      safeSend(JSON.stringify({ type: 'error', message: err.message }));
-      clientWs.close();
-      return;
+      announceSwitch(choice.rejected({ customVoice: Boolean(voiceOverride) }), `nie udalo sie polaczyc (${err.message})`);
     }
   }
 
@@ -1621,10 +1657,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           const nowTs = Date.now();
           if (!isDnd() && nowTs - lastReactAt > 9000) {
             lastReactAt = nowTs;
-            liveSession.sendClientContent({
-              turns: [{ role: 'user', parts: [{ text: `[ZDARZENIE W APLIKACJI - to nie wypowiedz uzytkownika] ${msg.text.slice(0, 400)} Zareaguj JEDNYM krotkim zdaniem w swoim charakterze (komentarz, ostrzezenie albo propozycja pomocy). Jesli to nieistotne - nic nie mow.` }] }],
-              turnComplete: true,
-            });
+            // Nowy model przerywa sobie przy turnComplete, wiec w trakcie mowienia zdarzenie czeka na koniec tury.
+            if (speaking) pendingReact = msg.text.slice(0, 400);
+            else sendReact(msg.text.slice(0, 400));
           }
         } else if (msg.type === 'video' && msg.data) {
           liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
