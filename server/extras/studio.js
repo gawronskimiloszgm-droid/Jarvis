@@ -113,10 +113,49 @@ export function imageUrlsFromBing(html, limit = 16) {
   const urls = [...String(html).matchAll(/murl&quot;:&quot;(https?:[^&]+?)&quot;/g)].map((m) => m[1]);
   return [...new Set(urls)].filter((u) => /^https:/.test(u)).slice(0, limit);
 }
+// Banki zdjec: znak wodny lezalby na modelu, a te zdjecia sa platne.
+const STOCK = /(^|\.)(dreamstime|alamy|shutterstock|ftcdn|123rf|istockphoto|gettyimages|depositphotos|vecteezy|bigstockphoto|canstockphoto|stock\.adobe)\./i;
+export const isStockPhoto = (url) => {
+  try {
+    return STOCK.test(`.${new URL(url).hostname}`);
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * "Z boku" nie zawsze jest najlepszym widokiem: gitara z profilu to cienka listwa, a jej ksztalt widac
+ * z przodu. Dlatego pytamy o oba, na przemian, a ktory widok pasuje, rozstrzyga pozniej ocena zdjec.
+ */
 export async function findPhotos(topic) {
-  const q = `${topic} side view white background`;
-  const r = await fetch(`https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=0&count=30&mmasync=1`, { headers: { ...BROWSER, 'Accept-Language': 'en-US,en' }, signal: AbortSignal.timeout(9000) });
-  return r.ok ? imageUrlsFromBing(await r.text()) : [];
+  const lists = [];
+  // Po odrzuceniu bankow zdjec zostaje niewiele, wiec trzecie pytanie celuje w zdjecia ze sklepow.
+  for (const view of ['side view isolated white background', 'full front view isolated white background', 'product photo white background']) {
+    const q = `${topic} ${view}`;
+    try {
+      const r = await fetch(`https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=0&count=30&mmasync=1`, { headers: { ...BROWSER, 'Accept-Language': 'en-US,en' }, signal: AbortSignal.timeout(9000) });
+      lists.push(r.ok ? imageUrlsFromBing(await r.text()).filter((u) => !isStockPhoto(u)) : []);
+    } catch {
+      lists.push([]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < Math.max(...lists.map((l) => l.length)); i++) {
+    for (const l of lists) {
+      if (l[i] && !out.includes(l[i])) out.push(l[i]);
+    }
+  }
+  return out;
+}
+
+/** Wybor zdjecia z kilku miniatur naraz: taniej i pewniej niz pytanie o kazde osobno. */
+export async function pickPhoto(images, nazwa, deps = {}) {
+  const generate = deps.generate || liveGenerate;
+  const parts = images.map((u) => /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(u))).filter(Boolean).slice(0, 8).map((m) => ({ inlineData: { mimeType: m[1], data: m[2] } }));
+  if (!parts.length) throw new Error('Brak zdjęć.');
+  const out = await generate(`Obrazy są ponumerowane od 0 do ${parts.length - 1}, w tej kolejności. Szukam zdjęcia, z którego da się odrysować obrys tego przedmiotu: ${nazwa}. Dobre zdjęcie pokazuje cały przedmiot, prosto, bez perspektywy i bez obrotu, od strony, z której najlepiej widać jego kształt (gitara i inne płaskie przedmioty od frontu, nigdy od wąskiej krawędzi; pojazdy i broń z boku), bez ludzi i bez kilku przedmiotów na jednym obrazie. Musi to być właśnie ten przedmiot. Zwróć JSON {"najlepszy": numer albo -1, gdy żaden się nie nadaje, "powod": "krótko po polsku"}.`, null, parts);
+  const n = Number(out?.najlepszy);
+  return { najlepszy: Number.isInteger(n) && n >= 0 && n < parts.length ? n : -1, powod: String(out?.powod || '').slice(0, 200) };
 }
 
 /** Zdjecie produktu i rysunki rozstrzelone ze strony: tylko do analizy przez model, nie wyswietlamy cudzych zdjec. */
@@ -653,6 +692,14 @@ export async function photoParts(dataUrl, nazwa, deps = {}) {
   return { czesci, widok_z_boku: out?.widok_z_boku !== false, dlugosc_mm: Number(out?.dlugosc_mm) > 0 ? Number(out.dlugosc_mm) : 0 };
 }
 
+router.post('/api/studio/pick-photo', requireOwner, async (req, res) => {
+  try {
+    res.json(await pickPhoto(Array.isArray(req.body?.obrazy) ? req.body.obrazy : [], String(req.body?.nazwa || '').slice(0, 120)));
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Nie udało się wybrać zdjęcia.' });
+  }
+});
+
 router.post('/api/studio/photo-parts', requireOwner, async (req, res) => {
   try {
     res.json(await photoParts(req.body?.image, String(req.body?.nazwa || '').slice(0, 120)));
@@ -676,7 +723,7 @@ export async function reviewProject(project, images, deps = {}) {
 Części, które wolno zmieniać (wymiary w mm):
 ${JSON.stringify(projectBrief({ czesci: free.slice(0, 200) }))}
 
-Zwróć JSON: "zmien" (id i TYLKO pola do zmiany), "dodaj" (nowe części z pełnymi wymiarami i pozycją, stykające się z resztą, z "grupa" istniejącego podzespołu), "co_zmieniono": jedno zdanie po polsku.
+Zwróć JSON: "zmien" (id i TYLKO pola do zmiany), "dodaj" (nowe części z pełnymi wymiarami i pozycją, stykające się z resztą, z "grupa" istniejącego podzespołu), "co_zmieniono": jedno zdanie po polsku, "obudowa_ok": false, jeśli zewnętrzny kształt modelu wyraźnie nie przypomina tego przedmiotu, inaczej true, "uwaga_obudowa": jeśli false, krótko po polsku, co jest nie tak.
 
 ${SAFETY}
 
@@ -684,6 +731,8 @@ ${FRAME_DOC}`, null, parts);
   const known = new Set(free.map((c) => c.id));
   return {
     co_zmieniono: String(out?.co_zmieniono || '').slice(0, 300),
+    obudowa_ok: out?.obudowa_ok !== false,
+    uwaga_obudowa: String(out?.uwaga_obudowa || '').slice(0, 200),
     usun: [],
     zmien: (Array.isArray(out?.zmien) ? out.zmien : []).filter((e) => known.has(e?.id)).slice(0, 12),
     dodaj: (Array.isArray(out?.dodaj) ? out.dodaj : []).filter((c) => c && typeof c === 'object').slice(0, 24).map((c) => ({ ...c, zrodlo: 'szacunek' })),

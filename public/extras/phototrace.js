@@ -496,7 +496,51 @@
     const touches = minX <= 1 || minY <= 1 || maxX >= w - 2 || maxY >= h - 2;
     const fill = n / ((maxX - minX + 1) * (maxY - minY + 1) || 1);
     const stray = all ? 1 - n / all : 1;
-    return { ok: n > 500 && !touches && fill < 0.98 && stray < 0.25, touches, fill, stray, aspect: (maxX - minX + 1) / Math.max(1, maxY - minY + 1), bbox: [minX, minY, maxX + 1, maxY + 1] };
+    // Os przedmiotu: dlugi przedmiot ulozony na ukos to prawie zawsze zdjecie z perspektywa.
+    let sx = 0;
+    let sy = 0;
+    let c = 0;
+    let border = 0;
+    let faint = 0;
+    const step = Math.max(1, Math.floor(n / 20000));
+    let mx = 0;
+    let my = 0;
+    let seen = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (!blob[i]) continue;
+      if (seen++ % step === 0) {
+        mx += i % w;
+        my += Math.floor(i / w);
+      }
+    }
+    const samples = Math.ceil(n / step) || 1;
+    mx /= samples;
+    my /= samples;
+    seen = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (!blob[i]) continue;
+      if (seen++ % step === 0) {
+        const dx = (i % w) - mx;
+        const dy = Math.floor(i / w) - my;
+        sx += dx * dx;
+        sy += dy * dy;
+        c += dx * dy;
+      }
+      // Krawedz prawie w kolorze tla: przedmiot zlewa sie z tlem i obrys bedzie poszarpany.
+      if (i % w > 0 && i % w < w - 1 && i >= w && i < w * (h - 1) && (!blob[i - 1] || !blob[i + 1] || !blob[i - w] || !blob[i + w])) {
+        border++;
+        const d = Math.abs(img.data[i * 4] - m.bg[0]) + Math.abs(img.data[i * 4 + 1] - m.bg[1]) + Math.abs(img.data[i * 4 + 2] - m.bg[2]);
+        if (d < 90) faint++;
+      }
+    }
+    const half = Math.sqrt(((sx - sy) / 2) ** 2 + c * c);
+    const major = (sx + sy) / 2 + half;
+    const minor = Math.max(1e-6, (sx + sy) / 2 - half);
+    const tilt = (Math.abs(Math.atan2(2 * c, sx - sy) / 2) * 180) / Math.PI; // 0 = poziomo, 90 = pionowo
+    const longish = Math.sqrt(major / minor) >= 1.7;
+    const skos = longish && Math.min(tilt, 90 - tilt) > 18;
+    const aspect = (maxX - minX + 1) / Math.max(1, maxY - minY + 1);
+    return { ok: n > 500 && !touches && fill < 0.98 && stray < 0.25, touches, fill, stray, aspect, skos, krawedz: Math.max(aspect, 1 / aspect) > 5.5, slaba: border ? faint / border : 1, bbox: [minX, minY, maxX + 1, maxY + 1] };
   }
 
   /** Kontur wewnetrzny obudowy: uproszczony (bez zebow szyn) i przesuniety do srodka. */

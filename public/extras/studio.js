@@ -140,7 +140,9 @@
     if (!(length > 0)) throw new Error('Podaj prawdziwą długość w milimetrach: bez niej nie da się ustalić skali.');
     // Faza wieksza niz pare pikseli psuje dokladny kontur: krawedz zaczyna przecinac sama siebie.
     const pxMm = length / Math.max(q.bbox[2] - q.bbox[0], q.bbox[3] - q.bbox[1]);
-    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, oble: c.obly, szer: c.szer, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: Math.min(c.gr * 0.1, pxMm * 1.2), obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
+    // Bryla toczona ignoruje kontur i zdjecie, a model potrafi tak oznaczyc nawet korpus gitary. Obla z konturu
+    // daje okragla rure, gdy rura jest okragla, i wierny ksztalt, gdy nie jest.
+    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, oble: c.obly || c.obrotowa, szer: c.szer, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: Math.min(c.gr * 0.1, pxMm * 1.2), obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
     parts.push({ id: 'reszta', reszta: true, oble: true, nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.12), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: pxMm * 1.2, obszar: [0, 0, w, h] });
     const t = PT.traceParts(img, { dlugosc: length, dluzszy: true, parts, eps: 1.5, minHole: Math.max(40, (w * w) / 26000), czysc: true });
     // Druga strona nie ma zdjecia, ale ma prawdziwy kolor tej czesci.
@@ -795,7 +797,7 @@
   }
   /** Wybor zdjecia: najpierw prawdziwe z sieci (najlepsze oceny), a gdy zadne nie pasuje, obraz od generatora. */
   async function autoOutline(job, nazwa, setStage) {
-    const candidates = (job.obrazy || []).slice(0, 12);
+    const candidates = (job.obrazy || []).slice(0, 20);
     const rated = [];
     let idx = 0;
     await Promise.all(Array.from({ length: 4 }, async () => {
@@ -804,15 +806,36 @@
         try {
           const source = await photoBlob(url);
           const read = await readPhoto(source);
-          if (read.q.ok && read.w >= 600) rated.push({ url, source, read, score: read.w * read.h * (1 - read.q.stray) });
+          if (read.q.ok && read.w >= 500) rated.push({ url, source, read, score: Math.min(read.w * read.h, 2e6) * (1 - read.q.stray) * (1 - read.q.slaba) });
         } catch {
           /* adres nie odpowiada: nastepny */
         }
       }
     }));
     rated.sort((a, b) => b.score - a.score);
+    // Ukos, sama waska krawedz i przedmiot zlewajacy sie z tlem daja zly model, nawet gdy zdjecie jest duze.
+    const fine = rated.filter((c) => !c.read.q.skos && !c.read.q.krawedz && c.read.q.slaba < 0.35);
+    const pool = fine.length ? fine : rated;
+    if (pool.length > 1) {
+      setStage('Wybieram najlepsze zdjęcie');
+      try {
+        const top = pool.slice(0, 8);
+        const obrazy = top.map(({ read }) => {
+          const c = document.createElement('canvas');
+          const sc = Math.min(1, 384 / Math.max(read.w, read.h));
+          c.width = Math.round(read.w * sc);
+          c.height = Math.round(read.h * sc);
+          c.getContext('2d').drawImage(read.cv, 0, 0, c.width, c.height);
+          return c.toDataURL('image/jpeg', 0.75);
+        });
+        const r = await api('/api/studio/pick-photo', json({ obrazy, nazwa }));
+        if (r.najlepszy >= 0) pool.unshift(pool.splice(r.najlepszy, 1)[0]);
+      } catch {
+        /* zostaje kolejnosc z oceny pikseli */
+      }
+    }
     const dlugosc = job.plan?.dlugosc_mm;
-    for (const c of rated.slice(0, 3)) {
+    for (const c of pool.slice(0, 3)) {
       setStage(`Odrysowuję obudowę ze zdjęcia: ${new URL(c.url).hostname}`);
       try {
         return await tracePhoto({ ...c, dlugosc, nazwa, strictView: true });
@@ -875,14 +898,15 @@
       }
     }
     const ops = await api('/api/studio/review', json({ projekt: S.project, obrazy }));
-    if (!ops.zmien.length && !ops.dodaj.length) return { puste: true };
+    const zlaObudowa = ops.obudowa_ok === false ? ops.uwaga_obudowa || 'nie przypomina tego przedmiotu.' : '';
+    if (!ops.zmien.length && !ops.dodaj.length) return { puste: true, zlaObudowa };
     ops.zmien.forEach((e) => delete S.refined[e.id]);
     const made = K.applyOps(S.project, ops);
     // Zmiana po kontroli nie moze cofnac dopasowania do obudowy.
     const shell = made.czesci.filter((c) => c.skora);
     if (shell.length) made.czesci = [...K.fitInside(made.czesci.filter((c) => !c.skora), shell).czesci, ...shell];
     commit(made);
-    return { ops };
+    return { ops, zlaObudowa };
   }
   async function design(opis, szukaj) {
     const text = String(opis || '').trim();
@@ -947,6 +971,7 @@
               S.drawJob?.();
             });
             if (review?.ops?.co_zmieniono) notes.push(`Kontrola na renderach: ${review.ops.co_zmieniono}`);
+            if (review?.zlaObudowa) notes.push(`Kształt zewnętrzny wyszedł źle: ${review.zlaObudowa} Podaj własne zdjęcie w ODRYSUJ ZE ZDJĘCIA.`);
           } catch (e) {
             notes.push(`Kontrola na renderach się nie udała: ${e.message}. Projekt jest bez niej.`);
           }
