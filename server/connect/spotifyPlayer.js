@@ -122,17 +122,47 @@ export async function devices() {
   return d.devices || [];
 }
 
-/** Odtwarza podany utwor (uri) na aktywnym urzadzeniu albo - gdy zadne nie jest aktywne - na komputerze/pierwszym z listy. */
-export async function playUri(uri) {
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Prosba z komputera ma grac na komputerze, nawet gdy konto ma aktywny telefon albo inny odtwarzacz. */
+function pickDevice(all, komputer) {
+  const list = all.filter((d) => !d.is_restricted);
+  if (komputer) return list.find((d) => d.type === 'Computer' && d.is_active) || list.find((d) => d.type === 'Computer') || null;
+  return list.find((d) => d.is_active) || list.find((d) => d.type === 'Computer') || list[0] || null;
+}
+
+/** Spotify odpowiada 204 takze wtedy, gdy nic sie nie zmienilo, wiec sprawdzamy, co naprawde gra. */
+async function confirmPlaying(uri, target, tries = 4, gapMs = 700) {
+  let state = null;
+  for (let i = 0; i < tries; i++) {
+    await wait(gapMs);
+    try {
+      state = await api('GET', '/me/player?additional_types=track');
+    } catch {
+      return; // nie da sie odczytac stanu: polecenie przyjeto, wiec nie zglaszamy bledu na zapas
+    }
+    const item = state?.item;
+    const sameTrack = item?.uri === uri || item?.linked_from?.uri === uri;
+    if (sameTrack && state.is_playing && state.device?.id === target.id) return;
+  }
+  throw new Error(`Spotify przyjęło polecenie, ale na „${target.name}” nie zagrało.`);
+}
+
+/**
+ * Odtwarza podany utwor (uri). Domyslnie na aktywnym urzadzeniu, z { komputer: true } na komputerze.
+ * Blad oznacza, ze nie gra: klient otwiera wtedy link w aplikacji.
+ */
+export async function playUri(uri, { komputer = false, gapMs = 700 } = {}) {
   const list = await devices();
-  if (!list.length) throw new Error('Spotify nie jest uruchomione na zadnym urzadzeniu - otworz aplikacje Spotify na komputerze albo telefonie.');
-  const target = list.find((d) => d.is_active) || list.find((d) => d.type === 'Computer') || list[0];
+  const target = pickDevice(list, komputer);
+  if (!target) throw new Error(komputer ? 'Spotify nie jest uruchomione na tym komputerze.' : 'Spotify nie jest uruchomione na zadnym urzadzeniu - otworz aplikacje Spotify na komputerze albo telefonie.');
   try {
     await api('PUT', `/me/player/play?device_id=${encodeURIComponent(target.id)}`, { uris: [uri] });
   } catch (e) {
     if (e.status === 403) throw new Error('Spotify odmawia sterowania odtwarzaniem - to wymaga konta Premium.');
     throw e;
   }
+  await confirmPlaying(uri, target, 4, gapMs);
   return { device: target.name };
 }
 

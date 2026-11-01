@@ -31,21 +31,23 @@
   const FALLBACK_TRACK = 'AC/DC Back in Black';
 
   async function playAnything() {
-    try {
-      if ((await api('/api/spotify/status')).connected) {
-        await api('/api/spotify/control', json({ cmd: 'play' }));
-        UI.pushSaid?.('jv', 'Wznawiam muzykę.');
-        return;
-      }
-    } catch {
-      /* konto bez Premium albo brak urzadzenia: probujemy na tym komputerze */
-    }
+    // Na komputerze najpierw lokalnie: API wznowiloby muzyke na aktywnym urzadzeniu, a to moze byc telefon.
     if (D()) {
       // Wprost, a nie przez runDeviceActionNow: ona nie oddaje wyniku, a tu trzeba wiedziec, czy gra.
       const r = await D().runAction('spotify-graj').catch(() => null);
       if (r?.playing) {
         UI.pushSaid?.('jv', r.tytul ? `Gram: ${r.tytul}` : 'Wznawiam muzykę.');
         return;
+      }
+    } else {
+      try {
+        if ((await api('/api/spotify/status')).connected) {
+          await api('/api/spotify/control', json({ cmd: 'play' }));
+          UI.pushSaid?.('jv', 'Wznawiam muzykę.');
+          return;
+        }
+      } catch {
+        /* konto bez Premium albo brak urzadzenia: gramy konkretny utwor */
       }
     }
     return UI.clientActions.graj({ zapytanie: FALLBACK_TRACK });
@@ -56,7 +58,7 @@
     if (isGeneric(q)) return playAnything();
     let r;
     try {
-      r = await api('/api/music/play', json({ zapytanie: q }));
+      r = await api('/api/music/play', json({ zapytanie: q, komputer: Boolean(D()) }));
     } catch (e) {
       UI.pushSaid?.('jv', 'Nie udalo mi sie znalezc: ' + q + (e.message ? ' (' + e.message + ')' : ''));
       return;
@@ -66,7 +68,7 @@
       return;
     }
     UI.pushSaid?.('jv', 'Gram: ' + r.found.nazwa + (r.found.zrodlo === 'youtube' ? ' (YouTube)' : ''));
-    if (r.warning) toast('Spotify API: ' + r.warning);
+    // Link i tak zaraz zagra, wiec czerwony komunikat tylko by mylil. Powod zostaje w dzienniku.
     return openLink(r.found);
   };
 

@@ -91,3 +91,60 @@ test('spotify: sterowanie - dalej i glosniej, a bez aktywnego urzadzenia wybiera
   assert.equal(now.artist, 'Metallica');
   await assert.rejects(() => player.control('xyz'), /Nieznane/);
 });
+
+// Stan konta: telefon aktywny i komputer. To dokladnie przypadek "aplikacja wlaczona, a utwor sie nie zmienia".
+const PHONE = { id: 'ph', name: 'Telefon', type: 'Smartphone', is_active: true };
+const PC = { id: 'pc', name: 'PC', type: 'Computer', is_active: false };
+function account({ devices = [PHONE, PC], playing = null, followPlay = true } = {}) {
+  let state = playing;
+  const calls = mockFetch((url, opts) => {
+    if (url.includes('accounts.spotify.com')) return json(200, { access_token: 'tok', expires_in: 3600 });
+    if (url.endsWith('/me/player/devices')) return json(200, { devices });
+    if (url.includes('/me/player/play')) {
+      if (followPlay) {
+        const uri = JSON.parse(opts.body).uris[0];
+        const id = /device_id=(\w+)/.exec(url)[1];
+        state = { is_playing: true, item: { uri }, device: { id } };
+      }
+      return { status: 204, ok: true, json: async () => ({}) };
+    }
+    if (url.includes('/me/player')) return json(200, state || {});
+    return json(404, {});
+  });
+  return calls;
+}
+const FAST = { gapMs: 1 };
+
+test('spotify: prosba z komputera gra na komputerze, choc aktywny jest telefon', async () => {
+  const calls = account();
+  const r = await player.playUri('spotify:track:abc', { komputer: true, ...FAST });
+  assert.equal(r.device, 'PC');
+  assert.ok(calls.find((c) => c.method === 'PUT').url.includes('device_id=pc'));
+});
+
+test('spotify: prosba z telefonu zostaje na aktywnym urzadzeniu', async () => {
+  const calls = account();
+  const r = await player.playUri('spotify:track:abc', FAST);
+  assert.equal(r.device, 'Telefon');
+  assert.ok(calls.find((c) => c.method === 'PUT').url.includes('device_id=ph'));
+});
+
+test('spotify: bez komputera na liscie blad, zeby klient otworzyl aplikacje linkiem', async () => {
+  account({ devices: [PHONE] });
+  await assert.rejects(player.playUri('spotify:track:abc', { komputer: true, ...FAST }), /nie jest uruchomione na tym komputerze/);
+});
+
+test('spotify: urzadzenie z ograniczeniami nie jest celem', async () => {
+  account({ devices: [{ ...PC, is_restricted: true }] });
+  await assert.rejects(player.playUri('spotify:track:abc', { komputer: true, ...FAST }), /nie jest uruchomione/);
+});
+
+test('spotify: odpowiedz 204 bez zmiany utworu to blad, a nie sukces', async () => {
+  account({ followPlay: false, playing: { is_playing: true, item: { uri: 'spotify:track:stary' }, device: { id: 'pc' } } });
+  await assert.rejects(player.playUri('spotify:track:abc', { komputer: true, ...FAST }), /nie zagrało/);
+});
+
+test('spotify: utwor podmieniony na wersje z innego rynku liczy sie jako ten sam', async () => {
+  account({ followPlay: false, playing: { is_playing: true, item: { uri: 'spotify:track:inny', linked_from: { uri: 'spotify:track:abc' } }, device: { id: 'pc' } } });
+  assert.equal((await player.playUri('spotify:track:abc', { komputer: true, ...FAST })).device, 'PC');
+});

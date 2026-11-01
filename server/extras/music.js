@@ -126,15 +126,16 @@ router.post('/api/music/play', requireOwner, async (req, res) => {
   if (!found) return res.status(404).json({ error: 'Nic nie znalazlem.' });
   if (found.zrodlo === 'spotify' && player.isConnected()) {
     try {
-      const r = await player.playUri(found.url.replace(/:play$/, ''));
-      logJournal('music', `Gram: ${found.nazwa}`, 'muzyka');
+      const r = await player.playUri(found.url.replace(/:play$/, ''), { komputer: req.body?.komputer === true });
+      logJournal('music', `Gram: ${found.nazwa} (przez API, na: ${r.device})`, 'muzyka');
       return res.json({ ok: true, played: true, nazwa: found.nazwa, device: r.device });
     } catch (err) {
       // Nie udalo sie przez API (np. Spotify wylaczone) - klient sprobuje otworzyc link.
+      logJournal('music', `Gram: ${found.nazwa} (przez link, API: ${err.message})`, 'muzyka');
       return res.json({ ok: true, played: false, found, warning: err.message });
     }
   }
-  logJournal('music', `Gram: ${found.nazwa}`, 'muzyka');
+  logJournal('music', `Gram: ${found.nazwa} (przez link)`, 'muzyka');
   res.json({ ok: true, played: false, found });
 });
 

@@ -83,7 +83,7 @@ function loadMusic({ connected = false, controlFails = false, desktop = null, pl
   return { graj: UI.clientActions.graj, calls };
 }
 
-test('"wlacz muzyke" z polaczonym kontem wznawia przez API', async () => {
+test('na telefonie "wlacz muzyke" wznawia przez API', async () => {
   const { graj, calls } = loadMusic({ connected: true });
   await graj({ zapytanie: '' });
   assert.deepEqual(calls, ['api: play', 'powiedz: Wznawiam muzykę.']);
@@ -103,10 +103,16 @@ test('gdy nie ma czego wznowic, gra konkretny utwor, a nie zostawia ciszy', asyn
   assert.ok(calls.some((c) => c.startsWith('akcja: otworz-link spotify:track:abc')), calls.join());
 });
 
-test('konto bez Premium nie konczy sie cisza', async () => {
-  const { graj, calls } = loadMusic({ connected: true, controlFails: true, desktop: { playing: true, tytul: 'X' } });
+test('na komputerze wznawia lokalnie, nawet z polaczonym kontem: API moze grac na telefonie', async () => {
+  const { graj, calls } = loadMusic({ connected: true, desktop: { playing: true, tytul: 'X' } });
   await graj({});
-  assert.deepEqual(calls, ['api: play', 'akcja: spotify-graj', 'powiedz: Gram: X']);
+  assert.deepEqual(calls, ['akcja: spotify-graj', 'powiedz: Gram: X']);
+});
+
+test('telefon bez Premium nie konczy sie cisza', async () => {
+  const { graj, calls } = loadMusic({ connected: true, controlFails: true, played: false });
+  await graj({});
+  assert.deepEqual(calls.slice(0, 2), ['api: play', 'szukaj: AC/DC Back in Black']);
 });
 
 test('konkretny tytul idzie do wyszukiwania', async () => {
