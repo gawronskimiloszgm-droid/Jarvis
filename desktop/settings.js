@@ -21,6 +21,7 @@ const DEFAULTS = {
   overlayCorner: 'tr',
   overlayOpacity: 0.85,
   overlayClick: true, // click-through: nakladka nie lapie myszy
+  agentCursor: true, // niebieski kursor Jarvisa - patrz agentCursor.js
   tasks: [], // zadania cykliczne - patrz scheduler.js
   // Linie bazowe patrolu E.D.I.T.H. (patrz patrol.js): null = jeszcze nie zapisano.
   startupBaseline: null,

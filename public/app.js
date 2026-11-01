@@ -3075,6 +3075,7 @@ function paramsForAction(name, raw) {
   if (name === 'graf-wiedzy-pokaz') return { temat: raw };
   if (name === 'schowek-ai') return { operacja: raw };
   if (name === 'graj') return { zapytanie: raw };
+  if (name === 'otworz-strone') return { adres: raw };
   if (name === 'ekran-na-zywo') return { wlacz: !/^(wylacz|stop|off|nie|0)/i.test(deaccent(String(raw || 'wlacz'))) };
   if (name === 'skanuj-kamera') return { cel: raw || 'auto' };
   if (name === 'przepis') return { nazwa: raw };

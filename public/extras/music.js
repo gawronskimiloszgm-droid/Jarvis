@@ -41,7 +41,8 @@
       /* konto bez Premium albo brak urzadzenia: probujemy na tym komputerze */
     }
     if (D()) {
-      const r = await UI.runDeviceActionNow('spotify-graj');
+      // Wprost, a nie przez runDeviceActionNow: ona nie oddaje wyniku, a tu trzeba wiedziec, czy gra.
+      const r = await D().runAction('spotify-graj').catch(() => null);
       if (r?.playing) {
         UI.pushSaid?.('jv', r.tytul ? `Gram: ${r.tytul}` : 'Wznawiam muzykę.');
         return;

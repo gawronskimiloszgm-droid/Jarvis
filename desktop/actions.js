@@ -12,6 +12,8 @@ const region = require('./region');
 const { patrol } = require('./patrol');
 const blender = require('./blender');
 const mediaSession = require('./mediaSession');
+const agentCursor = require('./agentCursor');
+const { webTarget } = require('./webUrl');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -19,10 +21,51 @@ function runWindowsCommand(cmd) {
   });
 }
 
+// Bez posrednictwa cmd.exe: ma limit 8191 znakow, a skrypty UI Automation po zakodowaniu sa blisko niego.
 function runPowerShell(script) {
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  return runWindowsCommand(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`);
+  return new Promise((resolve) => {
+    const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+    child.stderr.on('data', (d) => { err += d.toString('utf8'); });
+    child.on('error', (e) => resolve({ ok: false, output: e.message }));
+    child.on('close', (code) => resolve({ ok: code === 0, output: out || err }));
+  });
 }
+
+// Spotify ignoruje link, gdy cos gra, wiec najpierw pauza. Potem w tle pilnujemy, zeby ruszylo.
+async function openSpotifyUri(url) {
+  if (process.platform === 'win32') await runPowerShell(mediaSession.pauseIfPlayingScript());
+  await shell.openExternal(url);
+  if (process.platform === 'win32') runPowerShell(mediaSession.ensurePlayingScript({ forceAfter: 8, limit: 14 }));
+}
+
+// Skrypt UI Automation czytany na biezaco: znalazl element, wiec niebieski kursor jedzie tam przed klikiem.
+function runUiaWithCursor(script) {
+  return new Promise((resolve, reject) => {
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true });
+    let out = '';
+    let moved = false;
+    child.stdout.on('data', (d) => {
+      out += d.toString('utf8');
+      if (moved) return;
+      const mark = out.split(/\r?\n/).map(uia.cursorMark).find(Boolean);
+      if (mark) {
+        moved = true;
+        agentCursor.moveTo(mark[0], mark[1]);
+      }
+    });
+    child.on('error', reject);
+    child.on('close', () => {
+      if (moved) agentCursor.click();
+      resolve(out);
+    });
+  });
+}
+const CURSOR_PAUSE = () => (agentCursor.enabled() ? agentCursor.MOVE_MS + 60 : 0);
 
 const KEY_HELPER = `
 Add-Type -Namespace J -Name K -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, System.IntPtr dwExtraInfo);'
@@ -92,7 +135,7 @@ const ACTIONS = {
     return { ok: true, ...mediaSession.parseResult(r.output) };
   },
   pobudka: async () => {
-    await shell.openExternal(`spotify:track:${WAKE_TRACK_ID}:play`).catch(() => shell.openExternal(`https://open.spotify.com/track/${WAKE_TRACK_ID}`));
+    await openSpotifyUri(`spotify:track:${WAKE_TRACK_ID}:play`).catch(() => shell.openExternal(`https://open.spotify.com/track/${WAKE_TRACK_ID}`));
     return { ok: true };
   },
   // Otwiera TYLKO linki do utworow (Spotify / YouTube) - nic innego.
@@ -100,10 +143,19 @@ const ACTIONS = {
     const url = String((params && (params.url || params.link)) || '').trim();
     const ok = /^spotify:(track|album|playlist|artist):[A-Za-z0-9]{10,30}(:play)?$/.test(url) || /^https:\/\/(open\.spotify\.com\/(track|album|playlist|artist)\/[A-Za-z0-9]+|www\.youtube\.com\/watch\?v=[\w-]{11}|music\.youtube\.com\/watch\?v=[\w-]{11})([?&#][\w=&%.-]*)?$/.test(url);
     if (!ok) return { ok: false, error: 'Ten link nie jest dozwolony (tylko utwory Spotify/YouTube).' };
-    await shell.openExternal(url);
-    // W tle: link zwykle gra sam, a gdyby zostal na pauzie, nie ma na co czekac z odpowiedzia.
-    if (process.platform === 'win32' && url.startsWith('spotify:')) runPowerShell(mediaSession.ensurePlayingScript({ forceAfter: 8, limit: 14 }));
+    if (url.startsWith('spotify:')) await openSpotifyUri(url);
+    else await shell.openExternal(url);
     return { ok: true };
+  },
+  // Konkretna strona albo wyszukiwanie na niej. otworz-przegladarke otwiera tylko strone startowa.
+  'otworz-strone': async (params) => {
+    const url = webTarget(params.adres || params.url, params.zapytanie);
+    await shell.openExternal(url);
+    return { ok: true, url };
+  },
+  'kursor-jarvisa': async (params) => {
+    await agentCursor.pin(params.pokaz);
+    return { ok: true, wlaczony: agentCursor.enabled() };
   },
   'otworz-youtube-music': async () => { await shell.openExternal('https://music.youtube.com'); return { ok: true }; },
   'otworz-przegladarke': async () => { await shell.openExternal('https://google.com'); return { ok: true }; },
@@ -246,6 +298,8 @@ const DYNAMIC_SYSTEM_ACTIONS = {
   'otworz-aplikacje': async (params) => {
     const appName = String(params.nazwa || params.app || '').trim();
     if (!appName) return { ok: false, error: 'Nie podano nazwy aplikacji.' };
+    // Nazwa trafia do wiersza polecen: cudzyslow pozwolilby dokleic inne polecenie.
+    if (/["\r\n]/.test(appName)) return { ok: false, error: 'Nieprawidlowa nazwa aplikacji.' };
     return runWindowsCommand(`start "" "${appName}"`);
   },
 
@@ -271,7 +325,9 @@ const DYNAMIC_SYSTEM_ACTIONS = {
   'pisz-tekst': async (params) => {
     const text = String(params.tekst || params.text || '');
     if (!text) return { ok: false, error: 'Brak tekstu do wpisania.' };
-    const escapedText = text.replace(/'/g, "''");
+    // SendKeys traktuje + ^ % ~ i nawiasy jak polecenia: "C++" wpisywalo sie jako co innego.
+    const keys = text.replace(/[+^%~(){}[\]]/g, '{$&}').replace(/\r?\n/g, '{ENTER}');
+    const escapedText = keys.replace(/'/g, "''");
     const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${escapedText}')`;
     return runPowerShell(script);
   },
@@ -307,17 +363,9 @@ const DYNAMIC_SYSTEM_ACTIONS = {
     const { size } = screen.getPrimaryDisplay();
     const x = Math.round((Math.min(100, Math.max(0, xPct)) / 100) * size.width);
     const y = Math.round((Math.min(100, Math.max(0, yPct)) / 100) * size.height);
-    const script = `
-Add-Type -Namespace J -Name M -MemberDefinition '
-[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-[DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, System.IntPtr extraInfo);
-'
-[J.M]::SetCursorPos(${x}, ${y})
-Start-Sleep -Milliseconds 40
-[J.M]::mouse_event(0x0002, 0, 0, 0, [System.IntPtr]::Zero)
-[J.M]::mouse_event(0x0004, 0, 0, 0, [System.IntPtr]::Zero)
-`;
-    const res = await runPowerShell(script);
+    await agentCursor.moveTo(x, y);
+    const res = await runPowerShell(uia.clickAtScript(x, y));
+    agentCursor.click();
     return { ...res, x, y };
   },
 
@@ -357,9 +405,9 @@ Start-Sleep -Milliseconds 40
   'kliknij-element': async (params) => {
     const name = String(params.nazwa || params.name || '').trim();
     if (!name) return { ok: false, error: 'Nie podano nazwy elementu.' };
-    const res = await runPowerShell(uia.clickScript(name, params.typ || ''));
+    const out = await runUiaWithCursor(uia.clickScript(name, params.typ || '', CURSOR_PAUSE()));
     try {
-      return JSON.parse(res.output);
+      return uia.parseOutput(out);
     } catch {
       return { ok: false, error: 'Klikniecie elementu nie powiodlo sie.' };
     }
@@ -367,9 +415,9 @@ Start-Sleep -Milliseconds 40
   'wpisz-w-element': async (params) => {
     const text = String(params.tekst || params.text || '');
     if (!text) return { ok: false, error: 'Brak tekstu do wpisania.' };
-    const res = await runPowerShell(uia.typeScript(String(params.nazwa || params.name || ''), text));
+    const out = await runUiaWithCursor(uia.typeScript(String(params.nazwa || params.name || ''), text, CURSOR_PAUSE()));
     try {
-      return JSON.parse(res.output);
+      return uia.parseOutput(out);
     } catch {
       return { ok: false, error: 'Wpisanie tekstu nie powiodlo sie.' };
     }

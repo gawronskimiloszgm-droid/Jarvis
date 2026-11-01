@@ -4,7 +4,9 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { ensurePlayingScript, parseResult } = require('../desktop/mediaSession.js');
+const { ensurePlayingScript, pauseIfPlayingScript, parseResult } = require('../desktop/mediaSession.js');
+const { webTarget } = require('../desktop/webUrl.js');
+const uia = require('../desktop/uia.js');
 const { judge } = require('../desktop/edithPolicy.js');
 
 test('odpowiedz skryptu: stan i tytul, a smieci znacza cisze', () => {
@@ -47,9 +49,9 @@ function loadMusic({ connected = false, controlFails = false, desktop = null, pl
     extend: () => {},
     clientActions: {},
     pushSaid: (_k, t) => calls.push(`powiedz: ${t}`),
+    // Prawdziwa funkcja niczego nie zwraca: atrapa zwracajaca wynik maskowala tu blad.
     runDeviceActionNow: async (name, params) => {
       calls.push(`akcja: ${name}${params?.url ? ` ${params.url}` : ''}`);
-      return desktop;
     },
     api: async (url, o) => {
       if (url === '/api/spotify/status') return { connected };
@@ -66,7 +68,17 @@ function loadMusic({ connected = false, controlFails = false, desktop = null, pl
       throw new Error(url);
     },
   };
-  const window = { JarvisUI: UI, jarvisDesktop: desktop ? {} : undefined };
+  const window = {
+    JarvisUI: UI,
+    jarvisDesktop: desktop
+      ? {
+          runAction: async (name) => {
+            calls.push(`akcja: ${name}`);
+            return desktop;
+          },
+        }
+      : undefined,
+  };
   new Function('window', fs.readFileSync(new URL('../public/extras/music.js', import.meta.url), 'utf8'))(window);
   return { graj: UI.clientActions.graj, calls };
 }
@@ -107,4 +119,64 @@ test('tytul zawierajacy slowo muzyka to nadal konkretny tytul', async () => {
   const { graj, calls } = loadMusic({ connected: true });
   await graj({ zapytanie: 'muzyka filmowa Hans Zimmer' });
   assert.equal(calls[0], 'szukaj: muzyka filmowa Hans Zimmer');
+});
+
+test('pauza przed linkiem dziala tylko, gdy cos gra', () => {
+  const s = pauseIfPlayingScript();
+  assert.match(s, /-eq 'Playing'/);
+  assert.match(s, /TryPauseAsync/);
+  assert.doesNotMatch(s, /TryPlayAsync/);
+});
+
+test('strona: nazwa, domena i wyszukiwanie', () => {
+  assert.equal(webTarget('youtube'), 'https://www.youtube.com/');
+  assert.equal(webTarget('YouTube.com'), 'https://www.youtube.com/');
+  assert.equal(webTarget('onet.pl'), 'https://www.onet.pl/');
+  assert.equal(webTarget('ceneo.pl'), 'https://ceneo.pl/');
+  assert.equal(webTarget('https://a.pl/x?y=1&z=2'), 'https://a.pl/x?y=1&z=2');
+  assert.equal(webTarget('youtube', 'back in black'), 'https://www.youtube.com/results?search_query=back%20in%20black');
+  assert.equal(webTarget('allegro', 'laptop'), 'https://allegro.pl/listing?string=laptop');
+  assert.equal(webTarget('ceneo.pl', 'laptop'), 'https://www.google.com/search?q=site%3Aceneo.pl%20laptop');
+  assert.equal(webTarget('', 'pogoda krakow'), 'https://www.google.com/search?q=pogoda%20krakow');
+  assert.equal(webTarget('jakas nieznana strona'), 'https://www.google.com/search?q=jakas%20nieznana%20strona');
+  assert.equal(webTarget('localhost:3000'), 'https://localhost:3000/');
+});
+
+test('strona: tylko http i https, bez loginu w adresie', () => {
+  for (const bad of ['file:///C:/Windows/system32/calc.exe', 'javascript:alert(1)', 'spotify:track:abc', 'ms-settings:privacy', 'vbscript:x']) {
+    assert.throws(() => webTarget(bad), /tylko strony/, bad);
+  }
+  assert.throws(() => webTarget('https://bank.pl@zlo.pl/'), /loginem/);
+  assert.throws(() => webTarget('', ''), /Nie podano/);
+});
+
+test('polityka: strona i kursor nie pytaja o zgode', () => {
+  assert.equal(judge('otworz-strone').allow, true);
+  assert.equal(judge('kursor-jarvisa').allow, true);
+});
+
+test('wynik klikniecia: znacznik kursora nie psuje odczytu JSON', () => {
+  assert.deepEqual(uia.parseOutput('@@KURSOR 10 20\r\n{"ok":true,"clicked":"Plik"}\r\n'), { ok: true, clicked: 'Plik' });
+  assert.deepEqual(uia.cursorMark('@@KURSOR 10 20'), [10, 20]);
+  assert.equal(uia.cursorMark('{"ok":true}'), null);
+  assert.throws(() => uia.parseOutput(''));
+});
+
+test('skrypty UIA: kursor przed akcja, parametry tylko jako tekst', () => {
+  const s = uia.clickScript("x'; calc; '", '', 440);
+  assert.ok(s.indexOf('Show-Cursor $best.x $best.y 440') < s.indexOf('$p.Invoke()'));
+  assert.ok(s.includes("'x''; calc; '''"));
+  assert.match(uia.clickAtScript(5.9, 'zly'), /Click-At 5 0/);
+});
+
+test('nazwane panele sa na liscie elementow, bo klasyczne okna nie maja tam innych typow', () => {
+  assert.ok(uia.listScript(10).split('\n').some((l) => l.startsWith('$wantedTypes') && l.includes("'Pane'")));
+  assert.match(uia.listScript(10), /if \(-not \$name -and \$t -ne 'Edit'/);
+});
+
+test('skrypty UIA mieszcza sie w limicie uruchomienia procesu w Windows', () => {
+  for (const script of [uia.listScript(120), uia.clickScript('x', '', 440), uia.typeScript('x', 'y'.repeat(2000), 440)]) {
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    assert.ok(encoded.length < 32000, `dlugosc ${encoded.length}`);
+  }
 });

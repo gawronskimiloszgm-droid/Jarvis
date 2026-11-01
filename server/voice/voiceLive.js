@@ -237,7 +237,8 @@ ${LIFE_VOICE_PROMPT}
 - muzyka / co_gra: sterowanie tym, co gra (pauza, dalej, glosnosc) i pytanie co leci. minutnik: odliczanie na ekranie (zamiast przypomnienia, gdy chodzi o kilka-kilkadziesiat minut). skupienie: tryb Pomodoro.
 - pilot_pc: sterowanie KOMPUTEREM zdalnie (takze gdy rozmawiasz z telefonu): muzyka, glosnosc, blokada, zrzut ekranu, otwieranie aplikacji, wpisywanie tekstu. Uzywaj gdy user mowi o komputerze/PC/laptopie i jest poza nim.
 - szukaj_plikow (indeks Windows, po nazwie i tresci), przetworz_schowek, uloz_okno: uzywaj bez zbednych pytan, gdy uzytkownik o to prosi.
-- zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
+- otworz_strone: KAZDA konkretna strona albo szukanie w internecie. Nigdy nie otwieraj samej przegladarki, gdy padla nazwa strony.
+- zrob_na_ekranie: dla zadan WIELOETAPOWYCH w aplikacjach (agent sam patrzy na ekran i klika swoim niebieskim kursorem, a myszka uzytkownika zostaje wolna). Do jednego prostego kroku uzywaj otworz_aplikacje/pisz_tekst itd. Powiedz krotko, co zlecasz, i nie komentuj kazdego kroku.
 - Dlugie pliki i dokumenty: wczytaj_plik (sciezka na dysku) albo uzytkownik wrzuca plik w panelu Analiza; potem na KAZDE pytanie o ich tresc uzywaj zapytaj_dokument i odpowiadaj na podstawie wyniku - nie zgaduj. Do patrzenia na ekran jest co_na_ekranie.
 - zamknij_proces ZAWSZE wymaga wyraznego potwierdzenia uzytkownika (E.D.I.T.H. o nie zapyta na ekranie/w czacie) - powiedz uzytkownikowi, ze to zrobiles i czeka na jego "tak", nie obiecuj ze juz jest zamkniete.
 - Gdy nie jestes pewien, CO dokladnie uzytkownik chce zrobic (zle usłyszane słowo, dwuznaczna nazwa procesu/aplikacji, cicha albo urwana wypowiedz) - zapytaj krotko zamiast zgadywac i wykonywac akcje "na wszelki wypadek". Lepiej dopytac raz, niz kliknac/zamknac/napisac cos, czego nikt nie chcial.
@@ -486,6 +487,17 @@ const ALL_TOOLS = [
       type: 'object',
       properties: { pytanie: { type: 'string' } },
       required: ['pytanie'],
+    },
+  },
+  {
+    name: 'otworz_strone',
+    description: 'Otworz KONKRETNA strone w przegladarce, opcjonalnie od razu z wyszukiwaniem. Uzywaj ZAWSZE, gdy uzytkownik nazwie strone albo chce czegos w internecie ("wejdz na youtube", "otworz onet", "wyszukaj na allegro laptopa"). Do "otworz strone i kliknij/zaloguj/wypelnij" najpierw to, potem zrob_na_ekranie.',
+    parameters: {
+      type: 'object',
+      properties: {
+        adres: { type: 'string', description: 'Adres albo nazwa strony, np. "youtube.com", "onet.pl", "allegro".' },
+        zapytanie: { type: 'string', description: 'Czego szukac na tej stronie; puste, gdy ma sie tylko otworzyc. Bez adresu szuka w Google.' },
+      },
     },
   },
   {
@@ -1192,6 +1204,9 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 const heardNow = userTranscript.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
                 if (akcja === 'pobudka' && !/pobudk|obud|wstawa|back in black/i.test(heardNow)) {
                   result = { error: 'pobudka to tylko Back in Black na prosbe o pobudke. Do KAZDEJ innej muzyki uzyj narzedzia graj_muzyke z nazwa utworu/wykonawcy.' };
+                } else if (akcja === 'otworz-przegladarke' && /\b[\w-]+\.(pl|com|org|net|eu|tv|io)\b|youtub|wejd|strone|stronie|wyszukaj|poszukaj|znajdz|allegro|facebook|onet|google/i.test(heardNow)) {
+                  // Sama przegladarka bez strony to dokladnie to, na co skarzyl sie uzytkownik.
+                  result = { error: 'otworz-przegladarke otwiera tylko strone startowa. Uzyj narzedzia otworz_strone z adresem strony z tej prosby.' };
                 } else if (akcja === 'otworz-spotify' && /wlacz|w.acz|pusc|zagraj|graj|muzyk/i.test(heardNow) && !/otworz|uruchom/i.test(heardNow)) {
                   // Prosba o muzyke, a nie o okno aplikacji: samo otwarcie zostawiloby cisze.
                   safeSend(JSON.stringify({ type: 'deviceAction', action: 'graj', params: { zapytanie: '' } }));
@@ -1349,6 +1364,14 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                   result = await askCurrent((call.args || {}).pytanie);
                 } catch {
                   result = { error: 'nie udalo sie odpowiedziec na podstawie dokumentu' };
+                }
+              } else if (call.name === 'otworz_strone') {
+                const { adres, zapytanie } = call.args || {};
+                if (!adres && !zapytanie) {
+                  result = { error: 'brak adresu strony' };
+                } else {
+                  safeSend(JSON.stringify({ type: 'deviceAction', action: 'otworz-strone', params: { adres: String(adres || ''), zapytanie: String(zapytanie || '') } }));
+                  result = { ok: true, note: 'strona sie otwiera; powiedz krotko co otwierasz' };
                 }
               } else if (call.name === 'otworz_aplikacje') {
                 const { nazwa } = call.args || {};

@@ -123,6 +123,7 @@
     setRunning(true);
     log(`CEL: ${goal}`, 'goal');
     audit('agent-start', goal, 'allowed');
+    desktop('kursor-jarvisa', { pokaz: true }).catch(() => {});
     pushSaid('jv', `Biore sie za to: ${goal}`);
 
     try {
@@ -182,6 +183,7 @@
     } finally {
       run = null;
       setRunning(false);
+      desktop('kursor-jarvisa', { pokaz: false }).catch(() => {});
     }
   }
 
@@ -195,6 +197,21 @@
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && run) stop();
   });
+
+  // Strona w przegladarce. Na komputerze sprawdza ja E.D.I.T.H., a na telefonie po prostu otwieramy adres.
+  UI.clientActions['otworz-strone'] = async (params) => {
+    const adres = String(params?.adres || '').trim();
+    const zapytanie = String(params?.zapytanie || '').trim();
+    if (window.jarvisDesktop) {
+      const r = await window.jarvisDesktop.runAction('otworz-strone', { adres, zapytanie });
+      if (r?.blocked) throw new Error(`Zablokowane przez E.D.I.T.H.: ${r.edithReason || ''}`);
+      if (!r?.ok) throw new Error(r?.error || 'Nie udało się otworzyć strony.');
+      return;
+    }
+    const plain = /^https?:\/\//i.test(adres) ? adres : /^[^\s/]+\.[^\s/]{2,}/.test(adres) ? `https://${adres}` : '';
+    const url = plain && !zapytanie ? plain : `https://www.google.com/search?q=${encodeURIComponent(`${adres} ${zapytanie}`.trim())}`;
+    window.open(url, '_blank') || (location.href = url);
+  };
 
   UI.clientActions['wykonaj-na-ekranie'] = (params) => {
     const goal = String(params?.cel || '').trim();
@@ -231,6 +248,19 @@
       });
       const logBox = el('div', 'agent-log');
       body.append(form, logBox);
+      if (window.jarvisDesktop) {
+        const row = el('label', 'sub');
+        row.style.display = 'block';
+        row.style.marginTop = '8px';
+        const box = el('input');
+        box.type = 'checkbox';
+        row.append(box, ' Niebieski kursor Jarvisa na ekranie (Twoja myszka zostaje Twoja)');
+        window.jarvisDesktop.getSetting('agentCursor').then((v) => {
+          box.checked = v !== false;
+        }).catch(() => {});
+        box.addEventListener('change', () => window.jarvisDesktop.setSetting('agentCursor', box.checked).catch((e) => toast(e.message)));
+        form.after(row);
+      }
       ui = { goal, start: startBtn, stop: stopBtn, log: logBox };
       if (!window.jarvisDesktop) log('Ten modul wymaga aplikacji desktopowej (w przegladarce nie ma jak sterowac systemem).', 'bad');
     },

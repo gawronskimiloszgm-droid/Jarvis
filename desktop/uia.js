@@ -14,11 +14,31 @@ Add-Type -Namespace J -Name W -MemberDefinition '
 [DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, System.IntPtr e);
+public struct P { public int X; public int Y; }
+[DllImport("user32.dll")] public static extern bool GetCursorPos(out P p);
 '
+# Twoja myszka wraca na miejsce: wskaznik jest tam tylko na czas samego klikniecia.
+function Click-At($x, $y) {
+  $o = New-Object J.W+P
+  [J.W]::GetCursorPos([ref]$o) | Out-Null
+  [J.W]::SetCursorPos($x, $y) | Out-Null
+  Start-Sleep -Milliseconds 40
+  [J.W]::mouse_event(0x0002, 0, 0, 0, [System.IntPtr]::Zero)
+  [J.W]::mouse_event(0x0004, 0, 0, 0, [System.IntPtr]::Zero)
+  Start-Sleep -Milliseconds 30
+  [J.W]::SetCursorPos($o.X, $o.Y) | Out-Null
+}
+# Pierwsza linia wyniku mowi, dokad ma dojechac niebieski kursor, zanim cokolwiek sie stanie.
+function Show-Cursor($x, $y, $pause) {
+  [Console]::WriteLine("@@KURSOR $x $y")
+  if ($pause -gt 0) { Start-Sleep -Milliseconds $pause }
+}
 $AE = [System.Windows.Automation.AutomationElement]
 $hwnd = [J.W]::GetForegroundWindow()
 $root = $AE::FromHandle($hwnd)
-$wantedTypes = 'Button','Edit','MenuItem','ListItem','CheckBox','RadioButton','Hyperlink','TabItem','ComboBox','Text','TreeItem','SplitButton','Document'
+# Pane: klasyczne okna bywaja widoczne wylacznie jako panele (przycisk OK w winver ma typ Pane, bez Invoke).
+# Nazwany panel klikamy we wspolrzedne, a panele bez nazwy odpadaja nizej.
+$wantedTypes = 'Button','Edit','MenuItem','ListItem','CheckBox','RadioButton','Hyperlink','TabItem','ComboBox','Text','TreeItem','SplitButton','Document','Pane'
 function Get-Items($root) {
   $cond = New-Object System.Windows.Automation.AndCondition(
     (New-Object System.Windows.Automation.PropertyCondition($AE::IsOffscreenProperty, $false)),
@@ -60,7 +80,7 @@ $list = @($items | Select-Object -First ${Number(limit) | 0} | ForEach-Object {
 }
 
 // Znajduje element po nazwie (dokladna > poczatek > zawieranie) i klika/wywoluje.
-function clickScript(name, type) {
+function clickScript(name, type, pause = 0) {
   return `${HEADER}
 $want = ${q(name)}.ToLower()
 $wantType = ${q(type)}
@@ -69,22 +89,20 @@ $best = $items | Where-Object { $_.name.ToLower() -eq $want } | Select-Object -F
 if (-not $best) { $best = $items | Where-Object { $_.name.ToLower().StartsWith($want) } | Select-Object -First 1 }
 if (-not $best) { $best = $items | Where-Object { $_.name.ToLower().Contains($want) } | Select-Object -First 1 }
 if (-not $best) { [pscustomobject]@{ ok = $false; error = 'Nie znalazlem elementu o takiej nazwie w aktywnym oknie.'; window = $winTitle } | ConvertTo-Json -Compress; exit }
+Show-Cursor $best.x $best.y ${Number(pause) | 0}
 $how = 'klik'
 try {
   $p = $best.el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
   $p.Invoke(); $how = 'invoke'
 } catch {
-  [J.W]::SetCursorPos($best.x, $best.y) | Out-Null
-  Start-Sleep -Milliseconds 40
-  [J.W]::mouse_event(0x0002, 0, 0, 0, [System.IntPtr]::Zero)
-  [J.W]::mouse_event(0x0004, 0, 0, 0, [System.IntPtr]::Zero)
+  Click-At $best.x $best.y
 }
 [pscustomobject]@{ ok = $true; clicked = $best.name; type = $best.type; how = $how; window = $winTitle } | ConvertTo-Json -Compress
 `;
 }
 
 // Wpisuje tekst w pole (po nazwie albo pierwsze pole edycji okna).
-function typeScript(name, text) {
+function typeScript(name, text, pause = 0) {
   return `${HEADER}
 $want = ${q(name)}.ToLower()
 $items = Get-Items $root | Where-Object { $_.type -eq 'Edit' -or $_.type -eq 'Document' -or $_.type -eq 'ComboBox' }
@@ -94,6 +112,7 @@ if ($want) {
   if (-not $best) { $best = $items | Where-Object { $_.name.ToLower().Contains($want) } | Select-Object -First 1 }
 } else { $best = $items | Select-Object -First 1 }
 if (-not $best) { [pscustomobject]@{ ok = $false; error = 'Nie znalazlem pola do wpisania tekstu.'; window = $winTitle } | ConvertTo-Json -Compress; exit }
+Show-Cursor $best.x $best.y ${Number(pause) | 0}
 $how = 'value'
 try {
   $vp = $best.el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
@@ -109,4 +128,23 @@ try {
 `;
 }
 
-module.exports = { listScript, clickScript, typeScript, q };
+/** Klikniecie w punkcie ekranu: wskaznik wraca na miejsce. */
+function clickAtScript(x, y) {
+  return `${HEADER}
+Click-At ${Number(x) | 0} ${Number(y) | 0}
+`;
+}
+
+/** Wynik skryptu z paskiem: ostatnia linia to JSON, wczesniejsze to znaczniki kursora. */
+function parseOutput(output) {
+  const lines = String(output || '').split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('@@KURSOR'));
+  return JSON.parse(lines[lines.length - 1]);
+}
+
+/** Znacznik kursora z linii wyniku: [x, y] albo null. */
+function cursorMark(line) {
+  const m = /^@@KURSOR (-?\d+) (-?\d+)\s*$/.exec(String(line));
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+module.exports = { listScript, clickScript, typeScript, clickAtScript, parseOutput, cursorMark, q };

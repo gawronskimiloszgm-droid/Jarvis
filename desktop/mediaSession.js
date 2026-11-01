@@ -30,6 +30,17 @@ $n='';if($s){$i=W ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.Glob
 @{playing=$on;tytul=$n}|ConvertTo-Json -Compress`;
 }
 
+/** Gdy cos gra, Spotify w ogole ignoruje link do utworu (zmierzone), a po pauzie go przyjmuje. */
+function pauseIfPlayingScript() {
+  return `$ErrorActionPreference='SilentlyContinue'
+${BASE}
+$s=S
+if($s -and "$($s.GetPlaybackInfo().PlaybackStatus)" -eq 'Playing'){
+[void](W ($s.TryPauseAsync()) ([bool]))
+Start-Sleep -Milliseconds 1000
+}`;
+}
+
 /** Odpowiedz skryptu; zepsuta albo pusta znaczy, ze nic nie gra. */
 function parseResult(output) {
   try {
@@ -41,4 +52,4 @@ function parseResult(output) {
   }
 }
 
-module.exports = { ensurePlayingScript, parseResult };
+module.exports = { ensurePlayingScript, pauseIfPlayingScript, parseResult };

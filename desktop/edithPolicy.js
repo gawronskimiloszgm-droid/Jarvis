@@ -8,6 +8,8 @@ const SAFE_ACTIONS = new Set([
   'pobudka',
   'otworz-youtube-music',
   'otworz-przegladarke',
+  'otworz-strone',
+  'kursor-jarvisa',
   'otworz-discord',
   'otworz-teams',
   'otworz-slack',
