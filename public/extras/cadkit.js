@@ -24,9 +24,12 @@
     loft: 'przejście przez przekroje (nadwozie, skrzydło): przekroje [{p, typ, a, b, dx, dz}]',
     rurka: 'rurka po ścieżce (kable, wydech): sciezka [[x, y, z]...], r',
     sprezyna: 'sprężyna: R, r, skok, zwoje',
-    kolo_zebate: 'koło zębate: z (liczba zębów), m (moduł), h, otwor',
+    kolo_zebate: 'koło zębate: zeby, m (moduł), h, otwor; sektor 0-1 zostawia zęby tylko na części obwodu',
+    boczny: 'rysunek z boku, najlepszy do korpusów: kontur [[x, y]...] wyciągnięty na grubość gr wzdłuż Z, zaokr (promień narożników), faza, otwory [{x, y, r}]',
+    gwint: 'pręt z gwintem: r, h, skok',
+    zespol: 'jedna część z wielu kształtów (np. wał z kołami): elementy [{ksztalt, x, y, z, rx, ry, rz, ...wymiary}]',
   };
-  const MAX_PARTS = 400;
+  const MAX_PARTS = 1500;
   const MAX_POINTS = 200;
   const clamp = (v, lo, hi, d) => {
     const n = Number(v);
@@ -108,8 +111,8 @@
   }
   // Otwory wlaczamy do konturu mostkiem do najblizszego widocznego wierzcholka.
   function bridgeHoles(outer, holes) {
-    let poly = orient(outer, true);
-    const rest = holes.map((h) => orient(h, false)).sort((a, b) => Math.max(...b.map((p) => p[0])) - Math.max(...a.map((p) => p[0])));
+    let poly = outer;
+    const rest = holes.slice().sort((a, b) => Math.max(...b.map((p) => p[0])) - Math.max(...a.map((p) => p[0])));
     rest.forEach((hole, hi) => {
       let hIdx = 0;
       hole.forEach((p, i) => {
@@ -184,24 +187,70 @@
     return out;
   }
 
-  // Kontur [[x, z]...] wyciagniety wzdluz Y, srodek wysokosci w 0.
-  function extrude(outer, holes, h) {
+  // Przesuniecie konturu w strone materialu (dla konturu CCW i otworu CW to ten sam wzor).
+  function inset(loop, d) {
+    return loop.map((v, i) => {
+      const a = loop[(i + loop.length - 1) % loop.length];
+      const b = loop[(i + 1) % loop.length];
+      const l1 = Math.hypot(v[0] - a[0], v[1] - a[1]) || 1;
+      const l2 = Math.hypot(b[0] - v[0], b[1] - v[1]) || 1;
+      const n1 = [-(v[1] - a[1]) / l1, (v[0] - a[0]) / l1];
+      const n2 = [-(b[1] - v[1]) / l2, (b[0] - v[0]) / l2];
+      const k = Math.max(0.35, 1 + n1[0] * n2[0] + n1[1] * n2[1]);
+      return [v[0] + ((n1[0] + n2[0]) * d) / k, v[1] + ((n1[1] + n2[1]) * d) / k];
+    });
+  }
+  // Zaokraglenie narozy konturu: naroze zastepuje krotki luk.
+  function fillet(poly, r, seg = 3) {
+    if (!(r > 0)) return poly;
+    const out = [];
+    poly.forEach((v, i) => {
+      const a = poly[(i + poly.length - 1) % poly.length];
+      const b = poly[(i + 1) % poly.length];
+      const l1 = Math.hypot(v[0] - a[0], v[1] - a[1]);
+      const l2 = Math.hypot(b[0] - v[0], b[1] - v[1]);
+      const t = Math.min(r, l1 / 2.01, l2 / 2.01);
+      if (t < 1e-4) return out.push(v);
+      const p = [v[0] + ((a[0] - v[0]) / l1) * t, v[1] + ((a[1] - v[1]) / l1) * t];
+      const q = [v[0] + ((b[0] - v[0]) / l2) * t, v[1] + ((b[1] - v[1]) / l2) * t];
+      for (let s = 0; s <= seg; s++) {
+        const u = s / seg;
+        out.push([(1 - u) ** 2 * p[0] + 2 * u * (1 - u) * v[0] + u * u * q[0], (1 - u) ** 2 * p[1] + 2 * u * (1 - u) * v[1] + u * u * q[1]]);
+      }
+      return undefined;
+    });
+    return out;
+  }
+
+  // Kontur [[x, z]...] wyciagniety wzdluz Y, srodek wysokosci w 0. faza scina krawedzie gory i dolu.
+  function extrude(outer, holes, h, faza = 0) {
     const o = [];
     const top = h / 2;
     const bot = -h / 2;
+    const f = Math.min(faza || 0, h * 0.45);
+    const O = orient(outer, true);
+    const H = holes.map((l) => orient(l, false));
+    const loops = [O, ...H];
+    const insets = f > 0 ? loops.map((l) => inset(l, f)) : loops;
     const up = (p) => [p[0], top, p[1]];
     const dn = (p) => [p[0], bot, p[1]];
-    const merged = bridgeHoles(outer, holes);
-    for (const [a, b, c] of earcut(merged)) {
+    for (const [a, b, c] of earcut(bridgeHoles(insets[0], insets.slice(1)))) {
       tri(o, up(a), up(b), up(c));
       tri(o, dn(a), dn(c), dn(b));
     }
-    for (let i = 0; i < merged.length; i++) {
-      const p = merged[i];
-      const q = merged[(i + 1) % merged.length];
-      if (p[0] === q[0] && p[1] === q[1]) continue;
-      quad(o, dn(p), dn(q), up(q), up(p));
-    }
+    loops.forEach((loop, li) => {
+      const inn = insets[li];
+      for (let i = 0; i < loop.length; i++) {
+        const j = (i + 1) % loop.length;
+        if (f > 0) {
+          quad(o, [inn[i][0], bot, inn[i][1]], [inn[j][0], bot, inn[j][1]], [loop[j][0], bot + f, loop[j][1]], [loop[i][0], bot + f, loop[i][1]]);
+          quad(o, [loop[i][0], bot + f, loop[i][1]], [loop[j][0], bot + f, loop[j][1]], [loop[j][0], top - f, loop[j][1]], [loop[i][0], top - f, loop[i][1]]);
+          quad(o, [loop[i][0], top - f, loop[i][1]], [loop[j][0], top - f, loop[j][1]], [inn[j][0], top, inn[j][1]], [inn[i][0], top, inn[i][1]]);
+        } else {
+          quad(o, dn(loop[i]), dn(loop[j]), up(loop[j]), up(loop[i]));
+        }
+      }
+    });
     return o;
   }
 
@@ -209,6 +258,26 @@
     const t = (i / n) * Math.PI * 2;
     return [x + r * Math.cos(t), z + r * Math.sin(t)];
   });
+
+  /** Otwor jako petla punktow: kolo, fasolka (dl), wielokat (n) albo dowolny kontur. */
+  function holeLoop(h) {
+    if (h.kontur) return h.kontur;
+    if (h.n) return circle(h.x, h.z, h.r, h.n);
+    if (!h.dl) return circle(h.x, h.z, h.r, 24);
+    const half = Math.max(0, h.dl / 2 - h.r);
+    const a = ((h.kat || 0) * Math.PI) / 180;
+    const pts = [];
+    for (let i = 0; i <= 8; i++) {
+      const t = -Math.PI / 2 + (i / 8) * Math.PI;
+      pts.push([half + h.r * Math.cos(t), h.r * Math.sin(t)]);
+    }
+    for (let i = 0; i <= 8; i++) {
+      const t = Math.PI / 2 + (i / 8) * Math.PI;
+      pts.push([-half + h.r * Math.cos(t), h.r * Math.sin(t)]);
+    }
+    return pts.map(([x, z]) => [h.x + x * Math.cos(a) - z * Math.sin(a), h.z + x * Math.sin(a) + z * Math.cos(a)]);
+  }
+  const rectCut = (x, z, c) => (c > 0 ? [[-x + c, -z], [x - c, -z], [x, -z + c], [x, z - c], [x - c, z], [-x + c, z], [-x, z - c], [-x, -z + c]] : [[-x, -z], [x, -z], [x, z], [-x, z]]);
 
   function box(sx, sy, sz) {
     const x = sx / 2;
@@ -350,7 +419,7 @@
   }
 
   // ---------- kolo zebate ----------
-  function gearOutline(z, m) {
+  function gearOutline(z, m, sektor) {
     const rp = (m * z) / 2;
     const ra = rp + m;
     const rf = Math.max(m * 0.4, rp - 1.25 * m);
@@ -359,16 +428,235 @@
     for (let i = 0; i < z; i++) {
       const t = i * step;
       const p = (r, frac) => [r * Math.cos(t + frac * step), r * Math.sin(t + frac * step)];
-      pts.push(p(rf, 0), p(rf, 0.12), p(rp, 0.2), p(ra, 0.3), p(ra, 0.45), p(rp, 0.55), p(rf, 0.63), p(rf, 0.8));
+      if (sektor && i >= z * sektor) pts.push(p(rf, 0), p(rf, 0.5));
+      else pts.push(p(rf, 0), p(rf, 0.12), p(rp, 0.2), p(ra, 0.3), p(ra, 0.45), p(rp, 0.55), p(rf, 0.63), p(rf, 0.8));
     }
     return pts;
+  }
+
+
+  // ---------- gotowe podzespoly ----------
+  // Makro rozwija sie w prawdziwe, nazwane czesci. Dzieki temu sruba ma leb i gwint, a szyna zeby,
+  // zamiast byc klockiem, a model AI wybiera element i wymiar, zamiast skladac go z brył od zera.
+  const ring = (R, n = 28) => circle(0, 0, R, n);
+  const axisZ = { rx: 90 };
+  function screwElements(d, l) {
+    const headH = d * 0.9;
+    return [
+      { ksztalt: 'gwint', r: d / 2, h: l, skok: Math.max(0.35, d * 0.16), y: -l / 2 },
+      { ksztalt: 'wyciagniecie', kontur: ring(d * 0.82, 24), h: headH * 0.55, faza: d * 0.08, otwory: [{ x: 0, z: 0, r: d * 0.42, n: 6 }], y: headH * 0.725 },
+      { ksztalt: 'walec', r: d * 0.82, h: headH * 0.45, y: headH * 0.225 },
+    ];
+  }
+  const MACROS = {
+    sruba: {
+      opis: 'śruba z gwintem i gniazdem imbusowym: d, l. Oś Y, łeb do góry',
+      make: (p) => [{ id: 'sruba', nazwa: `Śruba M${p.d} x ${p.l}`, ksztalt: 'zespol', metal: 0.9, szorstkosc: 0.35, kolor: '#30363b', elementy: screwElements(p.d, p.l) }],
+      defaults: { d: 3, l: 10 },
+    },
+    nakretka: {
+      opis: 'nakrętka sześciokątna: d',
+      make: (p) => [{ id: 'nakretka', nazwa: `Nakrętka M${p.d}`, ksztalt: 'wyciagniecie', kontur: circle(0, 0, p.d * 1.0, 6), h: p.d * 0.8, faza: p.d * 0.06, otwory: [{ x: 0, z: 0, r: p.d / 2 }], metal: 0.9, szorstkosc: 0.35, kolor: '#8f979d' }],
+      defaults: { d: 3 },
+    },
+    podkladka: {
+      opis: 'podkładka: d',
+      make: (p) => [{ id: 'podkladka', nazwa: `Podkładka ${p.d} mm`, ksztalt: 'rura', r: p.d, ri: p.d * 0.54, h: Math.max(0.3, p.d * 0.16), metal: 0.9, szorstkosc: 0.35, kolor: '#a7aeb3' }],
+      defaults: { d: 3 },
+    },
+    kolek: {
+      opis: 'kołek walcowy: d, l',
+      make: (p) => [{ id: 'kolek', nazwa: `Kołek ${p.d} x ${p.l}`, ksztalt: 'walec', r: p.d / 2, h: p.l, faza: p.d * 0.12, metal: 0.9, szorstkosc: 0.3, kolor: '#aab1b6' }],
+      defaults: { d: 3, l: 20 },
+    },
+    lozysko: {
+      opis: 'łożysko kulkowe: r (zewn.), ri (wewn.), h',
+      make: (p) => {
+        const mid = (p.r + p.ri) / 2;
+        const w = (p.r - p.ri) * 0.28;
+        const balls = Array.from({ length: 8 }, (_, i) => {
+          const t = (i / 8) * Math.PI * 2;
+          return { ksztalt: 'kula', r: w, x: mid * Math.cos(t), z: mid * Math.sin(t) };
+        });
+        return [{ id: 'lozysko', nazwa: 'Łożysko', ksztalt: 'zespol', metal: 0.95, szorstkosc: 0.25, kolor: '#b7bdc2', elementy: [{ ksztalt: 'rura', r: p.r, ri: p.r - w * 1.1, h: p.h }, { ksztalt: 'rura', r: p.ri + w * 1.1, ri: p.ri, h: p.h }, ...balls] }];
+      },
+      defaults: { r: 6, ri: 3, h: 3 },
+    },
+    szyna_picatinny: {
+      opis: 'szyna Picatinny wzdłuż X: dl. Zęby co 10 mm, szerokość 21 mm',
+      make: (p) => {
+        const n = Math.min(70, Math.floor(p.dl / 10.01));
+        const teeth = Array.from({ length: n }, (_, i) => ({ ksztalt: 'pudelko', sx: 5.2, sy: 3, sz: 21.2, faza: 0.4, x: -p.dl / 2 + 5 + i * 10.01, y: 3.2 }));
+        return [{ id: 'szyna', nazwa: `Szyna Picatinny ${Math.round(p.dl)} mm`, ksztalt: 'zespol', metal: 0.7, szorstkosc: 0.5, kolor: '#23272b', elementy: [{ ksztalt: 'pudelko', sx: p.dl, sy: 4, sz: 15.6, y: 0 }, ...teeth] }];
+      },
+      defaults: { dl: 120 },
+    },
+    panel_mlok: {
+      opis: 'panel z otworami M-LOK wzdłuż X: dl, szer, gr',
+      make: (p) => {
+        const n = Math.max(1, Math.floor((p.dl - 6) / 40));
+        const start = (-(n - 1) * 40) / 2;
+        return [{ id: 'panel', nazwa: `Panel M-LOK ${Math.round(p.dl)} mm`, ksztalt: 'plyta', sx: p.dl, sy: p.gr, sz: p.szer, faza: 0.5, kolor: '#26292c', metal: 0.2, szorstkosc: 0.7, otwory: Array.from({ length: n }, (_, i) => ({ x: start + i * 40, z: 0, r: 3.8, dl: 32 })) }];
+      },
+      defaults: { dl: 160, szer: 26, gr: 3 },
+    },
+    aeg_gearbox_v2: {
+      opis: 'kompletny gearbox V2 repliki ASG AEG, ponad 30 części: dwie skorupy, koła, tuleje, cylinder, tłok, sprężyna, dysza, spust, elektronika, śruby. Oś cylindra to X, przód +X, początek w środku cylindra, obrys X od -95 do 70, Y od -72 do 15',
+      make: () => gearboxV2(),
+      defaults: {},
+    },
+    aeg_silnik: {
+      opis: 'silnik AEG w osi Y (wałek do góry): dl, z zębnikiem, stykami i przewodami',
+      make: (p) => [
+        { id: 'kadlub', nazwa: 'Kadłub silnika', ksztalt: 'zespol', metal: 0.75, szorstkosc: 0.4, kolor: '#4a5158', elementy: [{ ksztalt: 'walec', r: 12, h: p.dl, faza: 0.8 }, { ksztalt: 'walec', r: 5, h: 2, y: p.dl / 2 + 1 }, { ksztalt: 'pudelko', sx: 3, sy: 4, sz: 1, x: 5, y: -p.dl / 2 - 2 }, { ksztalt: 'pudelko', sx: 3, sy: 4, sz: 1, x: -5, y: -p.dl / 2 - 2 }] },
+        { id: 'zebnik', nazwa: 'Zębnik silnika', ksztalt: 'zespol', metal: 0.9, szorstkosc: 0.3, kolor: '#c9a15a', rozst: [0, 40, 0], elementy: [{ ksztalt: 'walec', r: 1.1, h: 12, y: p.dl / 2 + 6 }, { ksztalt: 'walec', r: 3.4, r2: 2.6, h: 8, y: p.dl / 2 + 8 }] },
+        { id: 'przewod_p', nazwa: 'Przewód plus', ksztalt: 'rurka', r: 0.9, kolor: '#c23b32', metal: 0, szorstkosc: 0.7, sciezka: [[5, -p.dl / 2 - 3, 0], [8, -p.dl / 2 - 8, 2], [12.5, -p.dl / 4, 5], [12.5, p.dl / 2 + 6, 5]], rozst: [40, 0, 0] },
+        { id: 'przewod_m', nazwa: 'Przewód minus', ksztalt: 'rurka', r: 0.9, kolor: '#1b1e21', metal: 0, szorstkosc: 0.7, sciezka: [[-5, -p.dl / 2 - 3, 0], [-2, -p.dl / 2 - 8, -7], [12.5, -p.dl / 4, -5], [12.5, p.dl / 2 + 6, -5]], rozst: [40, 0, 0] },
+      ],
+      defaults: { dl: 58 },
+    },
+    aeg_hopup: {
+      opis: 'komora hop-up wzdłuż X: korpus, pokrętło obrotowe, ramię, gumka, docisk, oring. Początek w środku komory',
+      make: () => [
+        { id: 'korpus', nazwa: 'Korpus komory hop-up', ksztalt: 'boczny', gr: 16, faza: 0.6, zaokr: 1.5, kolor: '#2a2d30', metal: 0.25, szorstkosc: 0.6, kontur: [[-22, 10], [22, 10], [22, -8], [10, -8], [10, -22], [-10, -22], [-10, -8], [-22, -8]], otwory: [{ x: 2, y: 2, r: 4 }] },
+        { id: 'gumka', nazwa: 'Gumka hop-up 60°', ksztalt: 'rura', r: 5.2, ri: 3.1, h: 28, rz: 90, kolor: '#1c1c1e', metal: 0, szorstkosc: 0.85, rozst: [50, 0, 0] },
+        { id: 'pokretlo', nazwa: 'Pokrętło regulacji hop-up', ksztalt: 'kolo_zebate', zeby: 18, m: 1, h: 5, otwor: 3, x: 0, y: 3, z: 11, rx: 90, kolor: '#b5482f', metal: 0.5, szorstkosc: 0.5, rozst: [0, 0, 40] },
+        { id: 'ramie', nazwa: 'Ramię dociskowe', ksztalt: 'pudelko', sx: 18, sy: 3, sz: 7, faza: 0.3, y: 12, kolor: '#8f979d', metal: 0.85, szorstkosc: 0.35, rozst: [0, 40, 0] },
+        { id: 'docisk', nazwa: 'Docisk gumki (nub)', ksztalt: 'walec', r: 2.5, h: 5, y: 7, kolor: '#55585c', metal: 0, szorstkosc: 0.8, rozst: [0, 26, 0] },
+        { id: 'oring', nazwa: 'Oring komory', ksztalt: 'torus', R: 5.4, r: 0.9, x: -22, rz: 90, kolor: '#1c1c1e', metal: 0, szorstkosc: 0.9, rozst: [-30, 0, 0] },
+      ],
+      defaults: {},
+    },
+    aeg_lufa: {
+      opis: 'lufy wzdłuż +X od początku: lufa precyzyjna 6,03 (dl_wew) i lufa zewnętrzna (dl_zew) z gwintem M14 i tłumikiem płomienia',
+      make: (p) => [
+        { id: 'precyzyjna', nazwa: `Lufa precyzyjna 6,03 x ${Math.round(p.dl_wew)}`, ksztalt: 'rura', r: 4.5, ri: 3.015, h: p.dl_wew, x: p.dl_wew / 2, rz: 90, kolor: '#c8b27a', metal: 0.95, szorstkosc: 0.2, rozst: [0, 60, 0] },
+        { id: 'zewnetrzna', nazwa: 'Lufa zewnętrzna', ksztalt: 'rura', r: 10, ri: 7, h: p.dl_zew, x: p.dl_zew / 2, rz: 90, kolor: '#1f2225', metal: 0.7, szorstkosc: 0.45, rozst: [0, -60, 0] },
+        { id: 'gwint', nazwa: 'Gwint M14 lewy', ksztalt: 'gwint', r: 7, h: 14, skok: 1, x: p.dl_zew + 6, rz: -90, kolor: '#34393d', metal: 0.8, szorstkosc: 0.4, rozst: [60, 0, 0] },
+        { id: 'tlumik', nazwa: 'Tłumik płomienia', ksztalt: 'zespol', x: p.dl_zew + 24, rz: 90, kolor: '#17191b', metal: 0.7, szorstkosc: 0.5, rozst: [110, 0, 0], elementy: [{ ksztalt: 'rura', r: 11, ri: 7.5, h: 40, faza: 0.6 }, ...[0, 60, 120, 180, 240, 300].map((a) => ({ ksztalt: 'pudelko', sx: 2.4, sy: 16, sz: 2.2, y: 13, x: 10.5 * Math.cos((a * Math.PI) / 180), z: 10.5 * Math.sin((a * Math.PI) / 180), ry: -a }))] },
+      ],
+      defaults: { dl_wew: 275, dl_zew: 290 },
+    },
+    aeg_magazynek: {
+      opis: 'magazynek AEG: wys. Y, korpus z żebrami, stopka, popychacz, sprężyna, kulki 6 mm na górze. Początek w górnej krawędzi',
+      make: (p) => {
+        const h = p.wys;
+        const ribs = Array.from({ length: Math.floor(h / 22) }, (_, i) => ({ ksztalt: 'pudelko', sx: 2, sy: 10, sz: 26.4, x: -4, y: -14 - i * 22 }));
+        return [
+          { id: 'korpus', nazwa: 'Korpus magazynka', ksztalt: 'zespol', kolor: '#1d2023', metal: 0.1, szorstkosc: 0.75, elementy: [{ ksztalt: 'pudelko', sx: 52, sy: h, sz: 24, y: -h / 2, faza: 0.8 }, ...ribs] },
+          { id: 'stopka', nazwa: 'Stopka magazynka', ksztalt: 'pudelko', sx: 58, sy: 7, sz: 28, y: -h - 3, faza: 1, kolor: '#17191b', metal: 0.1, szorstkosc: 0.8, rozst: [0, -60, 0] },
+          { id: 'sprezyna', nazwa: 'Sprężyna podajnika', ksztalt: 'sprezyna', R: 7, r: 0.6, skok: 7, zwoje: Math.max(4, Math.floor((h - 26) / 7)), y: -h / 2 - 8, kolor: '#9aa1a6', metal: 0.9, szorstkosc: 0.3, rozst: [70, -40, 0] },
+          { id: 'popychacz', nazwa: 'Popychacz', ksztalt: 'pudelko', sx: 20, sy: 8, sz: 16, y: -14, kolor: '#55585c', metal: 0.1, szorstkosc: 0.7, rozst: [70, 10, 0] },
+          { id: 'kulki', nazwa: 'Kulki 6 mm', ksztalt: 'zespol', kolor: '#f1efe6', metal: 0, szorstkosc: 0.25, rozst: [0, 50, 0], elementy: Array.from({ length: 6 }, (_, i) => ({ ksztalt: 'kula', r: 3, x: (i % 2 ? 1.5 : -1.5), y: -3 - i * 5 })) },
+        ];
+      },
+      defaults: { wys: 118 },
+    },
+  };
+
+  function gearboxV2() {
+    const outline = [[-95, 15], [70, 15], [70, -14], [48, -14], [48, -40], [30, -58], [-2, -70], [-40, -72], [-58, -58], [-62, -20], [-95, -16]];
+    const inner = inset(orient(outline, true), 2.6);
+    const SECTOR = [-12, -40];
+    const SPUR = [10.6, -36];
+    const BEVEL = [-3.6, -52.9];
+    const axes = [SECTOR, SPUR, BEVEL].map(([x, y]) => ({ x, y, r: 4 }));
+    const shell = (id, nazwa, sign, krok, rozst) => ({
+      id, nazwa, k: krok, ksztalt: 'zespol', kolor: '#6f7780', metal: 0.8, szorstkosc: 0.45, rozst,
+      elementy: [
+        { ksztalt: 'boczny', kontur: outline, gr: 3, zaokr: 2, faza: 0.5, z: sign * 14, otwory: [...axes, { x: 42, y: -30, r: 3 }, { x: -40, y: -30, r: 6 }, { x: -70, y: 0, r: 4 }] },
+        { ksztalt: 'boczny', kontur: outline, gr: 12.5, z: sign * 6.3, zaokr: 2, otwory: [{ kontur: inner }] },
+      ],
+    });
+    const steel = { metal: 0.9, szorstkosc: 0.32, kolor: '#b4bbc0' };
+    const brass = { metal: 0.95, szorstkosc: 0.28, kolor: '#c9a15a' };
+    const poly = { metal: 0.1, szorstkosc: 0.65, kolor: '#23262a' };
+    const bush = (id, nazwa, [x, y], sign, side) => ({ id, nazwa, k: 1, ksztalt: 'rura', r: 4, ri: 3, h: 3, x, y, z: sign * 12.2, ...axisZ, ...brass, rozst: [0, 0, side * 70] });
+    const screws = [[-85, 8], [-85, -9], [60, 8], [60, -8], [36, -48], [-52, -50], [-14, -66]].map(([x, y], i) => ({ id: `sruba${i + 1}`, nazwa: `Śruba skorupy M3 x 28 nr ${i + 1}`, k: 7, ksztalt: 'zespol', kolor: '#2b2f33', metal: 0.9, szorstkosc: 0.35, x, y, z: 15.5, rx: 90, rozst: [0, 0, 150], elementy: screwElements(3, 28) }));
+    return [
+      shell('skorupa_l', 'Skorupa gearboxa lewa', -1, 0, [0, 0, -110]),
+      bush('tul_s_l', 'Tuleja koła sektorowego lewa', SECTOR, -1, -1),
+      bush('tul_p_l', 'Tuleja koła pośredniego lewa', SPUR, -1, -1),
+      bush('tul_b_l', 'Tuleja koła stożkowego lewa', BEVEL, -1, -1),
+      bush('tul_s_p', 'Tuleja koła sektorowego prawa', SECTOR, 1, 1),
+      bush('tul_p_p', 'Tuleja koła pośredniego prawa', SPUR, 1, 1),
+      bush('tul_b_p', 'Tuleja koła stożkowego prawa', BEVEL, 1, 1),
+      { id: 'kolo_bevel', nazwa: 'Koło stożkowe (bevel)', k: 2, ksztalt: 'zespol', x: BEVEL[0], y: BEVEL[1], ...axisZ, ...steel, rozst: [-50, -70, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 30, m: 0.85, h: 4, y: 7 }, { ksztalt: 'walec', r: 12, r2: 9, h: 2.5, y: 4 }, { ksztalt: 'kolo_zebate', zeby: 12, m: 0.85, h: 7, y: -4 }, { ksztalt: 'walec', r: 3, h: 24 }] },
+      { id: 'kolo_spur', nazwa: 'Koło pośrednie (spur)', k: 2, ksztalt: 'zespol', x: SPUR[0], y: SPUR[1], ...axisZ, ...steel, rozst: [60, -50, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 40, m: 0.85, h: 4, y: 4 }, { ksztalt: 'kolo_zebate', zeby: 12, m: 0.85, h: 8, y: -5 }, { ksztalt: 'walec', r: 3, h: 24 }] },
+      { id: 'kolo_sektor', nazwa: 'Koło sektorowe', k: 2, ksztalt: 'zespol', x: SECTOR[0], y: SECTOR[1], ...axisZ, ...steel, rozst: [0, -90, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 42, m: 0.85, h: 4, y: -5 }, { ksztalt: 'kolo_zebate', zeby: 42, m: 0.85, sektor: 0.36, h: 4, y: 1, otwor: 0 }, { ksztalt: 'walec', r: 3, h: 24 }] },
+      { id: 'zapadka', nazwa: 'Zapadka antyrewersyjna', k: 2, ksztalt: 'boczny', gr: 2.5, z: 5, zaokr: 0.8, ...steel, kontur: [[-34, -30], [-16, -46], [-12, -43], [-30, -26]], rozst: [-40, -30, 60] },
+      { id: 'cylinder', nazwa: 'Cylinder', k: 3, ksztalt: 'rura', r: 12.1, ri: 11.5, h: 72, x: 8, rz: 90, ...brass, rozst: [0, 95, 0] },
+      { id: 'glowica_c', nazwa: 'Głowica cylindra', k: 3, ksztalt: 'zespol', x: 46, rz: 90, kolor: '#8f979d', metal: 0.9, szorstkosc: 0.35, rozst: [40, 95, 0], elementy: [{ ksztalt: 'walec', r: 11.5, h: 6, faza: 0.4 }, { ksztalt: 'rura', r: 5, ri: 3.5, h: 10, y: 8 }, { ksztalt: 'torus', R: 11, r: 0.9, y: 0 }] },
+      { id: 'tlok', nazwa: 'Tłok z listwą zębatą', k: 3, ksztalt: 'zespol', x: -28, ...poly, kolor: '#3a3f45', rz: 0, rozst: [-30, 125, 0], elementy: [{ ksztalt: 'rura', r: 11, ri: 9, h: 62, rz: 90 }, ...Array.from({ length: 15 }, (_, i) => ({ ksztalt: 'pudelko', sx: 2, sy: 4, sz: 5, x: -24 + i * 3.1, y: -12.5 })), { ksztalt: 'pudelko', sx: 50, sy: 2, sz: 7, y: -10.5 }] },
+      { id: 'glowica_t', nazwa: 'Głowica tłoka z oringiem', k: 3, ksztalt: 'zespol', x: 6, rz: 90, kolor: '#8f979d', metal: 0.85, szorstkosc: 0.35, rozst: [20, 125, 0], elementy: [{ ksztalt: 'walec', r: 11, h: 7 }, { ksztalt: 'torus', R: 11, r: 1, y: 0 }] },
+      { id: 'sprezyna', nazwa: 'Sprężyna główna M90', k: 3, ksztalt: 'sprezyna', R: 8.8, r: 0.8, skok: 6.5, zwoje: 16, x: -50, rz: 90, kolor: '#596067', metal: 0.85, szorstkosc: 0.35, rozst: [-70, 150, 0] },
+      { id: 'prowadnica', nazwa: 'Prowadnica sprężyny', k: 3, ksztalt: 'zespol', x: -82, rz: 90, ...poly, rozst: [-120, 150, 0], elementy: [{ ksztalt: 'walec', r: 6.5, h: 46, y: 18 }, { ksztalt: 'walec', r: 10.5, h: 6, y: -6, faza: 0.4 }, { ksztalt: 'walec', r: 6, h: 8, y: -13 }] },
+      { id: 'dysza', nazwa: 'Dysza', k: 4, ksztalt: 'rura', r: 5.2, ri: 3.7, h: 30, x: 66, rz: 90, kolor: '#99a1a7', metal: 0.85, szorstkosc: 0.3, rozst: [100, 95, 0] },
+      { id: 'popychacz', nazwa: 'Płytka popychacza (tappet)', k: 4, ksztalt: 'boczny', gr: 2, z: 8, zaokr: 1, ...poly, kontur: [[66, -13], [20, -13], [10, -18], [-4, -18], [-4, -14], [8, -10], [66, -10]], rozst: [40, 40, 70] },
+      { id: 'spust', nazwa: 'Spust', k: 5, ksztalt: 'boczny', gr: 7, faza: 0.6, zaokr: 1.5, kolor: '#272a2e', metal: 0.5, szorstkosc: 0.5, kontur: [[26, -50], [40, -50], [40, -58], [36, -76], [31, -80], [33, -70], [28, -58]], rozst: [20, -80, 0] },
+      { id: 'wylacznik', nazwa: 'Przełącznik spustowy', k: 5, ksztalt: 'pudelko', sx: 18, sy: 22, sz: 10, x: 30, y: -30, faza: 0.4, kolor: '#59301f', metal: 0.2, szorstkosc: 0.6, rozst: [80, -60, 40] },
+      { id: 'mosfet', nazwa: 'Układ MOSFET', k: 5, ksztalt: 'pudelko', sx: 26, sy: 3, sz: 16, x: 28, y: -55, kolor: '#1d6b4a', metal: 0.2, szorstkosc: 0.55, rozst: [110, -60, 40] },
+      { id: 'wybierak', nazwa: 'Płytka selektora', k: 5, ksztalt: 'boczny', gr: 1.5, z: -11, ...steel, kontur: [[-40, -18], [10, -18], [12, -24], [-20, -28], [-44, -24]], zaokr: 1, rozst: [-30, -20, -60] },
+      shell('skorupa_p', 'Skorupa gearboxa prawa', 1, 6, [0, 0, 110]),
+      ...screws,
+    ];
+  }
+
+  // Zlozenie transformacji: czesc-dziecko w ukladzie makra, makro w ukladzie projektu.
+  function eulerMatrix(rx, ry, rz) {
+    const d = Math.PI / 180;
+    const [cx, sx] = [Math.cos(rx * d), Math.sin(rx * d)];
+    const [cy, sy] = [Math.cos(ry * d), Math.sin(ry * d)];
+    const [cz, sz] = [Math.cos(rz * d), Math.sin(rz * d)];
+    return [cy * cz, -cy * sz, sy, sx * sy * cz + cx * sz, -sx * sy * sz + cx * cz, -sx * cy, -cx * sy * cz + sx * sz, cx * sy * sz + sx * cz, cx * cy];
+  }
+  const mulM = (a, b) => Array.from({ length: 9 }, (_, i) => {
+    const r = Math.floor(i / 3);
+    const c = i % 3;
+    return a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+  });
+  const mulV = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+  function toEuler(m) {
+    const ry = Math.asin(Math.max(-1, Math.min(1, m[2])));
+    const k = 180 / Math.PI;
+    if (Math.abs(m[2]) < 0.99999) return [Math.atan2(-m[5], m[8]) * k, ry * k, Math.atan2(-m[1], m[0]) * k];
+    return [Math.atan2(m[7], m[4]) * k, ry * k, 0];
+  }
+
+  function expandMacro(raw) {
+    const def = MACROS[raw.makro];
+    const params = {};
+    Object.entries(def.defaults).forEach(([k, d]) => {
+      params[k] = clamp(raw[k], 0.1, LIM, d);
+    });
+    const parent = eulerMatrix(Number(raw.rx) || 0, Number(raw.ry) || 0, Number(raw.rz) || 0);
+    const origin = [Number(raw.x) || 0, Number(raw.y) || 0, Number(raw.z) || 0];
+    const prefix = String(raw.id || raw.makro).replace(/[^\w-]/g, '_');
+    return def.make(params).map((c) => {
+      const pos = mulV(parent, [Number(c.x) || 0, Number(c.y) || 0, Number(c.z) || 0]);
+      const [rx, ry, rz] = toEuler(mulM(parent, eulerMatrix(Number(c.rx) || 0, Number(c.ry) || 0, Number(c.rz) || 0)));
+      const out = { ...c, id: `${prefix}_${c.id}`, x: origin[0] + pos[0], y: origin[1] + pos[1], z: origin[2] + pos[2], rx, ry, rz, grupa: raw.grupa, zrodlo: raw.zrodlo };
+      if (raw.nazwa && def.make(params).length === 1) out.nazwa = raw.nazwa;
+      if (raw.kolor && def.make(params).length === 1) out.kolor = raw.kolor;
+      out.krok = raw.krok_od != null ? Number(raw.krok_od) + (c.k || 0) : raw.krok;
+      if (c.rozst) out.rozst = mulV(parent, c.rozst);
+      delete out.k;
+      return out;
+    });
   }
 
   // ---------- normalizacja ----------
   const COLOR = /^#[0-9a-f]{6}$/i;
   const points2 = (v) => (Array.isArray(v) ? v : []).slice(0, MAX_POINTS).map((p) => (Array.isArray(p) ? [pos(p[0]), pos(p[1])] : null)).filter(Boolean);
   const points3 = (v) => (Array.isArray(v) ? v : []).slice(0, MAX_POINTS).map((p) => (Array.isArray(p) ? [pos(p[0]), pos(p[1]), pos(p[2])] : null)).filter(Boolean);
-  const holes = (v) => (Array.isArray(v) ? v : []).slice(0, 40).map((h) => ({ x: pos(h?.x), z: pos(h?.z), r: size(h?.r, 1) }));
+  const holes = (v) => (Array.isArray(v) ? v : []).slice(0, 60).map((h) => {
+    const o = { x: pos(h?.x), z: pos(h?.z ?? h?.y), r: size(h?.r, 1) };
+    if (Number(h?.dl) > 0) o.dl = size(h.dl, 0);
+    if (h?.kat) o.kat = clamp(h.kat, -360, 360, 0);
+    if (Number(h?.n) >= 3) o.n = Math.round(clamp(h.n, 3, 24, 6));
+    if (Array.isArray(h?.kontur) && h.kontur.length >= 3) o.kontur = points2(h.kontur);
+    return o;
+  });
 
   function normalizePart(raw = {}, i = 0) {
     const ksztalt = SHAPES[raw.ksztalt] ? raw.ksztalt : 'pudelko';
@@ -397,7 +685,21 @@
     if (['x', 'y', 'z'].includes(raw.odb)) p.odb = raw.odb;
     if (Array.isArray(raw.rozst)) p.rozst = [pos(raw.rozst[0]), pos(raw.rozst[1]), pos(raw.rozst[2])];
 
+    if (Number(raw.zaokr) > 0) p.zaokr = size(raw.zaokr, 0);
     if (ksztalt === 'pudelko' || ksztalt === 'klin') Object.assign(p, { sx: size(raw.sx, 40), sy: size(raw.sy, 40), sz: size(raw.sz, 40) });
+    else if (ksztalt === 'boczny') {
+      p.kontur = points2(raw.kontur);
+      if (p.kontur.length < 3) p.kontur = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
+      p.gr = size(raw.gr ?? raw.h, 10);
+      p.otwory = holes(raw.otwory);
+    } else if (ksztalt === 'gwint') {
+      p.r = size(raw.r, 3);
+      p.h = size(raw.h, 10);
+      p.skok = clamp(raw.skok, Math.max(0.05, p.h / 80), p.h, Math.max(p.h / 80, p.r * 0.3));
+    } else if (ksztalt === 'zespol') {
+      p.elementy = (Array.isArray(raw.elementy) ? raw.elementy : []).filter((e) => e && typeof e === 'object').slice(0, 90).map((e) => normalizePart({ ...e, ksztalt: SHAPES[e.ksztalt] && e.ksztalt !== 'zespol' ? e.ksztalt : 'pudelko' }));
+      if (!p.elementy.length) p.elementy = [normalizePart({ sx: 10, sy: 10, sz: 10 })];
+    }
     else if (ksztalt === 'walec') {
       p.r = size(raw.r, 10);
       p.r2 = raw.r2 == null ? p.r : clamp(raw.r2, 0, LIM, p.r);
@@ -455,6 +757,7 @@
       p.zeby = Math.round(clamp(raw.zeby ?? raw.z_zebow, 6, 200, 20));
       p.m = size(raw.m, 2);
       p.h = size(raw.h, 8);
+      if (Number(raw.sektor) > 0 && Number(raw.sektor) < 1) p.sektor = Number(raw.sektor);
       const rf = (p.m * p.zeby) / 2 - 1.25 * p.m;
       p.otwor = clamp(raw.otwor, 0, Math.max(0, rf * 0.9), Math.max(0, rf * 0.25));
     }
@@ -494,7 +797,8 @@
           copies.push(c);
         }
       }
-      for (const c of copies) {
+      const flat = copies.flatMap((c) => (MACROS[c.makro] ? expandMacro(c) : [c]));
+      for (const c of flat) {
         out.push(c);
         if (['x', 'y', 'z'].includes(raw.lustro)) {
           const a = raw.lustro;
@@ -542,9 +846,41 @@
     switch (p.ksztalt) {
       case 'walec': {
         const seg = p.seg || 40;
-        m = revolve([[p.r, -p.h / 2], [p.r2, p.h / 2]], seg);
+        const f = Math.min(p.faza || 0, p.h * 0.4, Math.max(p.r, p.r2) * 0.5);
+        m = revolve(f > 0 ? [[Math.max(0, p.r - f), -p.h / 2], [p.r, -p.h / 2 + f], [p.r2, p.h / 2 - f], [Math.max(0, p.r2 - f), p.h / 2]] : [[p.r, -p.h / 2], [p.r2, p.h / 2]], seg);
         break;
       }
+      case 'gwint': {
+        const turns = Math.min(18, Math.max(1, Math.floor(p.h / p.skok)));
+        const pitch = p.h / turns;
+        const minor = p.r - Math.min(p.r * 0.4, pitch * 0.55);
+        const prof = [[minor, -p.h / 2]];
+        for (let i = 0; i < turns; i++) {
+          const y = -p.h / 2 + i * pitch;
+          prof.push([minor, y + pitch * 0.1], [p.r, y + pitch * 0.45], [p.r, y + pitch * 0.55], [minor, y + pitch * 0.9]);
+        }
+        prof.push([minor, p.h / 2]);
+        m = revolve(prof, 14);
+        break;
+      }
+      case 'boczny': {
+        // Rysujemy jak na kartce (x, y), a grubosc idzie w Z.
+        const local = extrude(fillet(p.kontur, p.zaokr || 0), p.otwory.map(holeLoop), p.gr, p.faza);
+        m = new Array(local.length);
+        for (let i = 0; i < local.length; i += 3) {
+          m[i] = local[i];
+          m[i + 1] = local[i + 2];
+          m[i + 2] = local[i + 1];
+        }
+        break;
+      }
+      case 'zespol':
+        m = [];
+        for (const e of p.elementy) {
+          const w = transform(e, partMesh(e));
+          for (let i = 0; i < w.length; i++) m.push(w[i]);
+        }
+        break;
       case 'rura':
         m = revolve([[p.ri, -p.h / 2], [p.r, -p.h / 2], [p.r, p.h / 2], [p.ri, p.h / 2]], 40, true);
         break;
@@ -587,13 +923,11 @@
         break;
       }
       case 'plyta': {
-        const x = p.sx / 2;
-        const z = p.sz / 2;
-        m = extrude([[-x, -z], [x, -z], [x, z], [-x, z]], p.otwory.map((h) => circle(h.x, h.z, h.r, 24)), p.sy);
+        m = extrude(rectCut(p.sx / 2, p.sz / 2, 0), p.otwory.map(holeLoop), p.sy, p.faza);
         break;
       }
       case 'wyciagniecie':
-        m = extrude(p.kontur, p.otwory.map((h) => circle(h.x, h.z, h.r, 24)), p.h);
+        m = extrude(fillet(p.kontur, p.zaokr || 0), p.otwory.map(holeLoop), p.h, p.faza);
         break;
       case 'obrotowa':
         m = revolve(p.gladki ? catmull(p.profil.map(([r, y]) => [r, y, 0]), 4).map((v) => [Math.max(0, v[0]), v[1]]) : p.profil, 48);
@@ -615,10 +949,11 @@
         break;
       }
       case 'kolo_zebate':
-        m = extrude(gearOutline(p.zeby, p.m), p.otwor > 0 ? [circle(0, 0, p.otwor, 32)] : [], p.h);
+        m = extrude(gearOutline(p.zeby, p.m, p.sektor), p.otwor > 0 ? [circle(0, 0, p.otwor, 32)] : [], p.h, p.faza);
         break;
       default:
-        m = box(p.sx, p.sy, p.sz);
+        // Faza pudelka: sciete takze pionowe krawedzie, bo w podgladzie to one najbardziej lapia swiatlo.
+        m = p.faza > 0 ? extrude(rectCut(p.sx / 2, p.sz / 2, Math.min(p.faza, p.sx * 0.3, p.sz * 0.3)), [], p.sy, Math.min(p.faza, p.sy * 0.4)) : box(p.sx, p.sy, p.sz);
     }
     if (p.odb) {
       const k = { x: 0, y: 1, z: 2 }[p.odb];
@@ -704,13 +1039,14 @@
     let i = 0;
     for (const p of project.czesci) {
       i++;
-      if (p.rozst) {
-        out[p.id] = p.rozst.slice();
-        continue;
-      }
       const c = centerOf(m.items[p.id]);
       const g = groups.get(p.grupa);
       const gc = g.sum.map((v) => v / g.n);
+      if (p.rozst) {
+        // Wlasny kierunek czesci, a do tego odjazd calego podzespolu, zeby grupy na siebie nie nachodzily.
+        out[p.id] = groups.size > 1 ? p.rozst.map((v, k) => v + (gc[k] - center[k]) * 1.1) : p.rozst.slice();
+        continue;
+      }
       const v = [0, 1, 2].map((k) => (gc[k] - center[k]) * 0.9 + (c[k] - gc[k]) * 1.25);
       if (Math.hypot(v[0], v[1], v[2]) < m.span * 0.04) {
         // Czesc w samym srodku (np. srodek stosu): wyjmujemy ja na bok, po kolei w roznych strony.
@@ -852,5 +1188,7 @@
     return `﻿${rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n')}`;
   }
 
-  return { SHAPES, MAX_PARTS, normalizePart, normalizeProject, expandParts, partMesh, worldMesh, transform, measure, boundsOf, centerOf, explodeVectors, stepNumbers, timeline, check, massG, applyOps, stlBinary, bomCsv, signedVolume };
+  const macroDoc = () => Object.entries(MACROS).map(([k, v]) => `- ${k}: ${v.opis}`).join('\n');
+
+  return { SHAPES, MACROS, macroDoc, MAX_PARTS, normalizePart, normalizeProject, expandParts, partMesh, worldMesh, transform, measure, boundsOf, centerOf, explodeVectors, stepNumbers, timeline, check, massG, applyOps, stlBinary, bomCsv, signedVolume };
 });

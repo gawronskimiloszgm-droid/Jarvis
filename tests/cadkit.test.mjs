@@ -42,7 +42,10 @@ const SAMPLES = {
   loft: { przekroje: [{ p: -20, a: 10, b: 5 }, { p: 0, typ: 'prostokat', a: 12, b: 8, dx: 2 }, { p: 20, typ: 'zaokraglony', a: 4, b: 3 }] },
   rurka: { r: 2, sciezka: [[0, 0, 0], [20, 0, 0], [20, 20, 5], [0, 30, 10]] },
   sprezyna: { R: 10, r: 1.5, skok: 6, zwoje: 5 },
-  kolo_zebate: { zeby: 18, m: 2, h: 8, otwor: 5 },
+  kolo_zebate: { zeby: 18, m: 2, h: 8, otwor: 5, faza: 0.4 },
+  boczny: { kontur: [[0, 0], [60, 0], [60, 20], [30, 35], [0, 30]], gr: 6, zaokr: 3, faza: 0.5, otwory: [{ x: 15, y: 15, r: 4 }, { x: 40, y: 12, r: 3, dl: 18 }, { x: 22, y: 25, r: 2, n: 6 }] },
+  gwint: { r: 3, h: 12, skok: 0.7 },
+  zespol: { elementy: [{ ksztalt: 'walec', r: 3, h: 20 }, { ksztalt: 'kolo_zebate', zeby: 20, m: 1, h: 4, y: 5 }, { ksztalt: 'pudelko', sx: 8, sy: 2, sz: 8, faza: 0.4, y: -9 }] },
 };
 
 test('kazdy ksztalt to zamknieta bryla ze scianami na zewnatrz', () => {
@@ -108,7 +111,9 @@ test('animacja rozbiera od ostatniego kroku i konczy na pelnym wyjeciu', () => {
 test('rozstrzelenie rozsuwa wszystkie czesci, kierunek reczny ma pierwszenstwo', () => {
   const pr = K.normalizeProject({ czesci: [{ id: 'a', y: 0 }, { id: 'b', y: 0 }, { id: 'c', x: 100, grupa: 'Inna' }, { id: 'd', rozst: [1, 2, 3] }] });
   const v = K.explodeVectors(pr);
-  assert.deepEqual(v.d, [1, 2, 3]);
+  const one = K.normalizeProject({ czesci: [{ id: 'a' }, { id: 'd', x: 50, rozst: [1, 2, 3] }] });
+  assert.deepEqual(K.explodeVectors(one).d, [1, 2, 3]);
+  assert.equal(v.d[1], 2 + (0 - 0) * 1.1, 'odjazd grupy dodaje sie do kierunku');
   for (const id of ['a', 'b', 'c']) assert.ok(Math.hypot(...v[id]) > 0, id);
 });
 
@@ -140,20 +145,50 @@ test('STL ma poprawny rozmiar i uwzglednia skale repliki', () => {
 });
 
 test('gotowe projekty: poprawne dane, kroki opisane, spojne bryly', () => {
-  assert.equal(T.LIST.length, 3);
+  assert.equal(T.LIST.length, 4);
   for (const tpl of T.LIST) {
     const pr = K.normalizeProject(tpl.make());
     assert.ok(pr.czesci.length >= 15, tpl.id);
     const nums = K.stepNumbers(pr);
     assert.deepEqual(nums, pr.kroki.map((k) => k.nr), `${tpl.id}: kazdy krok ma opis`);
     const m = K.measure(pr);
-    assert.ok(m.triangles > 500 && m.triangles < 60000, `${tpl.id}: ${m.triangles}`);
+    assert.ok(m.triangles > 500 && m.triangles < 150000, `${tpl.id}: ${m.triangles}`);
     assert.deepEqual(K.check(pr, m), [], tpl.id);
     for (const p of pr.czesci) assert.equal(openEdges(K.partMesh(p)), 0, `${tpl.id}/${p.id}`);
   }
-  const saturn = K.normalizeProject(T.LIST[0].make());
+  const asg = K.normalizeProject(T.LIST[0].make());
+  assert.ok(asg.czesci.length >= 80, `ASG: ${asg.czesci.length} czesci`);
+  const am = K.measure(asg);
+  assert.ok(am.size[0] > 650 && am.size[0] < 800, `dlugosc ${am.size[0]}`);
+  const saturn = K.normalizeProject(T.LIST.find((t) => t.id === 'saturn').make());
   const m = K.measure(saturn);
   assert.ok(Math.abs(m.size[1] - 110600) < 300, `wysokosc ${m.size[1]}`);
+});
+
+test('gotowe podzespoly: zamkniete bryly, nazwy po polsku, pozycja i obrot rodzica', () => {
+  assert.ok(Object.keys(K.MACROS).length >= 12);
+  for (const makro of Object.keys(K.MACROS)) {
+    const pr = K.normalizeProject({ czesci: [{ makro, id: 'a', grupa: 'G', krok: 4 }] });
+    assert.ok(pr.czesci.length >= 1, makro);
+    for (const p of pr.czesci) {
+      assert.equal(p.krok, 4, `${makro}/${p.id}`);
+      assert.equal(p.grupa, 'G');
+      assert.ok(K.signedVolume(K.partMesh(p)) > 0, `${makro}/${p.id}`);
+    }
+  }
+  const pr = K.normalizeProject({ czesci: [{ makro: 'sruba', id: 's', d: 4, l: 20 }, { makro: 'sruba', id: 't', d: 4, l: 20, x: 100, rz: 90 }] });
+  const a = K.boundsOf(K.worldMesh(pr.czesci[0]));
+  const b = K.boundsOf(K.worldMesh(pr.czesci[1]));
+  assert.ok(Math.abs(a.hi[1] - a.lo[1] - (b.hi[0] - b.lo[0])) < 0.01, 'obrot o 90 stopni zamienia osie');
+  assert.ok(Math.abs((b.lo[0] + b.hi[0]) / 2 - 100 + 0) < 20);
+});
+
+test('gearbox V2 to komplet: koła, tłok, sprężyna, siedem śrub, po kolei', () => {
+  const pr = K.normalizeProject({ czesci: [{ makro: 'aeg_gearbox_v2', id: 'g', grupa: 'G', krok_od: 1 }] });
+  const names = pr.czesci.map((p) => p.nazwa).join('|');
+  for (const n of ['Skorupa gearboxa lewa', 'Koło sektorowe', 'Koło stożkowe', 'Tłok', 'Sprężyna główna', 'Dysza', 'Spust', 'Układ MOSFET']) assert.ok(names.includes(n), n);
+  assert.equal(pr.czesci.filter((p) => /Śruba skorupy/.test(p.nazwa)).length, 7);
+  assert.deepEqual(K.stepNumbers(pr), [1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
 test('uszkodzone dane od modelu nie wywracaja projektu', () => {

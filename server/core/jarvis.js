@@ -148,7 +148,8 @@ ${LIFE_TAG_PROMPT}
   - studio-projekt | opis - Studio 3D: zaprojektuj DOWOLNY przedmiot z wielu nazwanych czesci (maszyna, pojazd, budowla, mebel), z animacja rozbierania i Blenderem. Np. [AKCJA: studio-projekt | stolik kawowy z szuflada]. Zaprojektowanie trwa do minuty, wynik pojawi sie sam.
   - studio-replika | opis - jak wyzej, ale najpierw szuka planow, wymiarow i rysunkow w sieci. Uzyj dla istniejacych rzeczy, replik i prosb o pokazanie budowy, np. [AKCJA: studio-replika | Sokol Millennium].
   - studio-edytuj | polecenie - zmiana otwartego projektu, np. [AKCJA: studio-edytuj | dodaj dwa smigla z tylu].
-  - studio-steruj | akcja - otwarty projekt: rozbierz, zloz, od zera, stop, krok 3, hologram, rentgen, blender, wideo, zapisz; albo gotowy przyklad: saturn, silnik, dron.
+  - studio-dopracuj | podzespol - przebuduj jeden podzespol otwartego projektu szczegolowo, np. [AKCJA: studio-dopracuj | gearbox].
+  - studio-steruj | akcja - otwarty projekt: rozbierz, zloz, od zera, stop, krok 3, przekroj, hologram, rentgen, blender, wideo, zapisz; albo gotowy przyklad: asg, saturn, silnik, dron.
   - warsztat-plan | temat - tryb warsztatu krok po kroku dla naprawy, np. [AKCJA: warsztat-plan | wymiana oleju]. WYMAGA parametru.
   - stoper | start, stop, zeruj albo odczyt - stoper na ekranie (np. [AKCJA: stoper | start]). WYMAGA parametru.
   - holo-kamera - przelacza obraz z kamery na calym ekranie pod hologramem. BEZ parametru.

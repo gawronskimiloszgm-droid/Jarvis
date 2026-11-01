@@ -109,14 +109,14 @@
     const scene = new THREE.Scene();
     const pm = new THREE.PMREMGenerator(renderer);
     scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.55;
+    scene.environmentIntensity = 1.1;
     const camera = new THREE.PerspectiveCamera(38, 1, 1, 1000);
     const controls = new THREE.OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.dampingFactor = 0.09;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.7;
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    const key = new THREE.DirectionalLight(0xffffff, 2.6);
     key.position.set(1, 1.4, 0.8);
     const rim = new THREE.DirectionalLight(0x66ccff, 0.9);
     rim.position.set(-1, 0.5, -1);
@@ -161,7 +161,7 @@
     function materialFor(p) {
       if (S.style === 'holo') return new THREE.MeshBasicMaterial({ color: accent(), transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
       if (S.style === 'xray') return new THREE.MeshStandardMaterial({ color: p.kolor, transparent: true, opacity: 0.28, metalness: 0.1, roughness: 0.4, depthWrite: false, side: THREE.DoubleSide });
-      return new THREE.MeshStandardMaterial({ color: p.kolor, metalness: p.metal, roughness: p.szorstkosc, transparent: true, opacity: 1 });
+      return new THREE.MeshStandardMaterial({ color: p.kolor, metalness: p.metal, roughness: p.szorstkosc, transparent: true, opacity: 1, side: THREE.DoubleSide });
     }
     function decorate(mesh) {
       mesh.children.slice().forEach((c) => {
@@ -210,9 +210,16 @@
       camera.far = span * 60;
       camera.updateProjectionMatrix();
       if (!keepCamera) {
+        // Dlugi przedmiot ogladamy z boku, nie od czola.
+        const dir = m.size[0] >= m.size[2] ? new THREE.Vector3(0.42, 0.26, 0.87) : new THREE.Vector3(0.87, 0.26, 0.42);
         controls.target.copy(center);
-        const dist = span / (2 * Math.tan((camera.fov * Math.PI) / 360)) * 1.12;
-        camera.position.copy(center).add(new THREE.Vector3(0.62, 0.36, 0.7).normalize().multiplyScalar(dist));
+        camera.position.copy(center).add(dir.normalize().multiplyScalar(span));
+        const aspect = host.clientWidth && host.clientHeight ? host.clientWidth / host.clientHeight : 1.6;
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        const f = fitBox(false);
+        camera.position.copy(f.c).add(dir.multiplyScalar(f.dist));
+        controls.target.copy(f.c);
         fitTarget = null;
       }
       refreshAll();
@@ -251,24 +258,38 @@
       }
       refreshAll();
     }
-    function frameExploded(on) {
-      if (!m) return;
-      let span = m.span;
-      if (on) {
-        const lo = new THREE.Vector3(...m.bounds.lo);
-        const hi = new THREE.Vector3(...m.bounds.hi);
-        for (const p of S.project.czesci) {
-          const b = m.items[p.id];
-          const v = vectors[p.id];
-          if (!v) continue;
-          lo.min(new THREE.Vector3(b.lo[0] + v[0] * S.spread, b.lo[1] + v[1] * S.spread, b.lo[2] + v[2] * S.spread));
-          hi.max(new THREE.Vector3(b.hi[0] + v[0] * S.spread, b.hi[1] + v[1] * S.spread, b.hi[2] + v[2] * S.spread));
-        }
-        span = Math.max(span, hi.clone().sub(lo).length() * 0.62);
-        fitTarget = { c: lo.add(hi).multiplyScalar(0.5), dist: span / (2 * Math.tan((camera.fov * Math.PI) / 360)) * 1.22 };
-      } else {
-        fitTarget = { c: center.clone(), dist: span / (2 * Math.tan((camera.fov * Math.PI) / 360)) * 1.12 };
+    // Kadr: odleglosc, z ktorej wszystkie widoczne czesci mieszcza sie w oknie, z obecnego kierunku patrzenia.
+    function fitBox(on) {
+      const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+      const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+      for (const p of S.project.czesci) {
+        if (!meshes[p.id] || S.hidden.has(p.id)) continue;
+        const b = m.items[p.id];
+        const k = on ? S.spread : 0;
+        const v = vectors[p.id];
+        lo.min(new THREE.Vector3(b.lo[0] + v[0] * k, b.lo[1] + v[1] * k, b.lo[2] + v[2] * k));
+        hi.max(new THREE.Vector3(b.hi[0] + v[0] * k, b.hi[1] + v[1] * k, b.hi[2] + v[2] * k));
       }
+      if (!Number.isFinite(lo.x)) return { c: center.clone(), dist: m.span * 2 };
+      const c = lo.clone().add(hi).multiplyScalar(0.5);
+      const dir = camera.position.clone().sub(controls.target).normalize();
+      const right = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+      const up = dir.clone().cross(right).normalize();
+      const tanV = Math.tan((camera.fov * Math.PI) / 360);
+      const tanH = tanV * (camera.aspect || 1.6);
+      let dist = 0;
+      for (const x of [lo.x, hi.x]) {
+        for (const y of [lo.y, hi.y]) {
+          for (const z of [lo.z, hi.z]) {
+            const rel = new THREE.Vector3(x, y, z).sub(c);
+            dist = Math.max(dist, Math.abs(rel.dot(right)) / tanH + rel.dot(dir), Math.abs(rel.dot(up)) / tanV + rel.dot(dir));
+          }
+        }
+      }
+      return { c, dist: Math.max(m.span * 0.3, dist * 1.08) };
+    }
+    function frameExploded(on) {
+      if (m) fitTarget = fitBox(on);
     }
     function drawLabels() {
       const rect = canvas.getBoundingClientRect();
@@ -386,6 +407,26 @@
       setStyle,
       frameExploded,
       destroy,
+      /** Przekroj: ucina model plaszczyzna, zeby zajrzec do srodka. axis to x, y, z albo null. */
+      setClip(axis, t) {
+        if (!axis || !m) {
+          renderer.clippingPlanes = [];
+          return;
+        }
+        const k = { x: 0, y: 1, z: 2 }[axis];
+        const normal = new THREE.Vector3(k === 0 ? -1 : 0, k === 1 ? -1 : 0, k === 2 ? -1 : 0);
+        const at = m.bounds.lo[k] + (m.bounds.hi[k] - m.bounds.lo[k]) * t;
+        renderer.clippingPlanes = [new THREE.Plane(normal, at)];
+      },
+      /** Kamera od strony przeciecia: inaczej widac tylko nienaruszona polowe. */
+      lookAlong(axis) {
+        if (!m) return;
+        controls.autoRotate = false;
+        const dir = new THREE.Vector3(axis === 'x' ? 1 : 0.18, axis === 'y' ? 1 : 0.16, axis === 'z' ? 1 : 0.18).normalize();
+        const away = camera.position.distanceTo(controls.target);
+        camera.position.copy(controls.target).add(dir.multiplyScalar(away));
+        fitTarget = fitBox(S.tau > 0.5);
+      },
       setPlan(url) {
         planImg.hidden = !url;
         if (url) planImg.src = url;
@@ -463,6 +504,10 @@
     S.fromZero = false;
     S.lastStep = null;
     store.set(CUR_KEY, S.project);
+    if (S.clip) {
+      S.clip.axis = null;
+      S.applyClip?.();
+    }
     S.view?.setProject(S.project);
     S.redraw();
   }
@@ -724,9 +769,10 @@
   }
 
   // ---------- panel ----------
-  const FIELDS = { pudelko: ['sx', 'sy', 'sz', 'faza'], klin: ['sx', 'sy', 'sz'], walec: ['r', 'r2', 'h', 'faza'], rura: ['r', 'ri', 'h'], kula: ['r'], torus: ['R', 'r'], pryzmat: ['n', 'r', 'h'], sruba: ['r', 'h'], plyta: ['sx', 'sy', 'sz', 'faza'], wyciagniecie: ['h', 'faza'], obrotowa: [], loft: [], rurka: ['r'], sprezyna: ['R', 'r', 'skok', 'zwoje'], kolo_zebate: ['zeby', 'm', 'h', 'otwor'] };
-  const FIELD_NAMES = { sx: 'szer. X', sy: 'wys. Y', sz: 'gł. Z', r: 'promień', r2: 'promień góra', ri: 'promień wewn.', h: 'wysokość', R: 'promień duży', n: 'boki', skok: 'skok', zwoje: 'zwoje', zeby: 'zęby', m: 'moduł', otwor: 'otwór', faza: 'faza' };
-  const SHAPE_NAMES = { pudelko: 'Prostopadłościan', walec: 'Walec / stożek', rura: 'Rura', kula: 'Kula', torus: 'Pierścień', klin: 'Klin', pryzmat: 'Graniastosłup', sruba: 'Śruba', plyta: 'Płyta', wyciagniecie: 'Profil', obrotowa: 'Bryła obrotowa', loft: 'Kadłub (loft)', rurka: 'Rurka', sprezyna: 'Sprężyna', kolo_zebate: 'Koło zębate' };
+  const FIELDS = { boczny: ['gr', 'faza', 'zaokr'], gwint: ['r', 'h', 'skok'], zespol: [], pudelko: ['sx', 'sy', 'sz', 'faza'], klin: ['sx', 'sy', 'sz'], walec: ['r', 'r2', 'h', 'faza'], rura: ['r', 'ri', 'h'], kula: ['r'], torus: ['R', 'r'], pryzmat: ['n', 'r', 'h'], sruba: ['r', 'h'], plyta: ['sx', 'sy', 'sz', 'faza'], wyciagniecie: ['h', 'faza'], obrotowa: [], loft: [], rurka: ['r'], sprezyna: ['R', 'r', 'skok', 'zwoje'], kolo_zebate: ['zeby', 'm', 'h', 'otwor'] };
+  const FIELD_NAMES = { sx: 'szer. X', sy: 'wys. Y', sz: 'gł. Z', r: 'promień', r2: 'promień góra', ri: 'promień wewn.', h: 'wysokość', R: 'promień duży', n: 'boki', skok: 'skok', zwoje: 'zwoje', zeby: 'zęby', m: 'moduł', otwor: 'otwór', faza: 'faza', gr: 'grubość', zaokr: 'zaokrąglenie' };
+  const SHAPE_NAMES = { pudelko: 'Prostopadłościan', walec: 'Walec / stożek', rura: 'Rura', kula: 'Kula', torus: 'Pierścień', klin: 'Klin', pryzmat: 'Graniastosłup', sruba: 'Śruba', plyta: 'Płyta', wyciagniecie: 'Profil', obrotowa: 'Bryła obrotowa', loft: 'Kadłub (loft)', rurka: 'Rurka', sprezyna: 'Sprężyna', kolo_zebate: 'Koło zębate', boczny: 'Obrys z boku', gwint: 'Pręt z gwintem' };
+  const MACRO_NAMES = { sruba: 'Śruba', nakretka: 'Nakrętka', podkladka: 'Podkładka', kolek: 'Kołek', lozysko: 'Łożysko', szyna_picatinny: 'Szyna Picatinny', panel_mlok: 'Panel M-LOK', aeg_gearbox_v2: 'Gearbox V2 (komplet)', aeg_silnik: 'Silnik AEG', aeg_hopup: 'Komora hop-up', aeg_lufa: 'Lufy z gwintem', aeg_magazynek: 'Magazynek AEG' };
   function newPartDefaults(ksztalt, u) {
     return {
       pudelko: { sx: u * 2, sy: u * 2, sz: u * 2 },
@@ -744,6 +790,8 @@
       rurka: { r: u * 0.1, sciezka: [[-u, 0, 0], [0, u * 0.6, 0], [u, 0, u * 0.4]] },
       sprezyna: { R: u * 0.5, r: u * 0.07, skok: u * 0.3, zwoje: 6 },
       kolo_zebate: { zeby: 24, m: Math.max(0.1, (u * 2) / 24), h: u * 0.4, otwor: u * 0.2 },
+      boczny: { kontur: [[-u, -u], [u, -u], [u, u * 0.3], [0, u], [-u, u]], gr: u * 0.5, zaokr: u * 0.1, faza: u * 0.03 },
+      gwint: { r: u * 0.2, h: u * 1.5, skok: u * 0.1 },
     }[ksztalt];
   }
 
@@ -859,6 +907,34 @@
         S.speed = Number(speed.value) / 100;
       });
       lab('TEMPO', speed);
+      // Przekroj modelu: pokazuje budowe w srodku bez rozbierania.
+      const clip = { axis: null, t: 0.5 };
+      const clipBtn = el('button', 'cad-tool', 'PRZEKRÓJ');
+      const clipIn = el('input');
+      clipIn.type = 'range';
+      clipIn.min = '0';
+      clipIn.max = '100';
+      clipIn.value = '50';
+      const applyClip = () => {
+        S.view?.setClip(clip.axis, clip.t);
+        clipBtn.classList.toggle('on', Boolean(clip.axis));
+        clipBtn.textContent = clip.axis ? `PRZEKRÓJ ${clip.axis.toUpperCase()}` : 'PRZEKRÓJ';
+      };
+      clipBtn.title = 'Kolejne kliknięcia: oś Z, X, Y, wyłącz';
+      clipBtn.addEventListener('click', () => {
+        clip.axis = { null: 'z', z: 'x', x: 'y', y: null }[String(clip.axis)];
+        applyClip();
+        if (clip.axis) S.view?.lookAlong(clip.axis);
+      });
+      clipIn.addEventListener('input', () => {
+        clip.t = Number(clipIn.value) / 100;
+        if (!clip.axis) clip.axis = 'z';
+        applyClip();
+      });
+      row2.appendChild(clipBtn);
+      lab('CIĘCIE', clipIn);
+      S.clip = clip;
+      S.applyClip = applyClip;
       const png = el('button', 'cad-tool', 'PNG');
       png.addEventListener('click', () => {
         if (!S.view) return;
@@ -976,7 +1052,23 @@
             S.view?.refresh();
             S.redraw();
           });
-          gh.append(el('b', null, `${name} (${list.length})`), eye, only);
+          const better = el('button', 'cad-tool', 'DOPRACUJ');
+          better.title = 'Jarvis przebuduje ten podzespół szczegółowo';
+          better.addEventListener('click', async () => {
+            better.disabled = true;
+            better.textContent = 'PRACUJĘ...';
+            try {
+              const ops = await api('/api/studio/refine', json({ projekt: S.project, grupa: name }));
+              ops.usun.forEach((id) => delete S.refined[id]);
+              commit(K.applyOps(S.project, ops));
+              toast(ops.co_zmieniono, 'ok');
+            } catch (e) {
+              toast(e.message || 'Nie udało się.');
+              better.disabled = false;
+              better.textContent = 'DOPRACUJ';
+            }
+          });
+          gh.append(el('b', null, `${name} (${list.length})`), eye, only, better);
           pane.appendChild(gh);
           list.forEach((p) => {
             const row = el('div', `st-part${p.id === S.selected ? ' on' : ''}${S.hidden.has(p.id) ? ' off' : ''}`);
@@ -1046,9 +1138,14 @@
         pane.appendChild(el('div', 'st-sub', 'DODAJ ELEMENT'));
         const addRow = el('div', 'st-row');
         const kind = el('select', 'inp');
-        Object.keys(K.SHAPES).forEach((k) => {
+        Object.keys(K.SHAPES).filter((k) => k !== 'zespol').forEach((k) => {
           const o = el('option', null, SHAPE_NAMES[k] || k);
           o.value = k;
+          kind.appendChild(o);
+        });
+        Object.keys(K.MACROS).forEach((k) => {
+          const o = el('option', null, `▣ ${MACRO_NAMES[k] || k}`);
+          o.value = `makro:${k}`;
           kind.appendChild(o);
         });
         const nameIn = el('input', 'inp');
@@ -1061,6 +1158,15 @@
           const u = Math.max(0.1, m.span * 0.08);
           const ksztalt = kind.value;
           const id = `n${Date.now().toString(36)}`;
+          if (ksztalt.startsWith('makro:')) {
+            const before = S.project.czesci.length;
+            const made = K.applyOps(S.project, { dodaj: [{ makro: ksztalt.slice(6), id, nazwa: nameIn.value.trim() || undefined, grupa: sel?.grupa || 'Dodane', x: sel ? sel.x : c[0], y: (sel ? m.items[sel.id].hi[1] : m.bounds.hi[1]) + u, z: sel ? sel.z : c[2] }] });
+            commit(made);
+            nameIn.value = '';
+            toast(`Dodano ${made.czesci.length - before} elementów.`, 'ok');
+            select(made.czesci[made.czesci.length - 1].id);
+            return;
+          }
           // Nowy element staje nad wybrana czescia albo nad calym modelem; dalej ustawia sie go uchwytem.
           const next = K.applyOps(S.project, { dodaj: [{ id, nazwa: nameIn.value.trim() || SHAPE_NAMES[ksztalt], grupa: sel?.grupa || 'Dodane', ksztalt, kolor: '#37c8ff', metal: 0.3, x: sel ? sel.x : c[0], y: (sel ? m.items[sel.id].hi[1] : m.bounds.hi[1]) + u, z: sel ? sel.z : c[2], ...newPartDefaults(ksztalt, u) }] });
           commit(next);
@@ -1469,6 +1575,19 @@
       await aiEdit(String(p?.polecenie || p?.raw || ''));
       return { ok: true };
     };
+    UI.clientActions['studio-dopracuj'] = async (p) => {
+      await waitReady();
+      if (!S.project) return { ok: false, error: 'Nie ma otwartego projektu.' };
+      const want = String(p?.grupa || p?.raw || '').toLowerCase();
+      const groups = [...new Set(S.project.czesci.map((c) => c.grupa))];
+      const grupa = groups.find((g) => g.toLowerCase().includes(want) || want.includes(g.toLowerCase()));
+      if (!grupa) return { ok: false, error: `Nie ma takiego podzespołu. Są: ${groups.join(', ')}.` };
+      const ops = await api('/api/studio/refine', json({ projekt: S.project, grupa }));
+      ops.usun.forEach((id) => delete S.refined[id]);
+      commit(K.applyOps(S.project, ops));
+      if (UI.isLive?.()) UI.liveSend({ type: 'react', text: `${ops.co_zmieniono} Powiedz to krótko.` });
+      return { ok: true };
+    };
     UI.clientActions['studio-steruj'] = async (p) => {
       await waitReady();
       if (!S.project) return { ok: false, error: 'Nie ma otwartego projektu.' };
@@ -1479,7 +1598,11 @@
         S.tau = 1;
         play(-1, { fromZero: true });
       } else if (/krok/.test(a) && num) goToStep(Number(num[1]));
-      else if (/rozbier|rozloz|rozłóż/.test(a)) play(1);
+      else if (/przekr/.test(a)) {
+        S.clip.axis = S.clip.axis ? null : 'z';
+        S.applyClip();
+        if (S.clip.axis) S.view?.lookAlong(S.clip.axis);
+      } else if (/rozbier|rozloz|rozłóż/.test(a)) play(1);
       else if (/zloz|złóż|montaz|montaż|zbuduj/.test(a)) play(-1);
       else if (/wideo|film/.test(a)) blenderBuild({ wideo: true });
       else if (/blender/.test(a)) blenderBuild();
@@ -1487,7 +1610,7 @@
       else if (/holo/.test(a)) {
         S.style = 'holo';
         S.view?.setStyle();
-      } else if (/rentgen|przekroj/.test(a)) {
+      } else if (/rentgen/.test(a)) {
         S.style = 'xray';
         S.view?.setStyle();
       } else if (/bryl|norm/.test(a)) {

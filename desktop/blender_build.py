@@ -120,13 +120,14 @@ for idx, p in enumerate(parts):
     rot = Matrix.Rotation(p["rx"] * d, 4, "X") @ Matrix.Rotation(p["ry"] * d, 4, "Y") @ Matrix.Rotation(p["rz"] * d, 4, "Z")
     ob.matrix_world = Matrix.Translation(pos) @ Y_UP @ rot
     ob["nazwa"] = p.get("nazwa", p["id"])
-    faza = float(p.get("faza") or 0) * SF
-    if faza > 0:
-        mod = ob.modifiers.new("Fazka", "BEVEL")
-        mod.width = faza
-        mod.segments = 2
+    # Fazy projektu sa juz w siatce. Reszta dostaje mikrofaze, dzieki ktorej krawedzie lapia swiatlo.
+    if not p.get("faza") and not p.get("gladki") and tris < 3000:
+        mod = ob.modifiers.new("Mikrofaza", "BEVEL")
+        mod.width = 10.0 * 0.0007
+        mod.segments = 1
         mod.limit_method = "ANGLE"
-        mod.angle_limit = math.radians(30)
+        mod.angle_limit = math.radians(40)
+        mod.harden_normals = False
     if p.get("gladki") and tris < 6000:
         mod = ob.modifiers.new("Wygladzenie", "SUBSURF")
         mod.levels = 1
@@ -212,7 +213,7 @@ scene.collection.children.link(extras)
 
 world = bpy.data.worlds.new("Tlo")
 world.use_nodes = True
-world.node_tree.nodes["Background"].inputs[0].default_value = (0.1, 0.13, 0.18, 1)
+world.node_tree.nodes["Background"].inputs[0].default_value = (0.42, 0.5, 0.6, 1)
 world.node_tree.nodes["Background"].inputs[1].default_value = 1.0
 scene.world = world
 
@@ -251,9 +252,9 @@ def add_light(name, kind, loc, energy, size, color):
 key = center + Vector((radius * 2.2, -radius * 2.4, radius * 2.8))
 fill = center + Vector((-radius * 3.0, -radius * 1.2, radius * 1.2))
 rim = center + Vector((-radius * 0.5, radius * 3.2, radius * 2.0))
-add_light("Glowne", "AREA", key, 170 * radius ** 2, radius * 2.2, (1.0, 0.96, 0.9))
-add_light("Wypelniajace", "AREA", fill, 40 * radius ** 2, radius * 3, (0.72, 0.84, 1.0))
-add_light("Kontra", "AREA", rim, 110 * radius ** 2, radius * 1.6, (0.3, 0.8, 1.0))
+add_light("Glowne", "AREA", key, 300 * radius ** 2, radius * 2.2, (1.0, 0.96, 0.9))
+add_light("Wypelniajace", "AREA", fill, 110 * radius ** 2, radius * 3, (0.72, 0.84, 1.0))
+add_light("Kontra", "AREA", rim, 220 * radius ** 2, radius * 1.6, (0.3, 0.8, 1.0))
 
 cam_data = bpy.data.cameras.new("Kamera")
 cam_data.lens = 50
@@ -270,11 +271,23 @@ con.track_axis = "TRACK_NEGATIVE_Z"
 con.up_axis = "UP_Y"
 
 
-def frame_camera(r, c):
+def frame_camera(lo, hi):
+    # Odleglosc z narozy obrysu: 50 mm to okolo 40 stopni w poziomie i 23 w pionie. Dlugi przedmiot z boku.
+    c = Vector(((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2))
     target.location = c
-    # Rozmiar kadru: kat 50 mm w poziomie to okolo 40 stopni, w pionie 23.
-    dist = r / math.tan(math.radians(11.5)) * 0.82
-    cam.location = c + Vector((0.62, -0.7, 0.36)).normalized() * dist
+    long_x = (hi[0] - lo[0]) >= (hi[1] - lo[1])
+    d = (Vector((0.42, -0.87, 0.26)) if long_x else Vector((0.87, -0.42, 0.26))).normalized()
+    right = Vector((0, 0, 1)).cross(d).normalized()
+    up = d.cross(right).normalized()
+    tan_h = math.tan(math.radians(19.8))
+    tan_v = math.tan(math.radians(11.45))
+    dist = 0.0
+    for x in (lo[0], hi[0]):
+        for y in (lo[1], hi[1]):
+            for z in (lo[2], hi[2]):
+                rel = Vector((x, y, z)) - c
+                dist = max(dist, abs(rel.dot(right)) / tan_h + rel.dot(d), abs(rel.dot(up)) / tan_v + rel.dot(d))
+    cam.location = c + d * (dist * 1.06)
 
 
 def enable_gpu():
@@ -298,7 +311,7 @@ def enable_gpu():
     return "CPU"
 
 
-def render_still(name, frame, r, c, samples, res):
+def render_still(name, frame, lo, hi, samples, res):
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
@@ -307,7 +320,7 @@ def render_still(name, frame, r, c, samples, res):
     scene.render.resolution_x, scene.render.resolution_y = res
     scene.render.film_transparent = False
     scene.frame_set(frame)
-    frame_camera(r, c)
+    frame_camera(lo, hi)
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = os.path.join(out_dir, f"{name}.png")
     bpy.ops.render.render(write_still=True)
@@ -322,7 +335,7 @@ if opts.get("render", True):
     try:
         t1 = time.time()
         progress(42, f"Render ({manifest['silnik']})")
-        render_still("podglad", 1, radius, center, opts.get("probki", 48), (1280, 720))
+        render_still("podglad", 1, low, high, opts.get("probki", 48), (1280, 720))
         manifest["czasy"]["podglad"] = round(time.time() - t1, 1)
         t1 = time.time()
         progress(62, "Render rozłożonego modelu")
@@ -331,9 +344,7 @@ if opts.get("render", True):
         bpy.context.view_layer.update()
         lo2 = [min(world_box(o)[0][i] for o in visible) for i in range(3)]
         hi2 = [max(world_box(o)[1][i] for o in visible) for i in range(3)]
-        c2 = Vector(((lo2[0] + hi2[0]) / 2, (lo2[1] + hi2[1]) / 2, (lo2[2] + hi2[2]) / 2))
-        r2 = max(radius, (Vector(hi2) - Vector(lo2)).length / 2)
-        render_still("rozlozony", 1 + OUT_FRAMES, r2, c2, opts.get("probki", 48), (1280, 720))
+        render_still("rozlozony", 1 + OUT_FRAMES, lo2, hi2, opts.get("probki", 48), (1280, 720))
         manifest["czasy"]["rozlozony"] = round(time.time() - t1, 1)
     except Exception:
         manifest["uwagi"].append("Render się nie udał: " + traceback.format_exc()[-300:])
@@ -342,11 +353,9 @@ else:
     bpy.context.view_layer.update()
     lo2 = [min(world_box(o)[0][i] for o in visible) for i in range(3)]
     hi2 = [max(world_box(o)[1][i] for o in visible) for i in range(3)]
-    c2 = Vector(((lo2[0] + hi2[0]) / 2, (lo2[1] + hi2[1]) / 2, (lo2[2] + hi2[2]) / 2))
-    r2 = max(radius, (Vector(hi2) - Vector(lo2)).length / 2)
 
 scene.frame_set(1)
-frame_camera(r2, c2)
+frame_camera(lo2, hi2)
 
 # Plik do dalszej pracy: otwierany w Blenderze ma juz animacje na osi czasu.
 progress(70, "Zapis pliku Blendera")
@@ -354,7 +363,7 @@ bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out_dir, "projekt.blend"))
 manifest["pliki"]["blend"] = "projekt.blend"
 
 # Osobne STL kazdej czesci, w skali repliki: gotowe do krojenia.
-if opts.get("stl", True) and len(visible) <= 200:
+if opts.get("stl", True) and len(visible) <= 500:
     progress(74, "Pliki STL części")
     stl_dir = os.path.join(out_dir, "czesci_stl")
     os.makedirs(stl_dir, exist_ok=True)
@@ -387,7 +396,7 @@ if opts.get("wideo"):
         scene.render.ffmpeg.codec = "H264"
         scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
         scene.render.filepath = os.path.join(out_dir, "rozbieranie.mp4")
-        frame_camera(r2, c2)
+        frame_camera(lo2, hi2)
         total = scene.frame_end
 
         def on_frame(sc, _dep=None):

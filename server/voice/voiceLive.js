@@ -347,8 +347,8 @@ const ALL_TOOLS = [
   },
   {
     name: 'studio_3d',
-    description: 'GLOWNE narzedzie projektowania. Studio 3D: projekty z wielu nazwanych czesci, z animacja rozbierania i Blenderem. Akcje: projekt (zaprojektuj dowolny przedmiot: maszyna, pojazd, mebel, budowla), replika (istniejaca rzecz albo prosba o pokazanie budowy: najpierw szuka planow i wymiarow w sieci), edytuj (zmien otwarty projekt, dodaj lub usun elementy), steruj (polecenie dla otwartego projektu: rozbierz, zloz, od zera, stop, krok N, hologram, rentgen, blender, wideo, zapisz, albo przyklad: saturn, silnik, dron). Projekt powstaje do minuty i sam sie wyswietli; nie podawaj wymiarow, dopoki nie dostaniesz wyniku w zdarzeniu.',
-    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['projekt', 'replika', 'edytuj', 'steruj'] }, tresc: { type: 'string', description: 'Co zaprojektowac, co zmienic albo polecenie sterowania.' } }, required: ['akcja', 'tresc'] },
+    description: 'GLOWNE narzedzie projektowania. Studio 3D: projekty z wielu nazwanych czesci, z animacja rozbierania i Blenderem. Akcje: projekt (zaprojektuj dowolny przedmiot: maszyna, pojazd, mebel, budowla), replika (istniejaca rzecz albo prosba o pokazanie budowy: najpierw szuka planow i wymiarow w sieci), edytuj (zmien otwarty projekt, dodaj lub usun elementy), dopracuj (przebuduj szczegolowo podzespol o podanej nazwie), steruj (polecenie dla otwartego projektu: rozbierz, zloz, od zera, stop, krok N, przekroj, hologram, rentgen, blender, wideo, zapisz, albo przyklad: asg, saturn, silnik, dron). Projekt powstaje do minuty i sam sie wyswietli; nie podawaj wymiarow, dopoki nie dostaniesz wyniku w zdarzeniu.',
+    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['projekt', 'replika', 'edytuj', 'dopracuj', 'steruj'] }, tresc: { type: 'string', description: 'Co zaprojektowac, co zmienic albo polecenie sterowania.' } }, required: ['akcja', 'tresc'] },
   },
   {
     name: 'warsztat',
@@ -1204,7 +1204,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 result = { ok: true, note: 'wynik przyjdzie zaraz jako zdarzenie' };
               } else if (call.name === 'studio_3d') {
                 const a = call.args || {};
-                const map = { projekt: ['studio-projekt', 'opis'], replika: ['studio-replika', 'opis'], edytuj: ['studio-edytuj', 'polecenie'], steruj: ['studio-steruj', 'akcja'] }[a.akcja] || ['studio-projekt', 'opis'];
+                const map = { projekt: ['studio-projekt', 'opis'], replika: ['studio-replika', 'opis'], edytuj: ['studio-edytuj', 'polecenie'], dopracuj: ['studio-dopracuj', 'grupa'], steruj: ['studio-steruj', 'akcja'] }[a.akcja] || ['studio-projekt', 'opis'];
                 safeSend(JSON.stringify({ type: 'deviceAction', action: map[0], params: { [map[1]]: a.tresc } }));
                 result = { ok: true, note: a.akcja === 'projekt' || a.akcja === 'replika' ? 'pracuje, wynik przyjdzie jako zdarzenie: teraz powiedz tylko, ze sie tym zajmujesz' : 'wykonane na ekranie' };
               } else if (call.name === 'warsztat') {

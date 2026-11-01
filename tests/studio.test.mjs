@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDesign, cleanTopic, commonsDrawings, defaultScale, isRelevant, parseLoose, planEdit, research, wantsResearch, CadKit } from '../server/extras/studio.js';
+import { buildDesign, cleanTopic, commonsDrawings, defaultScale, imagesInHtml, isRelevant, parseLoose, planEdit, refineGroup, research, wantsResearch, CadKit } from '../server/extras/studio.js';
 
 const PLAN = {
   nazwa: 'Replika testowa',
@@ -20,6 +20,9 @@ const deps = (over = {}) => ({
   wikipedia: async (t, lang) => (lang === 'en' ? { title: 'Wiki', url: 'https://en.wikipedia.org/wiki/X', text: 'tekst' } : null),
   commons: async () => [{ tytul: 'Rysunek', url: 'https://upload.wikimedia.org/x.png', strona: 'https://commons.wikimedia.org/wiki/File:X.png', licencja: 'CC BY 4.0' }],
   image: async () => null,
+  sleep: async () => {},
+  bing: async () => [],
+  pageImages: async () => [],
   generate: async (prompt) => {
     if (prompt.includes('głównym konstruktorem')) return PLAN;
     if (prompt.includes('Podzespół: Kadłub')) return { czesci: [{ nazwa: 'Rama', ksztalt: 'pudelko', sx: 5000, sy: 200, sz: 2000, x: 0, y: 100, z: 0, etap: 1, zrodlo: 'plany' }, { nazwa: 'Poszycie', ksztalt: 'loft', przekroje: [{ p: -400, a: 900, b: 900 }, { p: 400, a: 500, b: 500 }], x: 0, y: 600, z: 0, etap: 2 }] };
@@ -114,6 +117,56 @@ test('awaria szukania nie przerywa projektu, pusty plan to jasny blad', async ()
   const d = deps({ wikipedia: async () => { throw new Error('x'); }, commons: async () => { throw new Error('x'); }, search: { searchWithContent: async () => { throw new Error('x'); }, searchWeb: async () => { throw new Error('x'); } } });
   assert.ok((await buildDesign('cos', { szukaj: true, deps: d })).projekt.czesci.length);
   await assert.rejects(buildDesign('cos', { deps: deps({ generate: async () => ({ podzespoly: [] }) }) }), /podzespoły/);
+});
+
+test('zarys: powod bledu trafia do ostrzezen, po ponowieniu podzespol sie udaje', async () => {
+  let tries = 0;
+  const d = deps({
+    generate: async (prompt) => {
+      if (prompt.includes('głównym konstruktorem')) return PLAN;
+      if (prompt.includes('kontrolerem jakości')) return { czesci: [{ makro: 'sruba', nazwa: 'Śruba', x: 0, y: 500, z: 0 }] };
+      if (prompt.includes('Podzespół: Kadłub')) {
+        tries += 1;
+        if (tries < 3) throw new Error('chwilowo przeciążony');
+        return { czesci: [{ nazwa: 'Rama', ksztalt: 'pudelko', sx: 5000, sy: 200, sz: 2000, x: 0, y: 100, z: 0 }] };
+      }
+      throw new Error('pusta odpowiedź modelu (MAX_TOKENS)');
+    },
+  });
+  const r = await buildDesign('x', { deps: d });
+  assert.equal(tries, 3);
+  assert.ok(r.projekt.czesci.some((c) => c.nazwa === 'Rama'));
+  assert.ok(r.projekt.czesci.some((c) => c.grupa === 'Kadłub' && /Śruba/.test(c.nazwa)), 'druga runda dopisala srube');
+  assert.match(r.ostrzezenia[0], /zawiódł przy 2 z 3.*MAX_TOKENS/);
+  assert.equal(r.projekt.czesci.filter((c) => /zarys/.test(c.nazwa)).length, 2);
+});
+
+test('prompt: zakaz dzialajacej broni i dokumentacja makr sa zawsze w tresci', async () => {
+  const seen = [];
+  await buildDesign('x', { deps: deps({ generate: async (prompt) => {
+    seen.push(prompt);
+    return prompt.includes('głównym konstruktorem') ? PLAN : { czesci: [{ nazwa: 'A', ksztalt: 'pudelko' }] };
+  } }) });
+  assert.ok(seen.every((p) => /niedziałającą makietę/.test(p)));
+  assert.ok(seen.slice(1).every((p) => /aeg_gearbox_v2/.test(p)));
+});
+
+test('obrazy ze strony: rysunki rozstrzelone i zdjecie glowne, adresy pelne', () => {
+  const html = '<meta property="og:image" content="https://s.pl/a.jpg"><img src="/x.png"><img alt="exploded view" src="/diagram.png">';
+  assert.deepEqual(imagesInHtml(html, 'https://s.pl/p/1'), ['https://s.pl/diagram.png', 'https://s.pl/a.jpg']);
+});
+
+test('dopracowanie podzespolu zastepuje tylko jego czesci, w jego krokach', async () => {
+  const project = { kroki: [{ nr: 2, tytul: 'B' }], czesci: [{ id: 'a', grupa: 'A', krok: 1, sx: 10, sy: 10, sz: 10 }, { id: 'b', grupa: 'B', krok: 2, sx: 10, sy: 10, sz: 10 }] };
+  const ops = await refineGroup(project, 'B', 'wiecej srub', { generate: async (p) => {
+    assert.match(p, /wiecej srub/);
+    return { czesci: [{ nazwa: 'N1', ksztalt: 'kula', r: 2 }, { makro: 'sruba', nazwa: 'N2' }] };
+  } });
+  assert.deepEqual(ops.usun, ['b']);
+  const next = CadKit.applyOps(CadKit.normalizeProject(project), ops);
+  assert.deepEqual(next.czesci.map((c) => c.grupa), ['A', 'B', 'B']);
+  assert.ok(next.czesci.slice(1).every((c) => c.krok === 2));
+  await assert.rejects(refineGroup(project, 'nie ma', '', { generate: async () => ({}) }), /Nie ma takiego/);
 });
 
 test('edycja: nieznane id z modelu sa odrzucane', async () => {

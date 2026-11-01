@@ -3070,6 +3070,7 @@ function paramsForAction(name, raw) {
   if (name === 'warsztat-plan') return { temat: raw };
   if (name === 'studio-projekt' || name === 'studio-replika') return { opis: raw };
   if (name === 'studio-edytuj') return { polecenie: raw };
+  if (name === 'studio-dopracuj') return { grupa: raw };
   if (name === 'studio-steruj') return { akcja: raw };
   if (name === 'graf-wiedzy-pokaz') return { temat: raw };
   if (name === 'schowek-ai') return { operacja: raw };
