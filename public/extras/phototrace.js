@@ -173,7 +173,9 @@
       if (y > maxY) maxY = y;
     }
     const widthPx = maxX - minX + 1;
-    const k = (opts.dlugosc || widthPx) / widthPx; // mm na piksel
+    // Skala: dlugosc to szerokosc na zdjeciu, a przy dluzszy: true dluzszy bok przedmiotu (np. stojaca rakieta).
+    const basePx = opts.dluzszy ? Math.max(widthPx, maxY - minY + 1) : widthPx;
+    const k = (opts.dlugosc || basePx) / basePx; // mm na piksel
     const cx = opts.cx ?? (minX + maxX + 1) / 2;
     const cy = opts.cy ?? (minY + maxY + 1) / 2;
     const flip = opts.flip ? -1 : 1;

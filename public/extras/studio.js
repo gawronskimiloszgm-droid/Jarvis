@@ -104,9 +104,7 @@
     fr.readAsDataURL(blob);
   });
   /** Odrys 1:1: zdjecie z boku + dlugosc -> czesci z konturow, z podzialem od modelu AI, gdy dziala. */
-  async function fromPhoto({ url, blob, dlugosc, nazwa }) {
-    const PT = window.PhotoTrace;
-    const source = blob || (await photoBlob(url));
+  async function readPhoto(source) {
     const bmp = await createImageBitmap(source);
     const scale = Math.min(1, 2400 / bmp.width);
     const w = Math.round(bmp.width * scale);
@@ -117,7 +115,12 @@
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(bmp, 0, 0, w, h);
     const img = ctx.getImageData(0, 0, w, h);
-    const q = PT.photoQuality(img);
+    return { cv, img, w, h, q: window.PhotoTrace.photoQuality(img) };
+  }
+  /** Obudowa ze zdjecia: kontury czesci, bez tworzenia projektu. */
+  async function tracePhoto({ read, source, url, dlugosc, nazwa, ai, strictView }) {
+    const PT = window.PhotoTrace;
+    const { cv, img, w, h, q } = read;
     if (q.touches) throw new Error('Przedmiot dotyka krawędzi zdjęcia. Potrzebne jest całe zdjęcie z boku, na jednolitym tle.');
     if (!q.ok) throw new Error('To zdjęcie nie nadaje się do odrysu: potrzebny jest widok z boku na jednolitym tle.');
     // Podzial na czesci: prostokaty z modelu; bez niego jedna czesc, ale obrys i tak jest dokladny.
@@ -130,21 +133,32 @@
     try {
       split = await api('/api/studio/photo-parts', json({ image: small.toDataURL('image/jpeg', 0.85), nazwa }));
     } catch (e) {
-      toast(`Bez podziału na części: ${e.message}`);
+      if (!strictView) toast(`Bez podziału na części: ${e.message}`);
     }
+    if (strictView && split.widok_z_boku === false) throw new Error('To nie jest widok z boku.');
     const length = Number(dlugosc) > 0 ? Number(dlugosc) : split.dlugosc_mm;
     if (!(length > 0)) throw new Error('Podaj prawdziwą długość w milimetrach: bez niej nie da się ustalić skali.');
-    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: 1, obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
-    parts.push({ id: 'reszta', nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.06), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: 1, obszar: [0, 0, w, h] });
-    const t = PT.traceParts(img, { dlugosc: length, parts, eps: 1, minHole: Math.max(40, (w * w) / 26000) });
-    const objectUrl = URL.createObjectURL(source);
+    // Faza wieksza niz pare pikseli psuje dokladny kontur: krawedz zaczyna przecinac sama siebie.
+    const pxMm = length / Math.max(q.bbox[2] - q.bbox[0], q.bbox[3] - q.bbox[1]);
+    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: Math.min(c.gr * 0.1, pxMm * 1.2), obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
+    parts.push({ id: 'reszta', nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.06), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: pxMm * 1.2, obszar: [0, 0, w, h] });
+    const t = PT.traceParts(img, { dlugosc: length, dluzszy: true, parts, eps: 1.5, minHole: Math.max(40, (w * w) / 26000) });
+    const tytul = ai ? 'Obraz wygenerowany przez AI (to nie jest zdjęcie prawdziwego przedmiotu)' : 'Zdjęcie użyte do odrysu';
+    const zdjecie = { url: URL.createObjectURL(source), strona: /^https:/.test(url || '') ? url : '', tytul, k: t.k, cx: t.cx, cy: t.cy, flip: t.flip, w: t.w, h: t.h };
+    return { t, zdjecie, length, czesci: t.parts.map((p) => PT.toPart(p)) };
+  }
+  /** Odrys 1:1 na zadanie: zdjecie od uzytkownika + dlugosc. */
+  async function fromPhoto({ url, blob, dlugosc, nazwa }) {
+    const source = blob || (await photoBlob(url));
+    const read = await readPhoto(source);
+    const { t, zdjecie, length, czesci } = await tracePhoto({ read, source, url, dlugosc, nazwa });
     setProject({
       nazwa: nazwa || 'Odrys ze zdjęcia',
       opis: `Obrys odrysowany ze zdjęcia i przeskalowany do ${Math.round(length)} mm (${t.k.toFixed(2)} mm na piksel).`,
       realny: true,
       uwagi: 'Z boku obrys jest zgodny ze zdjęciem. Drugi bok i grubości to szacunek, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.',
-      zdjecie: { url: objectUrl, strona: /^https:/.test(url || '') ? url : '', tytul: 'Zdjęcie użyte do odrysu', k: t.k, cx: t.cx, cy: t.cy, flip: t.flip, w: t.w, h: t.h },
-      czesci: t.parts.map((p) => PT.toPart(p)),
+      zdjecie,
+      czesci,
       kroki: [...new Set(t.parts.map((p) => p.krok))].sort((a, b) => a - b).map((nr) => ({ nr, tytul: t.parts.filter((p) => p.krok === nr).map((p) => p.nazwa).join(', ').slice(0, 90) })),
       zrodla: /^https:/.test(url || '') ? [{ tytul: 'Zdjęcie użyte do odrysu', url }] : [],
     });
@@ -249,7 +263,10 @@
           here.map = map;
           Object.values(meshes).forEach(decorate);
         })
-        .catch(() => toast('Nie udało się wczytać zdjęcia: model jest bez powierzchni ze zdjęcia.'));
+        .catch(() => {
+          // Obraz z tej sesji po przeladowaniu juz nie istnieje: model zostaje bez powierzchni ze zdjecia.
+          if (!/^blob:/.test(here.url)) toast('Nie udało się wczytać zdjęcia: model jest bez powierzchni ze zdjęcia.');
+        });
     }
     function addSkin(mesh) {
       const z = S.project?.zdjecie;
@@ -413,7 +430,7 @@
           }
         }
       }
-      return { c, dist: Math.max(m.span * 0.3, dist * 1.08) };
+      return { c, dist: Math.max(m.span * 0.3, dist * 1.14) };
     }
     function frameExploded(on) {
       if (m) fitTarget = fitBox(on);
@@ -511,7 +528,7 @@
         const dir = camera.position.clone().sub(controls.target);
         const nextLen = dir.length() + (fitTarget.dist - dir.length()) * 0.06;
         camera.position.copy(controls.target).add(dir.setLength(nextLen));
-        if (Math.abs(nextLen - fitTarget.dist) < fitTarget.dist * 0.01) fitTarget = null;
+        if (Math.abs(nextLen - fitTarget.dist) < fitTarget.dist * 0.01 && controls.target.distanceTo(fitTarget.c) < fitTarget.dist * 0.005) fitTarget = null;
       }
       controls.update();
       renderer.render(scene, camera);
@@ -733,6 +750,55 @@
     UI.openWindow?.('cad');
     for (let i = 0; i < 60 && !S.view; i++) await new Promise((r) => setTimeout(r, 100));
   }
+  /** Wybor zdjecia: najpierw prawdziwe z sieci (najlepsze oceny), a gdy zadne nie pasuje, obraz od generatora. */
+  async function autoOutline(job, nazwa, setStage) {
+    const candidates = (job.obrazy || []).slice(0, 12);
+    const rated = [];
+    let idx = 0;
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      while (idx < candidates.length) {
+        const url = candidates[idx++];
+        try {
+          const source = await photoBlob(url);
+          const read = await readPhoto(source);
+          if (read.q.ok && read.w >= 600) rated.push({ url, source, read, score: read.w * read.h * (1 - read.q.stray) });
+        } catch {
+          /* adres nie odpowiada: nastepny */
+        }
+      }
+    }));
+    rated.sort((a, b) => b.score - a.score);
+    const dlugosc = job.plan?.dlugosc_mm;
+    for (const c of rated.slice(0, 3)) {
+      setStage(`Odrysowuję obudowę ze zdjęcia: ${new URL(c.url).hostname}`);
+      try {
+        return await tracePhoto({ ...c, dlugosc, nazwa, strictView: true });
+      } catch {
+        /* zdjecie pod katem albo inny przedmiot: nastepne */
+      }
+    }
+    setStage('Nie ma dobrego zdjęcia: generuję obraz referencyjny');
+    const r = await fetch('/api/studio/reference', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ opis: nazwa }) });
+    if (!r.ok) throw new Error('Nie ma obrazu referencyjnego.');
+    const source = await r.blob();
+    const read = await readPhoto(source);
+    return tracePhoto({ read, source, dlugosc, nazwa, ai: true, strictView: true });
+  }
+  /** Laczy odrysowana obudowe z wnetrzem: najpierw montujemy srodek, potem to, co na wierzchu. */
+  function mergeOutline(inner, outline) {
+    const steps = K.stepNumbers(inner);
+    const offset = steps.length ? Math.max(...steps) : 0;
+    const shell = outline.czesci.map((c) => ({ ...c, krok: (c.krok || 1) + offset }));
+    const shellSteps = [...new Set(shell.map((c) => c.krok))].sort((a, b) => a - b);
+    return {
+      ...inner,
+      zdjecie: outline.zdjecie,
+      realny: true,
+      czesci: [...inner.czesci, ...shell],
+      kroki: [...inner.kroki, ...shellSteps.map((nr) => ({ nr, tytul: shell.filter((c) => c.krok === nr).map((c) => c.nazwa).join(', ').slice(0, 90), opis: 'Część zewnętrzna odrysowana ze zdjęcia.' }))],
+      uwagi: [`Obudowa: ${outline.zdjecie.tytul}, ${outline.t.k.toFixed(2)} mm na piksel. Obrys z boku jest z tego obrazu; drugi bok i grubości to szacunek.`, inner.uwagi].filter(Boolean).join(' '),
+    };
+  }
   async function design(opis, szukaj) {
     const text = String(opis || '').trim();
     if (!text) return;
@@ -745,19 +811,44 @@
       const start = await api('/api/studio/design', json(body));
       emit(`Studio 3D: ${start.szukaj ? 'szukam planów i projektuję' : 'projektuję'}: ${text.slice(0, 60)}`);
       let toldSources = false;
+      let outline = null;
+      let outlineSent = false;
       for (;;) {
         await new Promise((r) => setTimeout(r, 1500));
         const j = await api(`/api/studio/job/${start.id}`);
         S.job = { ...j, opis: text };
         S.drawJob?.();
+        if (j.stan === 'obrys' && !outlineSent) {
+          outlineSent = true;
+          const setStage = (etap) => {
+            S.job = { ...S.job, etap };
+            S.drawJob?.();
+          };
+          try {
+            outline = await autoOutline(j, j.plan?.nazwa || text, setStage);
+            emit(`Studio 3D: obudowa odrysowana, ${outline.czesci.length} części.`);
+          } catch {
+            outline = null; // zostaje projekt z samego opisu, a ostrzezenie mowi o tym wprost
+          }
+          const round = (v) => Math.round(v);
+          const brief = outline ? outline.czesci.map((c) => {
+            const b = K.boundsOf(K.worldMesh(K.normalizePart(c)));
+            return { nazwa: c.nazwa, od: b.lo.map(round), do: b.hi.map(round) };
+          }) : [];
+          await api(`/api/studio/job/${start.id}/outline`, json({ czesci: brief })).catch(() => {
+            outline = null;
+          });
+          continue;
+        }
         if (j.zrodla?.length && !toldSources) {
           toldSources = true;
           if (UI.isLive?.()) UI.liveSend({ type: 'note', text: `[UI] Znalezione źródła do projektu: ${j.zrodla.slice(0, 5).map((z) => z.tytul).join('; ')}. Rysunków: ${j.plany?.length || 0}.` });
         }
         if (j.stan === 'blad') throw new Error(j.etap);
         if (j.stan === 'gotowe') {
-          setProject(j.projekt);
-          S.warnings = j.ostrzezenia || S.warnings;
+          setProject(outline ? mergeOutline(j.projekt, outline) : j.projekt);
+          if (!outline) S.warnings = [...(j.ostrzezenia || []), 'Nie znalazłem zdjęcia z boku: wygląd powstał z samego opisu. Podaj zdjęcie w ODRYSUJ ZE ZDJĘCIA, a będzie dokładny.'];
+          else S.warnings = [...S.warnings.filter((w) => !/kroków/.test(w)), ...(j.ostrzezenia || []).filter((w) => /zawiódł/.test(w))];
           S.job = null;
           S.tab = 'czesci';
           S.redraw();

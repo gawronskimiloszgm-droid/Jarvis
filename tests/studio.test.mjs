@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDesign, cleanTopic, commonsDrawings, defaultScale, imagesInHtml, isRelevant, parseLoose, planEdit, refineGroup, research, wantsResearch, CadKit } from '../server/extras/studio.js';
+import { buildDesign, cleanTopic, commonsDrawings, defaultScale, imageUrlsFromBing, imagesInHtml, isRelevant, parseLoose, planEdit, refineGroup, research, wantsResearch, CadKit } from '../server/extras/studio.js';
 
 const PLAN = {
   nazwa: 'Replika testowa',
@@ -23,6 +23,7 @@ const deps = (over = {}) => ({
   sleep: async () => {},
   bing: async () => [],
   pageImages: async () => [],
+  photos: async () => ['https://sklep.pl/foto.jpg'],
   generate: async (prompt) => {
     if (prompt.includes('głównym konstruktorem')) return PLAN;
     if (prompt.includes('Podzespół: Kadłub')) return { czesci: [{ nazwa: 'Rama', ksztalt: 'pudelko', sx: 5000, sy: 200, sz: 2000, x: 0, y: 100, z: 0, etap: 1, zrodlo: 'plany' }, { nazwa: 'Poszycie', ksztalt: 'loft', przekroje: [{ p: -400, a: 900, b: 900 }, { p: 400, a: 500, b: 500 }], x: 0, y: 600, z: 0, etap: 2 }] };
@@ -149,6 +150,42 @@ test('prompt: zakaz dzialajacej broni i dokumentacja makr sa zawsze w tresci', a
   } }) });
   assert.ok(seen.every((p) => /niedziałającą makietę/.test(p)));
   assert.ok(seen.slice(1).every((p) => /aeg_gearbox_v2/.test(p)));
+});
+
+test('zdjecia z wyszukiwarki: pelne adresy https, bez powtorek', () => {
+  const html = 'x murl&quot;:&quot;https://a.pl/1.jpg&quot; y murl&quot;:&quot;http://b.pl/2.jpg&quot; z murl&quot;:&quot;https://a.pl/1.jpg&quot;';
+  assert.deepEqual(imageUrlsFromBing(html), ['https://a.pl/1.jpg']);
+});
+
+test('obudowa ze zdjecia: model dostaje jej obrysy i robi tylko wnetrze', async () => {
+  const plan = { ...PLAN, podzespoly: [{ ...PLAN.podzespoly[0], wnetrze: false }, { ...PLAN.podzespoly[1], wnetrze: true }, { ...PLAN.podzespoly[2], wnetrze: false }] };
+  const prompts = [];
+  let info = null;
+  const r = await buildDesign('x', {
+    deps: deps({ generate: async (p) => {
+      prompts.push(p);
+      if (p.includes('głównym konstruktorem')) return plan;
+      if (p.includes('nazwę kanoniczną')) return { nazwa: 'Thing' };
+      return { czesci: [{ nazwa: 'Mechanizm', ksztalt: 'pudelko', x: 0, y: 900, z: 0 }] };
+    } }),
+    waitOutline: async (i) => {
+      info = i;
+      return { czesci: [{ nazwa: 'Obudowa', od: [0, 0, 0], do: [100, 50, 20] }] };
+    },
+  });
+  assert.equal(info.dlugosc_mm, 5000);
+  assert.deepEqual(info.obrazy, ['https://sklep.pl/foto.jpg']);
+  const parts = prompts.filter((p) => p.includes('Podzespół:'));
+  assert.equal(parts.length, 1, 'tylko jeden podzespol jest w srodku');
+  assert.match(parts[0], /TYLKO to, co jest w środku/);
+  assert.match(parts[0], /Obudowa/);
+  assert.ok(r.projekt.czesci.every((c) => c.grupa === 'Skrzydło'));
+});
+
+test('bez obrysu powstaje caly projekt z opisu', async () => {
+  const r = await buildDesign('x', { deps: deps(), waitOutline: async () => null });
+  assert.ok(r.projekt.czesci.some((c) => c.grupa === 'Kadłub'));
+  assert.ok(r.dlugosc_mm >= 5000);
 });
 
 test('obrazy ze strony: rysunki rozstrzelone i zdjecie glowne, adresy pelne', () => {
