@@ -69,6 +69,7 @@ function loadMusic({ connected = false, controlFails = false, desktop = null, pl
     },
   };
   const window = {
+    open: (url) => calls.push(`otworz: ${url}`),
     JarvisUI: UI,
     jarvisDesktop: desktop
       ? {
