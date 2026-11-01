@@ -3212,6 +3212,13 @@ async function speak(text) {
   // Tryb "nie przeszkadzac": zadnego glosu (potwierdzenia E.D.I.T.H. tez nie
   // sa wtedy mowione - sa i tak widoczne na ekranie i na telefonie).
   if (window.JarvisUI?.dnd?.active) return;
+  // W trakcie rozmowy na zywo mowi tylko model rozmowy. /api/tts to inny silnik i inny glos,
+  // ktory wchodzil zaraz po Jarvisie albo na niego. Dziennik pokazuje, co tak przeszlo.
+  if (liveWs && store.live && liveWs.readyState === WebSocket.OPEN) {
+    logEvent('glos', `komunikat przez rozmowe: ${String(text).slice(0, 80)}`);
+    liveWs.send(JSON.stringify({ type: 'speak', text: String(text).slice(0, 500) }));
+    return;
+  }
   // Wlasny glos (lokalny serwer mowy) - gdy wlaczony, czyta zamiast /api/tts.
   if (window.JarvisUI?.localSpeak && (await window.JarvisUI.localSpeak(text))) return;
   try {
@@ -3695,6 +3702,7 @@ async function liveStart() {
     if (m.type === 'ready') {
       relinkTries = 0; // udalo sie polaczyc - zerujemy opoznienie ponowien
       setCoreState('SLUCHAM');
+      if (m.model) logEvent('glos', `rozmowa na zywo: model ${m.model}, glos ${m.voice || 'wlasny'}`);
       if (m.clonedVoice) logEvent('glos', 'rozmowa na zywo: sklonowany glos aktywny', 'ok');
     }
     else if (m.type === 'ttsChunk') {

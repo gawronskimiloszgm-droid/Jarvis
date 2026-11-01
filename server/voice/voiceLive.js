@@ -807,7 +807,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   let sessionAnswered = false;
   let sessionNr = 0;
   let speaking = false;
-  let pendingReact = null;
+  const pendingLines = [];
   const client = edith ? new GoogleGenAI({ apiKey: edithApiKey() }) : ai;
   let liveSession = null;
   let closed = false;
@@ -1001,9 +1001,18 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
     });
   };
 
+  // Tekst, ktory ma przeczytac sam model rozmowy, zeby w trakcie rozmowy slychac bylo jeden glos.
+  const sendLine = (text) => {
+    liveSession.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: `[KOMUNIKAT APLIKACJI - to nie wypowiedz uzytkownika] Przeczytaj go na glos, nic nie dodajac: ${text}` }] }],
+      turnComplete: true,
+    });
+  };
+
   async function openSession() {
     const nr = ++sessionNr;
     sessionAnswered = false;
+    speaking = false;
     return client.live.connect({
       model: choice.model(),
       config: {
@@ -1052,7 +1061,7 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
       },
       callbacks: {
         onopen: () => {
-          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice, localVoice, model: choice.model() }));
+          safeSend(JSON.stringify({ type: 'ready', role: isOwner ? 'owner' : 'guest', clonedVoice, localVoice, model: choice.model(), voice: clonedVoice ? null : choice.voice() }));
         },
         onmessage: async (msg) => {
           if (closed || nr !== sessionNr) return;
@@ -1558,10 +1567,8 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
             if (step) {
               announceSwitch(step, 'odpowiedz przyszla bez dzwieku');
               reconnect('cisza');
-            } else if (pendingReact) {
-              const text = pendingReact;
-              pendingReact = null;
-              sendReact(text);
+            } else if (pendingLines.length) {
+              pendingLines.shift()();
             }
           }
 
@@ -1658,9 +1665,14 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
           if (!isDnd() && nowTs - lastReactAt > 9000) {
             lastReactAt = nowTs;
             // Nowy model przerywa sobie przy turnComplete, wiec w trakcie mowienia zdarzenie czeka na koniec tury.
-            if (speaking) pendingReact = msg.text.slice(0, 400);
-            else sendReact(msg.text.slice(0, 400));
+            const text = msg.text.slice(0, 400);
+            if (speaking) pendingLines.push(() => sendReact(text));
+            else sendReact(text);
           }
+        } else if (msg.type === 'speak' && typeof msg.text === 'string') {
+          const text = msg.text.slice(0, 500);
+          if (speaking) pendingLines.push(() => sendLine(text));
+          else sendLine(text);
         } else if (msg.type === 'video' && msg.data) {
           liveSession.sendRealtimeInput({ video: { data: msg.data, mimeType: 'image/jpeg' } });
         } else if (msg.type === 'response' && msg.requestId) {
