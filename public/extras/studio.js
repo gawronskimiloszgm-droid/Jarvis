@@ -140,9 +140,13 @@
     if (!(length > 0)) throw new Error('Podaj prawdziwą długość w milimetrach: bez niej nie da się ustalić skali.');
     // Faza wieksza niz pare pikseli psuje dokladny kontur: krawedz zaczyna przecinac sama siebie.
     const pxMm = length / Math.max(q.bbox[2] - q.bbox[0], q.bbox[3] - q.bbox[1]);
-    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: Math.min(c.gr * 0.1, pxMm * 1.2), obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
-    parts.push({ id: 'reszta', nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.06), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: pxMm * 1.2, obszar: [0, 0, w, h] });
-    const t = PT.traceParts(img, { dlugosc: length, dluzszy: true, parts, eps: 1.5, minHole: Math.max(40, (w * w) / 26000) });
+    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, oble: c.obly, szer: c.szer, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: Math.min(c.gr * 0.1, pxMm * 1.2), obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
+    parts.push({ id: 'reszta', reszta: true, oble: true, nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.12), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: pxMm * 1.2, obszar: [0, 0, w, h] });
+    const t = PT.traceParts(img, { dlugosc: length, dluzszy: true, parts, eps: 1.5, minHole: Math.max(40, (w * w) / 26000), czysc: true });
+    // Druga strona nie ma zdjecia, ale ma prawdziwy kolor tej czesci.
+    t.parts.forEach((p) => {
+      if (p.kolorZdjecia) p.kolor = p.kolorZdjecia;
+    });
     const tytul = ai ? 'Obraz wygenerowany przez AI (to nie jest zdjęcie prawdziwego przedmiotu)' : 'Zdjęcie użyte do odrysu';
     const zdjecie = { url: URL.createObjectURL(source), strona: /^https:/.test(url || '') ? url : '', tytul, k: t.k, cx: t.cx, cy: t.cy, flip: t.flip, w: t.w, h: t.h };
     return { t, zdjecie, length, czesci: t.parts.map((p) => PT.toPart(p)) };
@@ -156,7 +160,7 @@
       nazwa: nazwa || 'Odrys ze zdjęcia',
       opis: `Obrys odrysowany ze zdjęcia i przeskalowany do ${Math.round(length)} mm (${t.k.toFixed(2)} mm na piksel).`,
       realny: true,
-      uwagi: 'Z boku obrys jest zgodny ze zdjęciem. Drugi bok i grubości to szacunek, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.',
+      uwagi: 'Z boku obrys jest zgodny ze zdjęciem. Grubości i krzywizna to szacunek, drugi bok obłych części to lustrzane odbicie zdjęcia, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.',
       zdjecie,
       czesci,
       kroki: [...new Set(t.parts.map((p) => p.krok))].sort((a, b) => a - b).map((nr) => ({ nr, tytul: t.parts.filter((p) => p.krok === nr).map((p) => p.nazwa).join(', ').slice(0, 90) })),
@@ -225,7 +229,8 @@
       if (refined) return refined.clone();
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(K.partMesh(p), 3));
-      return THREE.toCreasedNormals(g, 0.6);
+      // Bryla obla ma byc gladka: ostry jest tylko jej rant.
+      return THREE.toCreasedNormals(g, p.oble ? 1.25 : 0.6);
     }
     function disposeMeshes() {
       Object.values(meshes).forEach((o) => {
@@ -283,15 +288,24 @@
       const eps = (zMax - zMin) * 0.002 + 1e-4;
       const out = [];
       const uv = [];
+      const nor = [];
+      const normals = g.attributes.normal;
+      // Odstep rosnie z rozmiarem modelu: przy dwoch metrach 0,03 mm to za malo i warstwy migocza.
+      const lift = Math.max(0.03, Math.hypot(S.project ? K.measure(S.project).size[0] : 0, 0) * 0.0002);
       for (let i = 0; i + 2 < pos.count; i += 3) {
         const zs = [pos.getZ(i), pos.getZ(i + 1), pos.getZ(i + 2)];
-        const side = zs.every((v) => v > zMax - eps) ? 1 : zs.every((v) => v < zMin + eps) ? -1 : 0;
-        // Tylko strona, ktora zdjecie naprawde pokazuje: na drugiej napisy bylyby w lustrzanym odbiciu.
-        if (side !== (z.flip < 0 ? -1 : 1)) continue;
+        // Bryla obla nie ma plaskiej sciany: o stronie decyduje kierunek trojkata, a boczne ranty zostaja bez zdjecia.
+        const nz = (pos.getX(i + 1) - pos.getX(i)) * (pos.getY(i + 2) - pos.getY(i)) - (pos.getY(i + 1) - pos.getY(i)) * (pos.getX(i + 2) - pos.getX(i));
+        const side = p.oble ? (Math.abs(nz) < 1e-9 ? 0 : Math.sign(nz)) : zs.every((v) => v > zMax - eps) ? 1 : zs.every((v) => v < zMin + eps) ? -1 : 0;
+        // Plaska czesc: tylko strona, ktora zdjecie naprawde pokazuje, bo na drugiej napisy bylyby w lustrzanym
+        // odbiciu. Obla bez zdjecia wyglada jak bryla gliny, wiec dostaje odbicie, a uwagi projektu o tym mowia.
+        const wanted = z.flip < 0 ? -1 : 1;
+        if (p.oble ? !side : side !== wanted) continue;
         for (let k = 0; k < 3; k++) {
           const x = pos.getX(i + k);
           const y = pos.getY(i + k);
-          out.push(x, y, zs[k] + side * 0.03);
+          out.push(x, y, zs[k] + side * lift);
+          if (normals) nor.push(normals.getX(i + k), normals.getY(i + k), normals.getZ(i + k));
           uv.push(((x + p.x) / (z.k * z.flip) + z.cx) / z.w, 1 - (z.cy - (y + p.y) / z.k) / z.h);
         }
       }
@@ -299,8 +313,9 @@
       const skin = new THREE.BufferGeometry();
       skin.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
       skin.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      skin.computeVertexNormals();
-      const s = new THREE.Mesh(skin, new THREE.MeshStandardMaterial({ map: photoTex.map, metalness: 0.15, roughness: 0.6, side: THREE.DoubleSide }));
+      if (nor.length) skin.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      else skin.computeVertexNormals();
+      const s = new THREE.Mesh(skin, new THREE.MeshStandardMaterial({ map: photoTex.map, metalness: 0.15, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
       s.raycast = () => {};
       mesh.add(s);
     }
@@ -632,6 +647,34 @@
         renderer.render(scene, camera);
         return canvas.toDataURL('image/png');
       },
+      /** Kamera od razu na miejscu: do klatki dla AI nie ma czasu na plynny najazd. */
+      settle(on, side) {
+        if (!m) return;
+        if (side) {
+          const away = camera.position.distanceTo(controls.target);
+          const look = new THREE.Vector3(0.05, 0.08, S.project.zdjecie?.flip < 0 ? -1 : 1).normalize();
+          camera.position.copy(controls.target).add(look.multiplyScalar(away));
+        }
+        const t = fitBox(on);
+        const dir = camera.position.clone().sub(controls.target).setLength(t.dist);
+        controls.target.copy(t.c);
+        camera.position.copy(t.c).add(dir);
+        fitTarget = null;
+        controls.update();
+      },
+      /** Klatka do przegladu AI: JPEG na ciemnym tle, bo PNG wazy wielokrotnie wiecej i nic nie wnosi. */
+      jpeg() {
+        renderer.render(scene, camera);
+        const out = document.createElement('canvas');
+        const sc = Math.min(1, 1000 / canvas.width);
+        out.width = Math.round(canvas.width * sc);
+        out.height = Math.round(canvas.height * sc);
+        const c = out.getContext('2d');
+        c.fillStyle = '#10171d';
+        c.fillRect(0, 0, out.width, out.height);
+        c.drawImage(canvas, 0, 0, out.width, out.height);
+        return out.toDataURL('image/jpeg', 0.8);
+      },
       glb() {
         return new Promise((resolve, reject) => {
           new THREE.GLTFExporter().parse(root, resolve, reject, { binary: true });
@@ -790,14 +833,56 @@
     const offset = steps.length ? Math.max(...steps) : 0;
     const shell = outline.czesci.map((c) => ({ ...c, krok: (c.krok || 1) + offset }));
     const shellSteps = [...new Set(shell.map((c) => c.krok))].sort((a, b) => a - b);
+    const fit = K.fitInside(inner.czesci, shell);
+    outline.dopasowanie = fit;
     return {
       ...inner,
       zdjecie: outline.zdjecie,
       realny: true,
-      czesci: [...inner.czesci, ...shell],
+      czesci: [...fit.czesci, ...shell],
       kroki: [...inner.kroki, ...shellSteps.map((nr) => ({ nr, tytul: shell.filter((c) => c.krok === nr).map((c) => c.nazwa).join(', ').slice(0, 90), opis: 'Część zewnętrzna odrysowana ze zdjęcia.' }))],
-      uwagi: [`Obudowa: ${outline.zdjecie.tytul}, ${outline.t.k.toFixed(2)} mm na piksel. Obrys z boku jest z tego obrazu; drugi bok i grubości to szacunek.`, inner.uwagi].filter(Boolean).join(' '),
+      uwagi: [`Obudowa: ${outline.zdjecie.tytul}, ${outline.t.k.toFixed(2)} mm na piksel. Obrys z boku jest z tego obrazu; grubości i krzywizna to szacunek, a drugi bok to lustrzane odbicie tego zdjęcia, więc napisy są tam odwrócone.`, inner.uwagi].filter(Boolean).join(' '),
     };
+  }
+  /** Jedna runda kontroli: AI oglada render i poprawia wnetrze. Gdy sie nie uda, projekt zostaje taki, jak jest. */
+  async function reviewPass(setStage) {
+    if (!S.view?.jpeg) return null;
+    setStage('Sprawdzam gotowy model na renderach');
+    S.playing = 0;
+    const frame = async (tau, side) => {
+      S.tau = tau;
+      S.view.refresh();
+      S.view.settle(tau > 0, side);
+      await new Promise((r) => setTimeout(r, 900));
+      S.view.settle(tau > 0);
+      return S.view.jpeg();
+    };
+    const obrazy = [await frame(0, true), await frame(1)];
+    S.tau = 0;
+    S.view.refresh();
+    S.view.settle(false);
+    if (S.project.zdjecie?.url) {
+      try {
+        const bmp = await createImageBitmap(await (await fetch(S.project.zdjecie.url)).blob());
+        const c = document.createElement('canvas');
+        const sc = Math.min(1, 1000 / bmp.width);
+        c.width = Math.round(bmp.width * sc);
+        c.height = Math.round(bmp.height * sc);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        obrazy.push(c.toDataURL('image/jpeg', 0.8));
+      } catch {
+        /* bez zdjecia przeglad i tak widzi model */
+      }
+    }
+    const ops = await api('/api/studio/review', json({ projekt: S.project, obrazy }));
+    if (!ops.zmien.length && !ops.dodaj.length) return { puste: true };
+    ops.zmien.forEach((e) => delete S.refined[e.id]);
+    const made = K.applyOps(S.project, ops);
+    // Zmiana po kontroli nie moze cofnac dopasowania do obudowy.
+    const shell = made.czesci.filter((c) => c.skora);
+    if (shell.length) made.czesci = [...K.fitInside(made.czesci.filter((c) => !c.skora), shell).czesci, ...shell];
+    commit(made);
+    return { ops };
   }
   async function design(opis, szukaj) {
     const text = String(opis || '').trim();
@@ -849,6 +934,24 @@
           setProject(outline ? mergeOutline(j.projekt, outline) : j.projekt);
           if (!outline) S.warnings = [...(j.ostrzezenia || []), 'Nie znalazłem zdjęcia z boku: wygląd powstał z samego opisu. Podaj zdjęcie w ODRYSUJ ZE ZDJĘCIA, a będzie dokładny.'];
           else S.warnings = [...S.warnings.filter((w) => !/kroków/.test(w)), ...(j.ostrzezenia || []).filter((w) => /zawiódł/.test(w))];
+          const notes = S.warnings.slice();
+          if (outline) {
+            const fit = outline.dopasowanie;
+            if (fit?.przesuniete.length) notes.push(`Dopasowałem do obudowy: ${fit.przesuniete.slice(0, 5).join(', ')}.`);
+            if (fit?.wystaje.length) notes.push(`Nie mieści się w obudowie: ${fit.wystaje.slice(0, 5).join(', ')}. Użyj DOPRACUJ przy tym podzespole.`);
+            if (outline.t.pokrycie < 0.97) notes.push(`Część obrysu ze zdjęcia nie weszła do modelu (pokrycie ${Math.round(outline.t.pokrycie * 100)}%).`);
+          }
+          try {
+            const review = await reviewPass((etap) => {
+              S.job = { etap, postep: 96, opis: text };
+              S.drawJob?.();
+            });
+            if (review?.ops?.co_zmieniono) notes.push(`Kontrola na renderach: ${review.ops.co_zmieniono}`);
+          } catch (e) {
+            notes.push(`Kontrola na renderach się nie udała: ${e.message}. Projekt jest bez niej.`);
+          }
+          // commit w kontroli liczy ostrzezenia od nowa, wiec te z projektowania dokladamy na koncu.
+          S.warnings = [...new Set([...S.warnings, ...notes])];
           S.job = null;
           S.tab = 'czesci';
           S.redraw();
@@ -925,7 +1028,7 @@
       opcje,
       czesci: pr.czesci.map((p) => ({
         id: p.id, nazwa: p.nazwa, grupa: p.grupa, krok: p.krok, kolor: p.kolor, metal: p.metal, szorstkosc: p.szorstkosc,
-        faza: p.faza, gladki: p.gladki, ciecie: p.ciecie, skora: p.skora, x: p.x, y: p.y, z: p.z, rx: p.rx, ry: p.ry, rz: p.rz,
+        faza: p.faza, gladki: p.gladki, ciecie: p.ciecie, skora: p.skora, oble: p.oble, x: p.x, y: p.y, z: p.z, rx: p.rx, ry: p.ry, rz: p.rz,
         rozst: vec[p.id], siatka: K.partMesh(p).map((v) => Math.round(v * 1000) / 1000),
       })),
     };

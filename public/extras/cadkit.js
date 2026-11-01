@@ -25,7 +25,7 @@
     rurka: 'rurka po ścieżce (kable, wydech): sciezka [[x, y, z]...], r',
     sprezyna: 'sprężyna: R, r, skok, zwoje',
     kolo_zebate: 'koło zębate: zeby, m (moduł), h, otwor; sektor 0-1 zostawia zęby tylko na części obwodu',
-    boczny: 'rysunek z boku, najlepszy do korpusów: kontur [[x, y]...] wyciągnięty na grubość gr wzdłuż Z, zaokr (promień narożników), faza, otwory [{x, y, r}]',
+    boczny: 'rysunek z boku, najlepszy do korpusów: kontur [[x, y]...] wyciągnięty na grubość gr wzdłuż Z, zaokr (promień narożników), faza, otwory [{x, y, r}]; oble: true daje zamiast płaskich ścian wypukłą, zaokrągloną bryłę (bak, owiewka, karoseria, kadłub, rama z rur), a szer [[t, gr]...] zmienia grubość wzdłuż X (t od 0 do 1)',
     gwint: 'pręt z gwintem: r, h, skok',
     zespol: 'jedna część z wielu kształtów (np. wał z kołami): elementy [{ksztalt, x, y, z, rx, ry, rz, ...wymiary}]',
   };
@@ -251,6 +251,194 @@
         }
       }
     });
+    return o;
+  }
+
+  // Bryla obla z konturu (rys. z boku): kazdy punkt dostaje grubosc od najwiekszej kuli mieszczacej sie
+  // w konturze, wiec rura wychodzi okragla, a bak wypukly. Kontur zostaje co do punktu, grubosc nasyca sie
+  // na gr/2, a szer [[t, gr]...] pozwala zmieniac ja wzdluz przedmiotu (t od 0 do 1 po X).
+  function heightField(loops, cell) {
+    const xs = loops.flat().map((p) => p[0]);
+    const ys = loops.flat().map((p) => p[1]);
+    const x0 = Math.min(...xs) - cell * 2;
+    const y0 = Math.min(...ys) - cell * 2;
+    const w = Math.ceil((Math.max(...xs) - x0) / cell) + 3;
+    const h = Math.ceil((Math.max(...ys) - y0) / cell) + 3;
+    const inside = new Uint8Array(w * h);
+    const edges = loops.flatMap((l) => l.map((p, i) => [p, l[(i + 1) % l.length]]));
+    for (let j = 0; j < h; j++) {
+      const y = y0 + (j + 0.5) * cell;
+      const cuts = [];
+      for (const [a, b] of edges) {
+        if (a[1] > y !== b[1] > y) cuts.push(a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
+      }
+      cuts.sort((a, b) => a - b);
+      for (let k = 0; k + 1 < cuts.length; k += 2) {
+        const from = Math.max(0, Math.ceil((cuts[k] - x0) / cell - 0.5));
+        const to = Math.min(w - 1, Math.floor((cuts[k + 1] - x0) / cell - 0.5));
+        for (let i = from; i <= to; i++) inside[j * w + i] = 1;
+      }
+    }
+    // Dokladna transformata odleglosci (Felzenszwalb): kwadrat odleglosci do najblizszej komorki poza bryla.
+    const dist = new Float64Array(w * h);
+    const pass = (n, get, set) => {
+      const v = new Int32Array(n);
+      const z = new Float64Array(n + 1);
+      let k = 0;
+      z[0] = -Infinity;
+      z[1] = Infinity;
+      for (let q = 1; q < n; q++) {
+        let s;
+        for (;;) {
+          const r = v[k];
+          s = (get(q) + q * q - get(r) - r * r) / (2 * (q - r));
+          if (s > z[k] || k === 0) break;
+          k--;
+        }
+        k++;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = Infinity;
+      }
+      k = 0;
+      const out = new Float64Array(n);
+      for (let q = 0; q < n; q++) {
+        while (z[k + 1] < q) k++;
+        out[q] = (q - v[k]) ** 2 + get(v[k]);
+      }
+      for (let q = 0; q < n; q++) set(q, out[q]);
+    };
+    for (let i = 0; i < w * h; i++) dist[i] = inside[i] ? 1e12 : 0;
+    for (let i = 0; i < w; i++) pass(h, (j) => dist[j * w + i], (j, v) => { dist[j * w + i] = v; });
+    for (let j = 0; j < h; j++) pass(w, (i) => dist[j * w + i], (i, v) => { dist[j * w + i] = v; });
+    // Suma kul: od najwiekszej, a kula juz przykryta przez wieksze nic nie wnosi.
+    const balls = [];
+    for (let j = 1; j < h - 1; j++) {
+      for (let i = 1; i < w - 1; i++) {
+        const c = j * w + i;
+        const d = dist[c];
+        if (d > 0 && d >= dist[c - 1] && d >= dist[c + 1] && d >= dist[c - w] && d >= dist[c + w]) balls.push(c);
+      }
+    }
+    balls.sort((a, b) => dist[b] - dist[a]);
+    const field = new Float32Array(w * h);
+    for (const c of balls) {
+      const r = Math.sqrt(dist[c]);
+      if (field[c] >= r * 0.985) continue;
+      const ci = c % w;
+      const cj = (c - ci) / w;
+      const R = Math.ceil(r);
+      for (let j = Math.max(0, cj - R); j <= Math.min(h - 1, cj + R); j++) {
+        for (let i = Math.max(0, ci - R); i <= Math.min(w - 1, ci + R); i++) {
+          const q = r * r - (i - ci) ** 2 - (j - cj) ** 2;
+          if (q > 0 && inside[j * w + i]) {
+            const v = Math.sqrt(q);
+            if (v > field[j * w + i]) field[j * w + i] = v;
+          }
+        }
+      }
+    }
+    // Lekkie rozmycie: zalamania miedzy kulami nie powinny byc widoczne na powierzchni.
+    const soft = new Float32Array(w * h);
+    for (let j = 1; j < h - 1; j++) {
+      for (let i = 1; i < w - 1; i++) {
+        const c = j * w + i;
+        if (!inside[c]) continue;
+        soft[c] = (field[c] * 4 + field[c - 1] + field[c + 1] + field[c - w] + field[c + w]) / 8;
+      }
+    }
+    return (x, y) => {
+      const u = Math.max(0, Math.min(w - 1.001, (x - x0) / cell - 0.5));
+      const v = Math.max(0, Math.min(h - 1.001, (y - y0) / cell - 0.5));
+      const i = Math.floor(u);
+      const j = Math.floor(v);
+      const a = u - i;
+      const b = v - j;
+      const c = j * w + i;
+      return ((soft[c] * (1 - a) + soft[c + 1] * a) * (1 - b) + (soft[c + w] * (1 - a) + soft[c + w + 1] * a) * b) * cell;
+    };
+  }
+
+  const inflateCache = new Map();
+  function inflate(outer, holes, gr, szer) {
+    const key = JSON.stringify([outer, holes, gr, szer]);
+    const hit = inflateCache.get(key);
+    if (hit) return hit;
+    const O = orient(outer, true);
+    const H = holes.map((l) => orient(l, false));
+    const loops = [O, ...H];
+    const area = Math.max(1e-6, polyArea(O) + H.reduce((s, l) => s + polyArea(l), 0));
+    const perim = loops.reduce((s, l) => s + l.reduce((t, p, i) => t + Math.hypot(l[(i + 1) % l.length][0] - p[0], l[(i + 1) % l.length][1] - p[1]), 0), 0);
+    // Oko siatki: drobniej przy cienkich elementach, ale z gorna granica liczby trojkatow.
+    let L = Math.max(Math.sqrt(area / 2200), Math.min(Math.sqrt(area / 900), (area / Math.max(perim, 1e-6)) * 0.7));
+    const xs = O.map((p) => p[0]);
+    const lo = Math.min(...xs);
+    const span = Math.max(1e-6, Math.max(...xs) - lo);
+    const widths = (szer || []).slice().sort((a, b) => a[0] - b[0]);
+    const capAt = (x) => {
+      if (widths.length < 2) return gr / 2;
+      const t = (x - lo) / span;
+      if (t <= widths[0][0]) return widths[0][1] / 2;
+      for (let i = 1; i < widths.length; i++) {
+        if (t <= widths[i][0]) {
+          const a = widths[i - 1];
+          const b = widths[i];
+          return (a[1] + ((t - a[0]) / Math.max(1e-6, b[0] - a[0])) * (b[1] - a[1])) / 2;
+        }
+      }
+      return widths[widths.length - 1][1] / 2;
+    };
+    const base = earcut(bridgeHoles(O, H));
+    // Dlugie, waskie trojkaty z konturu dziela sie na bardzo wiele kawalkow: pilnujemy budzetu na czesc.
+    const estimate = (l) => base.reduce((s, [a, b, c]) => {
+      const edge = Math.max(Math.hypot(a[0] - b[0], a[1] - b[1]), Math.hypot(b[0] - c[0], b[1] - c[1]), Math.hypot(c[0] - a[0], c[1] - a[1]));
+      const ar = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2;
+      return s + Math.max(1, (edge / l) * 2, ar / (0.2 * l * l));
+    }, 0);
+    while (estimate(L) > 30000) L *= 1.2;
+    const field = heightField(loops, L / 2);
+    const rimAt = (cap) => Math.min(cap * 0.1, L * 0.35);
+    const height = (v) => {
+      const cap = capAt(v[0]);
+      const rim = rimAt(cap);
+      if (v[2]) return rim;
+      const top = Math.max(1e-6, cap - rim);
+      return rim + top * Math.tanh(field(v[0], v[1]) / top);
+    };
+    const ekey = (a, b) => (a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]) ? `${a[0]},${a[1]},${b[0]},${b[1]}` : `${b[0]},${b[1]},${a[0]},${a[1]}`);
+    const border = new Set();
+    loops.forEach((l) => l.forEach((p, i) => border.add(ekey(p, l[(i + 1) % l.length]))));
+    const o = [];
+    const stack = base.map(([a, b, c]) => ({
+      a: [a[0], a[1], 1], b: [b[0], b[1], 1], c: [c[0], c[1], 1],
+      ab: border.has(ekey(a, b)), bc: border.has(ekey(b, c)), ca: border.has(ekey(c, a)),
+    }));
+    const len = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+    while (stack.length) {
+      const t = stack.pop();
+      const lab = len(t.a, t.b);
+      const lbc = len(t.b, t.c);
+      const lca = len(t.c, t.a);
+      const most = Math.max(lab, lbc, lca);
+      if (most > L) {
+        // Dzielimy zawsze w polowie najdluzszej krawedzi: sasiedni trojkat podzieli ja tak samo i nie ma szczelin.
+        const [a, b, c, ab, bc, ca] = most === lab ? [t.a, t.b, t.c, t.ab, t.bc, t.ca] : most === lbc ? [t.b, t.c, t.a, t.bc, t.ca, t.ab] : [t.c, t.a, t.b, t.ca, t.ab, t.bc];
+        const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, ab ? 1 : 0];
+        stack.push({ a, b: m, c, ab, bc: false, ca }, { a: m, b, c, ab, bc, ca: false });
+        continue;
+      }
+      const za = height(t.a);
+      const zb = height(t.b);
+      const zc = height(t.c);
+      tri(o, [t.a[0], t.a[1], za], [t.b[0], t.b[1], zb], [t.c[0], t.c[1], zc]);
+      tri(o, [t.a[0], t.a[1], -za], [t.c[0], t.c[1], -zc], [t.b[0], t.b[1], -zb]);
+      const wall = (p, q, zp, zq) => quad(o, [p[0], p[1], -zp], [q[0], q[1], -zq], [q[0], q[1], zq], [p[0], p[1], zp]);
+      if (t.ab) wall(t.a, t.b, za, zb);
+      if (t.bc) wall(t.b, t.c, zb, zc);
+      if (t.ca) wall(t.c, t.a, zc, za);
+    }
+    if (inflateCache.size >= 96) inflateCache.delete(inflateCache.keys().next().value);
+    inflateCache.set(key, o);
     return o;
   }
 
@@ -694,6 +882,11 @@
       if (p.kontur.length < 3) p.kontur = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
       p.gr = size(raw.gr ?? raw.h, 10);
       p.otwory = holes(raw.otwory);
+      if (raw.oble) p.oble = true;
+      if (Array.isArray(raw.szer)) {
+        const szer = raw.szer.filter((s) => Array.isArray(s) && Number.isFinite(s[0]) && Number(s[1]) > 0).slice(0, 12).map((s) => [clamp(s[0], 0, 1, 0), size(s[1], p.gr)]);
+        if (szer.length >= 2) p.szer = szer;
+      }
     } else if (ksztalt === 'gwint') {
       p.r = size(raw.r, 3);
       p.h = size(raw.h, 10);
@@ -868,6 +1061,10 @@
         break;
       }
       case 'boczny': {
+        if (p.oble) {
+          m = inflate(fillet(p.kontur, p.zaokr || 0), p.otwory.map(holeLoop), p.gr, p.szer).slice();
+          break;
+        }
         // Rysujemy jak na kartce (x, y), a grubosc idzie w Z.
         const local = extrude(fillet(p.kontur, p.zaokr || 0), p.otwory.map(holeLoop), p.gr, p.faza);
         m = new Array(local.length);
@@ -1194,5 +1391,88 @@
 
   const macroDoc = () => Object.entries(MACROS).map(([k, v]) => `- ${k}: ${v.opis}`).join('\n');
 
-  return { SHAPES, MACROS, macroDoc, MAX_PARTS, normalizePart, normalizeProject, expandParts, partMesh, worldMesh, transform, measure, boundsOf, centerOf, explodeVectors, stepNumbers, timeline, check, massG, applyOps, stlBinary, bomCsv, signedVolume };
+  /**
+   * Wnetrze ma siedziec w obudowie: zespol, ktory wystaje poza obrys z boku, przesuwamy tam, gdzie wystaje
+   * najmniej, i centrujemy w grubosci. Czego przesuniecie nie ratuje, trafia do "wystaje".
+   */
+  function fitInside(inner, shell) {
+    const inPoly = (x, y, poly) => {
+      let c = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        if (poly[i][1] > y !== poly[j][1] > y && x < ((poly[j][0] - poly[i][0]) * (y - poly[i][1])) / (poly[j][1] - poly[i][1]) + poly[i][0]) c = !c;
+      }
+      return c;
+    };
+    const rings = shell.map((raw) => {
+      const p = normalizePart(raw);
+      if (p.ksztalt === 'boczny' && !p.rx && !p.ry && !p.rz) {
+        const shift = (l) => l.map(([x, y]) => [x + p.x, y + p.y]);
+        return { poly: shift(p.kontur), holes: p.otwory.filter((o) => o.kontur).map((o) => shift(o.kontur)), z: [p.z - p.gr / 2, p.z + p.gr / 2] };
+      }
+      const b = boundsOf(worldMesh(p));
+      return { poly: [[b.lo[0], b.lo[1]], [b.hi[0], b.lo[1]], [b.hi[0], b.hi[1]], [b.lo[0], b.hi[1]]], z: [b.lo[2], b.hi[2]] };
+    });
+    if (!rings.length) return { czesci: inner, przesuniete: [], wystaje: [] };
+    // Przeswit w obudowie (np. miedzy szprychami) to nie miejsce na wnetrze.
+    const covers = (x, y) => rings.some((r) => inPoly(x, y, r.poly) && !(r.holes || []).some((l) => inPoly(x, y, l)));
+    const groups = new Map();
+    inner.forEach((c) => {
+      const g = c.grupa || 'Korpus';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(c);
+    });
+    const shift = new Map();
+    const przesuniete = [];
+    const wystaje = [];
+    for (const [name, parts] of groups) {
+      const pts = [];
+      parts.forEach((c) => {
+        const m = worldMesh(normalizePart(c));
+        const step = Math.max(1, Math.floor(m.length / 3 / 60)) * 3;
+        for (let i = 0; i < m.length; i += step) pts.push([m[i], m[i + 1], m[i + 2]]);
+      });
+      if (!pts.length) continue;
+      const lo = [0, 1, 2].map((k) => pts.reduce((v, q) => Math.min(v, q[k]), Infinity));
+      const hi = [0, 1, 2].map((k) => pts.reduce((v, q) => Math.max(v, q[k]), -Infinity));
+      const out = (dx, dy) => pts.filter((v) => !covers(v[0] + dx, v[1] + dy)).length / pts.length;
+      const before = out(0, 0);
+      let best = { dx: 0, dy: 0, o: before };
+      if (before > 0.02) {
+        // Szukamy w calej obudowie, bo najblizsze wolne miejsce moze lezec za duzym przeswitem.
+        const all = rings.flatMap((r) => r.poly);
+        const span = [0, 1].map((k) => [all.reduce((v, q) => Math.min(v, q[k]), Infinity), all.reduce((v, q) => Math.max(v, q[k]), -Infinity)]);
+        const few = pts.filter((_, i) => i % Math.max(1, Math.floor(pts.length / 40)) === 0);
+        const cx0 = (lo[0] + hi[0]) / 2;
+        const cy0 = (lo[1] + hi[1]) / 2;
+        for (let i = 0; i <= 24; i++) {
+          for (let j = 0; j <= 16; j++) {
+            const dx = span[0][0] + ((span[0][1] - span[0][0]) * i) / 24 - cx0;
+            const dy = span[1][0] + ((span[1][1] - span[1][0]) * j) / 16 - cy0;
+            const o = few.filter((v) => !covers(v[0] + dx, v[1] + dy)).length / few.length;
+            if (o < best.o - 0.01 || (o <= best.o + 0.01 && Math.hypot(dx, dy) < Math.hypot(best.dx, best.dy))) best = { dx, dy, o };
+          }
+        }
+        best.o = out(best.dx, best.dy);
+      }
+      const cx = (lo[0] + hi[0]) / 2 + best.dx;
+      const cy = (lo[1] + hi[1]) / 2 + best.dy;
+      const host = rings.find((r) => inPoly(cx, cy, r.poly)) || rings[0];
+      const dz = (host.z[0] + host.z[1]) / 2 - (lo[2] + hi[2]) / 2;
+      const wide = hi[2] - lo[2] > host.z[1] - host.z[0];
+      const pokes = hi[2] > host.z[1] || lo[2] < host.z[0];
+      if (best.dx || best.dy) przesuniete.push(name);
+      if (best.o > 0.15 || wide) wystaje.push(name);
+      shift.set(name, [best.dx, best.dy, pokes && !wide ? dz : 0]);
+    }
+    return {
+      czesci: inner.map((c) => {
+        const s = shift.get(c.grupa || 'Korpus');
+        return s && (s[0] || s[1] || s[2]) ? { ...c, x: (c.x || 0) + s[0], y: (c.y || 0) + s[1], z: (c.z || 0) + s[2] } : c;
+      }),
+      przesuniete,
+      wystaje,
+    };
+  }
+
+  return { fitInside, SHAPES, MACROS, macroDoc, MAX_PARTS, normalizePart, normalizeProject, expandParts, partMesh, worldMesh, transform, measure, boundsOf, centerOf, explodeVectors, stepNumbers, timeline, check, massG, applyOps, stlBinary, bomCsv, signedVolume };
 });

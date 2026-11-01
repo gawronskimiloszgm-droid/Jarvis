@@ -51,6 +51,197 @@
     return out;
   }
 
+  /**
+   * Odblask na lakierze wyglada jak tlo, ale ma miekka krawedz: kilka pikseli dalej nadal jest jasno.
+   * Prawdziwy przeswit konczy sie ostro na ciemniejszym materiale, wiec tylko takie dziury zostaja.
+   */
+  function fillReflections(blob, img, bg, w, h) {
+    const { data } = img;
+    const seen = new Uint8Array(w * h);
+    const stack = new Int32Array(w * h);
+    const diff = (i) => Math.abs(data[i * 4] - bg[0]) + Math.abs(data[i * 4 + 1] - bg[1]) + Math.abs(data[i * 4 + 2] - bg[2]);
+    const out = blob.slice();
+    const flood = (s, visit) => {
+      let top = 0;
+      stack[top++] = s;
+      seen[s] = 1;
+      while (top) {
+        const i = stack[--top];
+        visit(i);
+        const x = i % w;
+        if (x > 0 && !blob[i - 1] && !seen[i - 1]) (seen[i - 1] = 1, stack[top++] = i - 1);
+        if (x < w - 1 && !blob[i + 1] && !seen[i + 1]) (seen[i + 1] = 1, stack[top++] = i + 1);
+        if (i >= w && !blob[i - w] && !seen[i - w]) (seen[i - w] = 1, stack[top++] = i - w);
+        if (i < w * (h - 1) && !blob[i + w] && !seen[i + w]) (seen[i + w] = 1, stack[top++] = i + w);
+      }
+    };
+    const none = () => {};
+    for (let i = 0; i < w; i++) {
+      if (!blob[i] && !seen[i]) flood(i, none);
+      const b = (h - 1) * w + i;
+      if (!blob[b] && !seen[b]) flood(b, none);
+    }
+    for (let j = 0; j < h; j++) {
+      if (!blob[j * w] && !seen[j * w]) flood(j * w, none);
+      const b = j * w + w - 1;
+      if (!blob[b] && !seen[b]) flood(b, none);
+    }
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let s = 0; s < w * h; s++) {
+      if (blob[s] || seen[s]) continue;
+      const cells = [];
+      let edge = 0;
+      let soft = 0;
+      flood(s, (i) => {
+        cells.push(i);
+        for (const [dx, dy] of dirs) {
+          const x = (i % w) + dx;
+          const y = Math.floor(i / w) + dy;
+          if (x < 0 || y < 0 || x >= w || y >= h || !blob[y * w + x]) continue;
+          edge++;
+          // Tuz za krawedzia, bo dalej mogloby juz byc nastepne okno: szprycha ma tylko pare pikseli.
+          let sharp = false;
+          for (let d = 0; d < 3 && !sharp; d++) {
+            const fx = x + dx * d;
+            const fy = y + dy * d;
+            if (fx >= 0 && fy >= 0 && fx < w && fy < h && diff(fy * w + fx) >= 150) sharp = true;
+          }
+          if (!sharp) soft++;
+        }
+      });
+      if (edge && soft / edge > 0.7) cells.forEach((i) => {
+        out[i] = 1;
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Cien pod przedmiotem: szary, bez koloru, lezy nizej niz najnizszy prawdziwy element (opona, stopa) i
+   * plynnie przechodzi w tlo. Srebrny wydech czy felga leza wyzej, wiec zostaja. Gdy odciecie zabraloby
+   * za duzo albo dolna krawedz jest ostra, obrys zostaje bez zmian.
+   */
+  function dropShadow(blob, img, bg, w, h) {
+    const { data } = img;
+    let minY = h;
+    let maxY = 0;
+    let n = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (!blob[i]) continue;
+      const y = Math.floor(i / w);
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      n++;
+    }
+    if (!n) return blob;
+    const light = bg[0] + bg[1] + bg[2];
+    // Na ciemnym tle cien nie jest jasniejszy od opon i nie da sie go tak odroznic.
+    if (light < 380) return blob;
+    const isShadow = (i) => {
+      const r = data[i * 4];
+      const g = data[i * 4 + 1];
+      const b = data[i * 4 + 2];
+      return Math.max(r, g, b) - Math.min(r, g, b) < 16 && r + g + b > light * 0.55;
+    };
+    const limit = maxY - Math.round((maxY - minY) * 0.22);
+    let support = maxY;
+    for (; support >= limit; support--) {
+      let solid = 0;
+      for (let x = 0; x < w; x++) {
+        const i = support * w + x;
+        if (blob[i] && !isShadow(i)) solid++;
+      }
+      if (solid >= Math.max(3, w * 0.004)) break;
+    }
+    // Pasek cienia miedzy kolami lezy na tej samej wysokosci co opony: zjadamy go od zewnatrz, bo felga
+    // i srebrne czesci sa odgrodzone ciemnym materialem i tam sie nie dojdzie.
+    const band = maxY - Math.round((maxY - minY) * 0.12);
+    const pale = new Uint8Array(w * h);
+    const stack = [];
+    for (let y = band; y <= maxY; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (!blob[i] || !isShadow(i) || data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2] < light * 0.7) continue;
+        if (!blob[i - 1] || !blob[i + 1] || !blob[i + w]) {
+          pale[i] = 1;
+          stack.push(i);
+        }
+      }
+    }
+    while (stack.length) {
+      const i = stack.pop();
+      for (const q of [i - 1, i + 1, i - w, i + w]) {
+        if (q < band * w || q >= (maxY + 1) * w || !blob[q] || pale[q] || !isShadow(q) || data[q * 4] + data[q * 4 + 1] + data[q * 4 + 2] < light * 0.7) continue;
+        pale[q] = 1;
+        stack.push(q);
+      }
+    }
+    // Linia styku z ziemia bywa ciemna, ale jest bardzo cienka i dluga: tak nie wyglada zadna czesc przedmiotu.
+    const thinMax = Math.max(2, Math.round((maxY - minY) * 0.012));
+    const line = new Uint8Array(w * h);
+    const clear = (i) => !blob[i] || pale[i];
+    let runStart = -1;
+    const runs = [];
+    for (let x = 0; x <= w; x++) {
+      let thin = false;
+      let top = 0;
+      let bottom = 0;
+      if (x < w) {
+        let y = maxY;
+        while (y >= band && clear(y * w + x)) y--;
+        bottom = y;
+        while (y >= band && !clear(y * w + x)) y--;
+        top = y + 1;
+        thin = bottom >= band && y >= band && bottom - top + 1 <= thinMax;
+      }
+      if (thin && runStart < 0) runStart = x;
+      if (!thin && runStart >= 0) {
+        runs.push([runStart, x]);
+        runStart = -1;
+      }
+    }
+    let lined = false;
+    const needed = Math.max(8, Math.round(w * 0.05));
+    for (const [from, to] of runs) {
+      if (to - from < needed) continue;
+      lined = true;
+      for (let x = from; x < to; x++) {
+        let y = maxY;
+        while (y >= band && clear(y * w + x)) y--;
+        while (y >= band && !clear(y * w + x)) {
+          line[y * w + x] = 1;
+          y--;
+        }
+      }
+    }
+    if (support >= maxY || support < limit) {
+      if (!lined && !pale.some(Boolean)) return blob;
+      support = maxY;
+    }
+    // Dolna krawedz cienia jest prawie w kolorze tla, a krawedz przedmiotu wyraznie od niego odstaje.
+    let edge = 0;
+    let edges = 0;
+    for (let x = 0; x < w; x++) {
+      for (let y = maxY; y > support; y--) {
+        const i = y * w + x;
+        if (!blob[i]) continue;
+        edge += Math.abs(data[i * 4] - bg[0]) + Math.abs(data[i * 4 + 1] - bg[1]) + Math.abs(data[i * 4 + 2] - bg[2]);
+        edges++;
+        break;
+      }
+    }
+    if (edges && edge / edges > 170) return blob;
+    const mask = blob.slice();
+    for (let y = support + 1; y <= maxY; y++) mask.fill(0, y * w, (y + 1) * w);
+    for (let i = 0; i < w * h; i++) {
+      if (pale[i] || line[i]) mask[i] = 0;
+    }
+    const kept = largestBlob({ mask, w, h });
+    let left = 0;
+    for (let i = 0; i < w * h; i++) left += kept[i];
+    return left >= n * 0.7 ? kept : blob;
+  }
+
   /** Granica maski jako petle wzdluz krawedzi pikseli. Material zawsze po lewej stronie kierunku. */
   function traceLoops(mask, w, h, x0 = 0, y0 = 0, x1 = w, y1 = h) {
     const at = (x, y) => x >= x0 && y >= y0 && x < x1 && y < y1 && mask[y * w + x] === 1;
@@ -157,14 +348,17 @@
    */
   function traceParts(img, opts) {
     const m = buildMask(img, opts.tol);
-    const blob = largestBlob(m);
     const { w, h } = m;
+    let blob = largestBlob(m);
+    if (opts.czysc) blob = fillReflections(dropShadow(blob, img, m.bg, w, h), img, m.bg, w, h);
+    let total = 0;
     let minX = w;
     let maxX = 0;
     let minY = h;
     let maxY = 0;
     for (let i = 0; i < w * h; i++) {
       if (!blob[i]) continue;
+      total++;
       const x = i % w;
       const y = (i - x) / w;
       if (x < minX) minX = x;
@@ -184,7 +378,20 @@
     const eps = opts.eps ?? 0.7;
     const minHole = opts.minHole ?? 120;
     const parts = [];
-    for (const part of opts.parts) {
+    let used = 0;
+    const medianColor = (piece) => {
+      const ch = [[], [], []];
+      const step = Math.max(1, Math.floor(total / 4000));
+      for (let i = 0, n = 0; i < w * h; i++) {
+        if (piece[i] && n++ % step === 0) [0, 1, 2].forEach((k) => ch[k].push(img.data[i * 4 + k]));
+      }
+      if (!ch[0].length) return null;
+      return `#${ch.map((c) => c.sort((a, b) => a - b)[c.length >> 1].toString(16).padStart(2, '0')).join('')}`;
+    };
+    const queue = opts.parts.slice();
+    let extra = 0;
+    while (queue.length) {
+      const part = queue.shift();
       const poly = regionPoly(part.obszar);
       const xs = poly.map((p) => p[0]);
       const ys = poly.map((p) => p[1]);
@@ -203,14 +410,29 @@
         }
       }
       const piece = largestBlob({ mask: local, w, h });
+      // Reszta z obszaru nie moze zniknac: wraca do puli, a ostatnia czesc zbiera ja jako osobne kawalki.
+      let leftover = 0;
+      for (let i = 0; i < w * h; i++) {
+        if (local[i] && !piece[i]) {
+          claimed[i] = 0;
+          leftover++;
+        }
+      }
+      if (part.reszta && leftover > minHole && extra < 12) {
+        extra++;
+        queue.push({ ...part, id: `${part.id.replace(/_\d+$/, '')}_${extra}`, nazwa: `${part.nazwa.replace(/ \d+$/, '')} ${extra + 1}` });
+      }
       const loops = traceLoops(piece, w, h, bx0, by0, bx1, by1);
       if (!loops.length) continue;
+      for (let i = 0; i < w * h; i++) used += piece[i];
       // W ukladzie obrazu (y w dol) obrys ma znak dodatni przy materiale po lewej: najwieksza petla to obrys.
       const sorted = loops.map((l) => ({ l, a: area(l) })).sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
       const outer = sorted[0];
       const holes = sorted.slice(1).filter((s) => Math.abs(s.a) >= minHole && Math.sign(s.a) !== Math.sign(outer.a));
       const entry = { ...part, kontur: simplifyLoop(outer.l, eps).map(toMm), otwory: holes.map((s) => simplifyLoop(s.l, eps).map(toMm)), pxArea: Math.abs(outer.a) };
       delete entry.obszar;
+      delete entry.reszta;
+      if (opts.czysc) entry.kolorZdjecia = medianColor(piece);
       if (part.obrotowa) {
         // Bryla obrotowa: promien z wysokosci kazdej kolumny, os wzdluz X zdjecia.
         const prof = [];
@@ -237,7 +459,7 @@
       }
       parts.push(entry);
     }
-    return { k, cx, cy, flip, w, h, widthPx, bbox: [minX, minY, maxX + 1, maxY + 1], parts };
+    return { k, cx, cy, flip, w, h, widthPx, bbox: [minX, minY, maxX + 1, maxY + 1], parts, pokrycie: total ? used / total : 0 };
   }
 
   /** Czy zdjecie nadaje sie do odrysu: wydluzony przedmiot na jednolitym tle, bez dotykania brzegow. */
@@ -310,8 +532,9 @@
       if (inner.length >= 3) elementy.push({ ksztalt: 'boczny', kontur, gr: gr - wall * 2, otwory: [{ kontur: inner }] });
       return { ...base, ksztalt: 'zespol', elementy, ...place };
     }
+    if (t.oble) return { ...base, ksztalt: 'boczny', kontur, otwory, gr, oble: true, szer: t.szer, ...place };
     return { ...base, ksztalt: 'boczny', kontur, otwory, gr, faza: t.faza, ...place };
   }
 
-  return { buildMask, largestBlob, traceLoops, traceParts, photoQuality, simplifyLoop, toPart };
+  return { fillReflections, dropShadow, buildMask, largestBlob, traceLoops, traceParts, photoQuality, simplifyLoop, toPart };
 });

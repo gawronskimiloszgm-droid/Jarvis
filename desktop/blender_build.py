@@ -105,8 +105,10 @@ def build_mesh(p):
         eps = (z_max - z_min) * 0.002 + 1e-6
         uv = bm.loops.layers.uv.new("UVMap")
         for f in bm.faces:
-            # Tylko strona ze zdjecia: na drugiej napisy bylyby w lustrzanym odbiciu.
-            if (photo["flip"] > 0 and all(v.co.z > z_max - eps for v in f.verts)) or (photo["flip"] < 0 and all(v.co.z < z_min + eps for v in f.verts)):
+            # Czesc plaska: tylko strona ze zdjecia, bo na drugiej napisy bylyby w lustrzanym odbiciu.
+            # Bryla obla nie ma plaskiej sciany: zdjecie na obu stronach (na drugiej jako odbicie), ranty bez niego.
+            on_side = abs(f.normal.z) > 0.02 if p.get("oble") else (photo["flip"] > 0 and all(v.co.z > z_max - eps for v in f.verts)) or (photo["flip"] < 0 and all(v.co.z < z_min + eps for v in f.verts))
+            if on_side:
                 f.material_index = 1
                 for loop in f.loops:
                     mm_x = loop.vert.co.x / SF + p["x"]
@@ -153,7 +155,7 @@ for idx, p in enumerate(parts):
     ob.matrix_world = Matrix.Translation(pos) @ Y_UP @ rot
     ob["nazwa"] = p.get("nazwa", p["id"])
     # Fazy projektu sa juz w siatce. Reszta dostaje mikrofaze, dzieki ktorej krawedzie lapia swiatlo.
-    if not p.get("faza") and not p.get("gladki") and tris < 3000:
+    if not p.get("faza") and not p.get("gladki") and not p.get("oble") and tris < 3000:
         mod = ob.modifiers.new("Mikrofaza", "BEVEL")
         mod.width = 10.0 * 0.0007
         mod.segments = 1

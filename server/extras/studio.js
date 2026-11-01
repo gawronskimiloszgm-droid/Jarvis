@@ -645,10 +645,10 @@ export async function photoParts(dataUrl, nazwa, deps = {}) {
   const generate = deps.generate || liveGenerate;
   const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(dataUrl));
   if (!m) throw new Error('Nieprawidłowy obraz.');
-  const out = await generate(`To zdjęcie z boku: ${nazwa || 'przedmiot'}. Podziel go na zewnętrzne części tak, jak rozkłada się go naprawdę. Dla każdej podaj: "nazwa" po polsku, "grupa", "box_2d" [ymin, xmin, ymax, xmax] w skali 0-1000 ciasno wokół części, "gr" (szerokość w mm, patrząc z góry), "obrotowa": true dla części okrągłych w przekroju (lufy, rury, tłumiki), "krok" (kolejność montażu od 1), "metal" i "szorstkosc" od 0 do 1. Mniejsze części podaj pierwsze, bo ich prostokąty mają pierwszeństwo. "dlugosc_mm": prawdziwa długość całości, jeśli ją znasz, inaczej 0. "widok_z_boku": true tylko wtedy, gdy zdjęcie naprawdę pokazuje cały ten przedmiot prosto z boku, a nie pod kątem, nie co innego. Zwróć JSON {"widok_z_boku": true, "dlugosc_mm": 0, "czesci": [...]}.`, null, [{ inlineData: { mimeType: m[1], data: m[2] } }]);
+  const out = await generate(`To zdjęcie z boku: ${nazwa || 'przedmiot'}. Podziel go na zewnętrzne części tak, jak rozkłada się go naprawdę. Dla każdej podaj: "nazwa" po polsku, "grupa", "box_2d" [ymin, xmin, ymax, xmax] w skali 0-1000 ciasno wokół części, "gr" (szerokość w mm, patrząc z góry), "obrotowa": true dla części okrągłych w przekroju (lufy, rury, tłumiki), "krok" (kolejność montażu od 1), "metal" i "szorstkosc" od 0 do 1, "obly": true dla części wypukłych w przekroju (bak, owiewka, karoseria, kadłub, siedzenie, opona), false dla płaskich (płyty, listwy, większość korpusów z płaskimi ścianami), "szerokosci": grubość w mm patrząc z góry w 5 równych miejscach od lewej do prawej strony części. Mniejsze części podaj pierwsze, bo ich prostokąty mają pierwszeństwo. "dlugosc_mm": prawdziwa długość całości, jeśli ją znasz, inaczej 0. "widok_z_boku": true tylko wtedy, gdy zdjęcie naprawdę pokazuje cały ten przedmiot prosto z boku, a nie pod kątem, nie co innego. Zwróć JSON {"widok_z_boku": true, "dlugosc_mm": 0, "czesci": [...]}.`, null, [{ inlineData: { mimeType: m[1], data: m[2] } }]);
   const czesci = (Array.isArray(out?.czesci) ? out.czesci : []).slice(0, 40).map((c, i) => {
     const b = Array.isArray(c?.box_2d) && c.box_2d.length === 4 && c.box_2d.every(Number.isFinite) ? c.box_2d : null;
-    return b && { id: `f${i + 1}`, nazwa: String(c.nazwa || `Część ${i + 1}`).slice(0, 80), grupa: String(c.grupa || 'Korpus').slice(0, 60), box: [b[1] / 1000, b[0] / 1000, b[3] / 1000, b[2] / 1000], gr: Math.max(1, Math.min(2000, Number(c.gr) || 20)), obrotowa: Boolean(c.obrotowa), krok: Math.max(1, Math.min(200, Math.round(Number(c.krok) || 1))), metal: Number(c.metal) || 0.2, szorstkosc: Number(c.szorstkosc) || 0.6 };
+    return b && { id: `f${i + 1}`, nazwa: String(c.nazwa || `Część ${i + 1}`).slice(0, 80), grupa: String(c.grupa || 'Korpus').slice(0, 60), box: [b[1] / 1000, b[0] / 1000, b[3] / 1000, b[2] / 1000], gr: Math.max(1, Math.min(2000, Number(c.gr) || 20)), obrotowa: Boolean(c.obrotowa), krok: Math.max(1, Math.min(200, Math.round(Number(c.krok) || 1))), metal: Number(c.metal) || 0.2, szorstkosc: Number(c.szorstkosc) || 0.6, obly: c.obly !== false, szer: Array.isArray(c.szerokosci) && c.szerokosci.length >= 2 && c.szerokosci.every((v) => Number(v) > 0) ? c.szerokosci.slice(0, 9).map((v, k, all) => [k / (all.length - 1), Math.min(2000, Number(v))]) : undefined };
   }).filter(Boolean);
   return { czesci, widok_z_boku: out?.widok_z_boku !== false, dlugosc_mm: Number(out?.dlugosc_mm) > 0 ? Number(out.dlugosc_mm) : 0 };
 }
@@ -658,6 +658,44 @@ router.post('/api/studio/photo-parts', requireOwner, async (req, res) => {
     res.json(await photoParts(req.body?.image, String(req.body?.nazwa || '').slice(0, 120)));
   } catch (e) {
     res.status(502).json({ error: e.message || 'Nie udało się podzielić zdjęcia.' });
+  }
+});
+
+/**
+ * Przeglad gotowego modelu: AI widzi rendery (i zdjecie, jesli jest) i poprawia wnetrze. Obudowy ze zdjecia
+ * nie rusza, bo jej obrys jest zmierzony, a usuwanie jest zablokowane: przeglad ma dokladac i korygowac.
+ */
+export async function reviewProject(project, images, deps = {}) {
+  const generate = deps.generate || liveGenerate;
+  const pr = CadKit.normalizeProject(project);
+  const parts = images.map((u) => /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(u))).filter(Boolean).slice(0, 4).map((m) => ({ inlineData: { mimeType: m[1], data: m[2] } }));
+  if (!parts.length) throw new Error('Brak obrazów do przeglądu.');
+  const free = pr.czesci.filter((c) => !c.skora);
+  const out = await generate(`Jesteś kontrolerem jakości projektów 3D. Obrazy pokazują gotowy model "${pr.nazwa}": złożony i rozebrany, a jeśli jest ostatni obraz ze zdjęciem, to prawdziwy przedmiot. Znajdź to, co naprawdę odróżnia model od rzeczywistości: części wiszące w powietrzu, części nachodzące na siebie, brakujące ważne elementy (mocowania, śruby, przewody, łożyska), złe proporcje. Popraw najwyżej 12 rzeczy, najważniejsze najpierw. Jeśli model jest dobry, zwróć puste listy; nie wymyślaj zmian na siłę.
+
+Części, które wolno zmieniać (wymiary w mm):
+${JSON.stringify(projectBrief({ czesci: free.slice(0, 200) }))}
+
+Zwróć JSON: "zmien" (id i TYLKO pola do zmiany), "dodaj" (nowe części z pełnymi wymiarami i pozycją, stykające się z resztą, z "grupa" istniejącego podzespołu), "co_zmieniono": jedno zdanie po polsku.
+
+${SAFETY}
+
+${FRAME_DOC}`, null, parts);
+  const known = new Set(free.map((c) => c.id));
+  return {
+    co_zmieniono: String(out?.co_zmieniono || '').slice(0, 300),
+    usun: [],
+    zmien: (Array.isArray(out?.zmien) ? out.zmien : []).filter((e) => known.has(e?.id)).slice(0, 12),
+    dodaj: (Array.isArray(out?.dodaj) ? out.dodaj : []).filter((c) => c && typeof c === 'object').slice(0, 24).map((c) => ({ ...c, zrodlo: 'szacunek' })),
+  };
+}
+
+router.post('/api/studio/review', requireOwner, async (req, res) => {
+  if (!req.body?.projekt || !Array.isArray(req.body?.obrazy)) return res.status(400).json({ error: 'Brak projektu.' });
+  try {
+    res.json(await reviewProject(req.body.projekt, req.body.obrazy));
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Przegląd się nie udał.' });
   }
 });
 
