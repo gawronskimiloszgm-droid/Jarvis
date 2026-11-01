@@ -8,6 +8,8 @@ function load(file) {
   return m.exports;
 }
 const K = load('cadkit');
+globalThis.PhotoTrace = load('phototrace');
+globalThis.StudioSAF01 = load('studiosaf01');
 const T = load('studiotpl');
 
 // Kazda krawedz zamknietej bryly wystepuje dwa razy, w przeciwnych kierunkach.
@@ -113,7 +115,7 @@ test('rozstrzelenie rozsuwa wszystkie czesci, kierunek reczny ma pierwszenstwo',
   const v = K.explodeVectors(pr);
   const one = K.normalizeProject({ czesci: [{ id: 'a' }, { id: 'd', x: 50, rozst: [1, 2, 3] }] });
   assert.deepEqual(K.explodeVectors(one).d, [1, 2, 3]);
-  assert.equal(v.d[1], 2 + (0 - 0) * 1.1, 'odjazd grupy dodaje sie do kierunku');
+  assert.equal(v.d[1], 2 + (0 - 0) * 0.6, 'odjazd grupy dodaje sie do kierunku');
   for (const id of ['a', 'b', 'c']) assert.ok(Math.hypot(...v[id]) > 0, id);
 });
 
@@ -145,7 +147,7 @@ test('STL ma poprawny rozmiar i uwzglednia skale repliki', () => {
 });
 
 test('gotowe projekty: poprawne dane, kroki opisane, spojne bryly', () => {
-  assert.equal(T.LIST.length, 4);
+  assert.equal(T.LIST.length, 5);
   for (const tpl of T.LIST) {
     const pr = K.normalizeProject(tpl.make());
     assert.ok(pr.czesci.length >= 15, tpl.id);
@@ -156,7 +158,7 @@ test('gotowe projekty: poprawne dane, kroki opisane, spojne bryly', () => {
     assert.deepEqual(K.check(pr, m), [], tpl.id);
     for (const p of pr.czesci) assert.equal(openEdges(K.partMesh(p)), 0, `${tpl.id}/${p.id}`);
   }
-  const asg = K.normalizeProject(T.LIST[0].make());
+  const asg = K.normalizeProject(T.LIST.find((t) => t.id === 'asg').make());
   assert.ok(asg.czesci.length >= 80, `ASG: ${asg.czesci.length} czesci`);
   const am = K.measure(asg);
   assert.ok(am.size[0] > 650 && am.size[0] < 800, `dlugosc ${am.size[0]}`);

@@ -135,7 +135,12 @@ async function build(params = {}) {
   const dir = path.join(studioRoot(), `${slug(params.nazwa)}-${stamp}`);
   await fsp.mkdir(dir, { recursive: true });
   const input = path.join(dir, 'wejscie.json');
-  await fsp.writeFile(input, JSON.stringify({ nazwa: params.nazwa, skala: params.skala, rozmiar: params.rozmiar, opcje: params.opcje || {}, czesci }));
+  let zdjecie = null;
+  if (params.zdjecie && typeof params.zdjecie_b64 === 'string') {
+    await fsp.writeFile(path.join(dir, 'zdjecie.png'), Buffer.from(params.zdjecie_b64, 'base64'));
+    zdjecie = { ...params.zdjecie, plik: 'zdjecie.png' };
+  }
+  await fsp.writeFile(input, JSON.stringify({ nazwa: params.nazwa, skala: params.skala, rozmiar: params.rozmiar, opcje: params.opcje || {}, zdjecie, czesci }));
   // Skrypt musi lezec poza archiwum aplikacji, bo Blender nie czyta plikow z asar.
   const script = path.join(dir, 'budowa.py');
   await fsp.writeFile(script, await fsp.readFile(path.join(__dirname, 'blender_build.py')));

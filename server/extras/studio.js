@@ -4,6 +4,8 @@
 // Praca trwa dluzej niz jedno zapytanie, wiec klient dostaje numer zadania i sledzi postep.
 // Geometria powstaje w public/extras/cadkit.js; od modelu bierzemy tylko dane, nigdy kod.
 import fs from 'node:fs';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import express from 'express';
 import { nanoid } from 'nanoid';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -445,6 +447,7 @@ export async function buildDesign(opis, { szukaj, report = () => {}, deps = {} }
     fakty: plan.fakty,
     kroki,
     czesci: results.flat(),
+    obrazy: found?.obrazy || [],
     zrodla: found?.zrodla || [],
     plany: found?.plany || [],
   });
@@ -526,6 +529,57 @@ router.post('/api/studio/edit', requireOwner, async (req, res) => {
     res.json(await planEdit(req.body.projekt, polecenie));
   } catch (e) {
     res.status(502).json({ error: `Nie udało się zmienić projektu: ${e.message || e}` });
+  }
+});
+
+/** Adres publiczny: serwer nie moze przez to pytac wlasnej sieci. */
+export function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  const low = ip.toLowerCase();
+  return low === '::1' || low === '::' || /^f[cd]/.test(low) || /^fe[89ab]/.test(low) || low.startsWith('::ffff:') && isPrivateIp(low.slice(7));
+}
+
+// Zdjecie do odrysu: przegladarka nie moze czytac pikseli z innej domeny, wiec pobiera je serwer.
+router.get('/api/studio/image', requireOwner, async (req, res) => {
+  try {
+    const url = new URL(String(req.query.url || ''));
+    if (url.protocol !== 'https:') throw new Error('Tylko adresy https.');
+    const found = await dns.lookup(url.hostname, { all: true });
+    if (!found.length || found.some((a) => isPrivateIp(a.address))) throw new Error('Niedozwolony adres.');
+    const r = await fetch(url, { headers: BROWSER, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    const type = r.headers.get('content-type') || '';
+    if (!r.ok || !/^image\/(png|jpeg|webp|gif)/.test(type)) throw new Error('To nie jest obraz.');
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 15 * 1024 * 1024) throw new Error('Obraz jest za duży.');
+    res.setHeader('Content-Type', type.split(';')[0]);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(buf);
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Nie udało się pobrać obrazu.' });
+  }
+});
+
+/** Podzial zdjecia z boku na czesci: model podaje prostokaty, kontury liczy sie juz z pikseli. */
+export async function photoParts(dataUrl, nazwa, deps = {}) {
+  const generate = deps.generate || liveGenerate;
+  const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(dataUrl));
+  if (!m) throw new Error('Nieprawidłowy obraz.');
+  const out = await generate(`To zdjęcie z boku: ${nazwa || 'przedmiot'}. Podziel go na zewnętrzne części tak, jak rozkłada się go naprawdę. Dla każdej podaj: "nazwa" po polsku, "grupa", "box_2d" [ymin, xmin, ymax, xmax] w skali 0-1000 ciasno wokół części, "gr" (szerokość w mm, patrząc z góry), "obrotowa": true dla części okrągłych w przekroju (lufy, rury, tłumiki), "krok" (kolejność montażu od 1), "metal" i "szorstkosc" od 0 do 1. Mniejsze części podaj pierwsze, bo ich prostokąty mają pierwszeństwo. "dlugosc_mm": prawdziwa długość całości, jeśli ją znasz, inaczej 0. Zwróć JSON {"dlugosc_mm": 0, "czesci": [...]}.`, null, [{ inlineData: { mimeType: m[1], data: m[2] } }]);
+  const czesci = (Array.isArray(out?.czesci) ? out.czesci : []).slice(0, 40).map((c, i) => {
+    const b = Array.isArray(c?.box_2d) && c.box_2d.length === 4 && c.box_2d.every(Number.isFinite) ? c.box_2d : null;
+    return b && { id: `f${i + 1}`, nazwa: String(c.nazwa || `Część ${i + 1}`).slice(0, 80), grupa: String(c.grupa || 'Korpus').slice(0, 60), box: [b[1] / 1000, b[0] / 1000, b[3] / 1000, b[2] / 1000], gr: Math.max(1, Math.min(2000, Number(c.gr) || 20)), obrotowa: Boolean(c.obrotowa), krok: Math.max(1, Math.min(200, Math.round(Number(c.krok) || 1))), metal: Number(c.metal) || 0.2, szorstkosc: Number(c.szorstkosc) || 0.6 };
+  }).filter(Boolean);
+  return { czesci, dlugosc_mm: Number(out?.dlugosc_mm) > 0 ? Number(out.dlugosc_mm) : 0 };
+}
+
+router.post('/api/studio/photo-parts', requireOwner, async (req, res) => {
+  try {
+    res.json(await photoParts(req.body?.image, String(req.body?.nazwa || '').slice(0, 120)));
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Nie udało się podzielić zdjęcia.' });
   }
 });
 

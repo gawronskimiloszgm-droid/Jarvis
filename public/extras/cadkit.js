@@ -30,7 +30,7 @@
     zespol: 'jedna część z wielu kształtów (np. wał z kołami): elementy [{ksztalt, x, y, z, rx, ry, rz, ...wymiary}]',
   };
   const MAX_PARTS = 1500;
-  const MAX_POINTS = 200;
+  const MAX_POINTS = 800;
   const clamp = (v, lo, hi, d) => {
     const n = Number(v);
     return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
@@ -502,16 +502,16 @@
     },
     aeg_gearbox_v2: {
       opis: 'kompletny gearbox V2 repliki ASG AEG, ponad 30 części: dwie skorupy, koła, tuleje, cylinder, tłok, sprężyna, dysza, spust, elektronika, śruby. Oś cylindra to X, przód +X, początek w środku cylindra, obrys X od -95 do 70, Y od -72 do 15',
-      make: () => gearboxV2(),
-      defaults: {},
+      make: (p) => gearboxV2().filter((c) => !(p.bez_spustu > 0.5 && c.id === 'spust')),
+      defaults: { bez_spustu: 0 },
     },
     aeg_silnik: {
       opis: 'silnik AEG w osi Y (wałek do góry): dl, z zębnikiem, stykami i przewodami',
       make: (p) => [
         { id: 'kadlub', nazwa: 'Kadłub silnika', ksztalt: 'zespol', metal: 0.75, szorstkosc: 0.4, kolor: '#4a5158', elementy: [{ ksztalt: 'walec', r: 12, h: p.dl, faza: 0.8 }, { ksztalt: 'walec', r: 5, h: 2, y: p.dl / 2 + 1 }, { ksztalt: 'pudelko', sx: 3, sy: 4, sz: 1, x: 5, y: -p.dl / 2 - 2 }, { ksztalt: 'pudelko', sx: 3, sy: 4, sz: 1, x: -5, y: -p.dl / 2 - 2 }] },
         { id: 'zebnik', nazwa: 'Zębnik silnika', ksztalt: 'zespol', metal: 0.9, szorstkosc: 0.3, kolor: '#c9a15a', rozst: [0, 40, 0], elementy: [{ ksztalt: 'walec', r: 1.1, h: 12, y: p.dl / 2 + 6 }, { ksztalt: 'walec', r: 3.4, r2: 2.6, h: 8, y: p.dl / 2 + 8 }] },
-        { id: 'przewod_p', nazwa: 'Przewód plus', ksztalt: 'rurka', r: 0.9, kolor: '#c23b32', metal: 0, szorstkosc: 0.7, sciezka: [[5, -p.dl / 2 - 3, 0], [8, -p.dl / 2 - 8, 2], [12.5, -p.dl / 4, 5], [12.5, p.dl / 2 + 6, 5]], rozst: [40, 0, 0] },
-        { id: 'przewod_m', nazwa: 'Przewód minus', ksztalt: 'rurka', r: 0.9, kolor: '#1b1e21', metal: 0, szorstkosc: 0.7, sciezka: [[-5, -p.dl / 2 - 3, 0], [-2, -p.dl / 2 - 8, -7], [12.5, -p.dl / 4, -5], [12.5, p.dl / 2 + 6, -5]], rozst: [40, 0, 0] },
+        { id: 'przewod_p', nazwa: 'Przewód plus', ksztalt: 'rurka', r: 0.9, kolor: '#c23b32', metal: 0, szorstkosc: 0.7, sciezka: [[5, -p.dl / 2 - 3, 0], [8, -p.dl / 2 - 8, 2], [8, -p.dl / 4, 5], [8, p.dl / 2 + 6, 5]], rozst: [40, 0, 0] },
+        { id: 'przewod_m', nazwa: 'Przewód minus', ksztalt: 'rurka', r: 0.9, kolor: '#1b1e21', metal: 0, szorstkosc: 0.7, sciezka: [[-5, -p.dl / 2 - 3, 0], [-2, -p.dl / 2 - 8, -7], [8, -p.dl / 4, -5], [8, p.dl / 2 + 6, -5]], rozst: [40, 0, 0] },
       ],
       defaults: { dl: 58 },
     },
@@ -555,16 +555,17 @@
   };
 
   function gearboxV2() {
-    const outline = [[-95, 15], [70, 15], [70, -14], [48, -14], [48, -40], [30, -58], [-2, -70], [-40, -72], [-58, -58], [-62, -20], [-95, -16]];
+    // Dol z kolami jest z tylu, a spust przed nimi: tak miesci sie w korpusie typu AR.
+    const outline = [[-95, 15], [70, 15], [70, -14], [14, -14], [14, -32], [-6, -46], [-22, -50], [-37, -70], [-60, -70], [-72, -50], [-78, -14], [-95, -14]];
     const inner = inset(orient(outline, true), 2.6);
-    const SECTOR = [-12, -40];
-    const SPUR = [10.6, -36];
-    const BEVEL = [-3.6, -52.9];
+    const SECTOR = [-47, -40];
+    const SPUR = [-24.4, -36];
+    const BEVEL = [-38.6, -52.9];
     const axes = [SECTOR, SPUR, BEVEL].map(([x, y]) => ({ x, y, r: 4 }));
     const shell = (id, nazwa, sign, krok, rozst) => ({
       id, nazwa, k: krok, ksztalt: 'zespol', kolor: '#6f7780', metal: 0.8, szorstkosc: 0.45, rozst,
       elementy: [
-        { ksztalt: 'boczny', kontur: outline, gr: 3, zaokr: 2, faza: 0.5, z: sign * 14, otwory: [...axes, { x: 42, y: -30, r: 3 }, { x: -40, y: -30, r: 6 }, { x: -70, y: 0, r: 4 }] },
+        { ksztalt: 'boczny', kontur: outline, gr: 3, zaokr: 2, faza: 0.5, z: sign * 14, otwory: [...axes, { x: 6, y: -24, r: 3 }, { x: -62, y: -40, r: 5 }, { x: -70, y: 0, r: 4 }] },
         { ksztalt: 'boczny', kontur: outline, gr: 12.5, z: sign * 6.3, zaokr: 2, otwory: [{ kontur: inner }] },
       ],
     });
@@ -572,7 +573,7 @@
     const brass = { metal: 0.95, szorstkosc: 0.28, kolor: '#c9a15a' };
     const poly = { metal: 0.1, szorstkosc: 0.65, kolor: '#23262a' };
     const bush = (id, nazwa, [x, y], sign, side) => ({ id, nazwa, k: 1, ksztalt: 'rura', r: 4, ri: 3, h: 3, x, y, z: sign * 12.2, ...axisZ, ...brass, rozst: [0, 0, side * 70] });
-    const screws = [[-85, 8], [-85, -9], [60, 8], [60, -8], [36, -48], [-52, -50], [-14, -66]].map(([x, y], i) => ({ id: `sruba${i + 1}`, nazwa: `Śruba skorupy M3 x 28 nr ${i + 1}`, k: 7, ksztalt: 'zespol', kolor: '#2b2f33', metal: 0.9, szorstkosc: 0.35, x, y, z: 15.5, rx: 90, rozst: [0, 0, 150], elementy: screwElements(3, 28) }));
+    const screws = [[-85, 8], [-85, -9], [60, 8], [60, -8], [6, -26], [-68, -38], [-50, -64]].map(([x, y], i) => ({ id: `sruba${i + 1}`, nazwa: `Śruba skorupy M3 x 28 nr ${i + 1}`, k: 7, ksztalt: 'zespol', kolor: '#2b2f33', metal: 0.9, szorstkosc: 0.35, x, y, z: 13.5, rx: 90, rozst: [0, 0, 150], elementy: screwElements(3, 26) }));
     return [
       shell('skorupa_l', 'Skorupa gearboxa lewa', -1, 0, [0, 0, -110]),
       bush('tul_s_l', 'Tuleja koła sektorowego lewa', SECTOR, -1, -1),
@@ -584,7 +585,7 @@
       { id: 'kolo_bevel', nazwa: 'Koło stożkowe (bevel)', k: 2, ksztalt: 'zespol', x: BEVEL[0], y: BEVEL[1], ...axisZ, ...steel, rozst: [-50, -70, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 30, m: 0.85, h: 4, y: 7 }, { ksztalt: 'walec', r: 12, r2: 9, h: 2.5, y: 4 }, { ksztalt: 'kolo_zebate', zeby: 12, m: 0.85, h: 7, y: -4 }, { ksztalt: 'walec', r: 3, h: 24 }] },
       { id: 'kolo_spur', nazwa: 'Koło pośrednie (spur)', k: 2, ksztalt: 'zespol', x: SPUR[0], y: SPUR[1], ...axisZ, ...steel, rozst: [60, -50, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 40, m: 0.85, h: 4, y: 4 }, { ksztalt: 'kolo_zebate', zeby: 12, m: 0.85, h: 8, y: -5 }, { ksztalt: 'walec', r: 3, h: 24 }] },
       { id: 'kolo_sektor', nazwa: 'Koło sektorowe', k: 2, ksztalt: 'zespol', x: SECTOR[0], y: SECTOR[1], ...axisZ, ...steel, rozst: [0, -90, 40], elementy: [{ ksztalt: 'kolo_zebate', zeby: 42, m: 0.85, h: 4, y: -5 }, { ksztalt: 'kolo_zebate', zeby: 42, m: 0.85, sektor: 0.36, h: 4, y: 1, otwor: 0 }, { ksztalt: 'walec', r: 3, h: 24 }] },
-      { id: 'zapadka', nazwa: 'Zapadka antyrewersyjna', k: 2, ksztalt: 'boczny', gr: 2.5, z: 5, zaokr: 0.8, ...steel, kontur: [[-34, -30], [-16, -46], [-12, -43], [-30, -26]], rozst: [-40, -30, 60] },
+      { id: 'zapadka', nazwa: 'Zapadka antyrewersyjna', k: 2, ksztalt: 'boczny', gr: 2.5, z: 5, zaokr: 0.8, ...steel, kontur: [[-69, -30], [-51, -46], [-47, -43], [-65, -26]], rozst: [-40, -30, 60] },
       { id: 'cylinder', nazwa: 'Cylinder', k: 3, ksztalt: 'rura', r: 12.1, ri: 11.5, h: 72, x: 8, rz: 90, ...brass, rozst: [0, 95, 0] },
       { id: 'glowica_c', nazwa: 'Głowica cylindra', k: 3, ksztalt: 'zespol', x: 46, rz: 90, kolor: '#8f979d', metal: 0.9, szorstkosc: 0.35, rozst: [40, 95, 0], elementy: [{ ksztalt: 'walec', r: 11.5, h: 6, faza: 0.4 }, { ksztalt: 'rura', r: 5, ri: 3.5, h: 10, y: 8 }, { ksztalt: 'torus', R: 11, r: 0.9, y: 0 }] },
       { id: 'tlok', nazwa: 'Tłok z listwą zębatą', k: 3, ksztalt: 'zespol', x: -28, ...poly, kolor: '#3a3f45', rz: 0, rozst: [-30, 125, 0], elementy: [{ ksztalt: 'rura', r: 11, ri: 9, h: 62, rz: 90 }, ...Array.from({ length: 15 }, (_, i) => ({ ksztalt: 'pudelko', sx: 2, sy: 4, sz: 5, x: -24 + i * 3.1, y: -12.5 })), { ksztalt: 'pudelko', sx: 50, sy: 2, sz: 7, y: -10.5 }] },
@@ -592,10 +593,10 @@
       { id: 'sprezyna', nazwa: 'Sprężyna główna M90', k: 3, ksztalt: 'sprezyna', R: 8.8, r: 0.8, skok: 6.5, zwoje: 16, x: -50, rz: 90, kolor: '#596067', metal: 0.85, szorstkosc: 0.35, rozst: [-70, 150, 0] },
       { id: 'prowadnica', nazwa: 'Prowadnica sprężyny', k: 3, ksztalt: 'zespol', x: -82, rz: 90, ...poly, rozst: [-120, 150, 0], elementy: [{ ksztalt: 'walec', r: 6.5, h: 46, y: 18 }, { ksztalt: 'walec', r: 10.5, h: 6, y: -6, faza: 0.4 }, { ksztalt: 'walec', r: 6, h: 8, y: -13 }] },
       { id: 'dysza', nazwa: 'Dysza', k: 4, ksztalt: 'rura', r: 5.2, ri: 3.7, h: 30, x: 66, rz: 90, kolor: '#99a1a7', metal: 0.85, szorstkosc: 0.3, rozst: [100, 95, 0] },
-      { id: 'popychacz', nazwa: 'Płytka popychacza (tappet)', k: 4, ksztalt: 'boczny', gr: 2, z: 8, zaokr: 1, ...poly, kontur: [[66, -13], [20, -13], [10, -18], [-4, -18], [-4, -14], [8, -10], [66, -10]], rozst: [40, 40, 70] },
-      { id: 'spust', nazwa: 'Spust', k: 5, ksztalt: 'boczny', gr: 7, faza: 0.6, zaokr: 1.5, kolor: '#272a2e', metal: 0.5, szorstkosc: 0.5, kontur: [[26, -50], [40, -50], [40, -58], [36, -76], [31, -80], [33, -70], [28, -58]], rozst: [20, -80, 0] },
-      { id: 'wylacznik', nazwa: 'Przełącznik spustowy', k: 5, ksztalt: 'pudelko', sx: 18, sy: 22, sz: 10, x: 30, y: -30, faza: 0.4, kolor: '#59301f', metal: 0.2, szorstkosc: 0.6, rozst: [80, -60, 40] },
-      { id: 'mosfet', nazwa: 'Układ MOSFET', k: 5, ksztalt: 'pudelko', sx: 26, sy: 3, sz: 16, x: 28, y: -55, kolor: '#1d6b4a', metal: 0.2, szorstkosc: 0.55, rozst: [110, -60, 40] },
+      { id: 'popychacz', nazwa: 'Płytka popychacza (tappet)', k: 4, ksztalt: 'boczny', gr: 2, z: 8, zaokr: 1, ...poly, kontur: [[66, -13], [-10, -13], [-20, -18], [-34, -18], [-34, -14], [-22, -10], [66, -10]], rozst: [40, 40, 70] },
+      { id: 'spust', nazwa: 'Spust', k: 5, ksztalt: 'boczny', gr: 7, faza: 0.6, zaokr: 1.5, kolor: '#272a2e', metal: 0.5, szorstkosc: 0.5, kontur: [[-11, -40], [3, -40], [3, -58], [-1, -76], [-6, -80], [-4, -70], [-9, -58]], rozst: [20, -80, 0] },
+      { id: 'wylacznik', nazwa: 'Przełącznik spustowy', k: 5, ksztalt: 'pudelko', sx: 16, sy: 14, sz: 10, x: 3, y: -22, faza: 0.4, kolor: '#59301f', metal: 0.2, szorstkosc: 0.6, rozst: [80, -60, 40] },
+      { id: 'mosfet', nazwa: 'Układ MOSFET', k: 5, ksztalt: 'pudelko', sx: 22, sy: 3, sz: 16, x: -10, y: -41, kolor: '#1d6b4a', metal: 0.2, szorstkosc: 0.55, rozst: [110, -60, 40] },
       { id: 'wybierak', nazwa: 'Płytka selektora', k: 5, ksztalt: 'boczny', gr: 1.5, z: -11, ...steel, kontur: [[-40, -18], [10, -18], [12, -24], [-20, -28], [-44, -24]], zaokr: 1, rozst: [-30, -20, -60] },
       shell('skorupa_p', 'Skorupa gearboxa prawa', 1, 6, [0, 0, 110]),
       ...screws,
@@ -682,6 +683,7 @@
     if (Number(raw.faza) > 0) p.faza = size(raw.faza, 0);
     if (raw.gladki) p.gladki = true;
     if (raw.ciecie) p.ciecie = true;
+    if (raw.skora) p.skora = true;
     if (['x', 'y', 'z'].includes(raw.odb)) p.odb = raw.odb;
     if (Array.isArray(raw.rozst)) p.rozst = [pos(raw.rozst[0]), pos(raw.rozst[1]), pos(raw.rozst[2])];
 
@@ -835,6 +837,8 @@
       kroki: (Array.isArray(raw.kroki) ? raw.kroki : []).slice(0, 200).map((k, i) => ({ nr: Math.round(clamp(k?.nr, 1, 200, i + 1)), tytul: str(k?.tytul, 100) || `Krok ${i + 1}`, opis: str(k?.opis, 500) })),
       fakty: (Array.isArray(raw.fakty) ? raw.fakty : []).slice(0, 30).map((f) => str(typeof f === 'string' ? f : f?.fakt, 240)).filter(Boolean),
       zrodla: (Array.isArray(raw.zrodla) ? raw.zrodla : []).slice(0, 20).map((z) => ({ tytul: str(z?.tytul, 140), url: /^https?:\/\//.test(z?.url || '') ? String(z.url).slice(0, 500) : '' })).filter((z) => z.url),
+      zdjecie: raw.zdjecie && /^(https:|blob:|data:image\/)/.test(raw.zdjecie.url || '') && [raw.zdjecie.k, raw.zdjecie.cx, raw.zdjecie.cy, raw.zdjecie.w, raw.zdjecie.h].every(Number.isFinite) ? { url: String(raw.zdjecie.url).slice(0, 8000000), strona: /^https:/.test(raw.zdjecie.strona || '') ? String(raw.zdjecie.strona).slice(0, 500) : '', tytul: str(raw.zdjecie.tytul, 140), k: raw.zdjecie.k, cx: raw.zdjecie.cx, cy: raw.zdjecie.cy, flip: raw.zdjecie.flip === -1 ? -1 : 1, w: raw.zdjecie.w, h: raw.zdjecie.h } : null,
+      obrazy: (Array.isArray(raw.obrazy) ? raw.obrazy : []).filter((u) => /^https:/.test(u)).slice(0, 6),
       plany: (Array.isArray(raw.plany) ? raw.plany : []).slice(0, 12).map((z) => ({ tytul: str(z?.tytul, 140), url: /^https:\/\//.test(z?.url || '') ? String(z.url).slice(0, 500) : '', strona: /^https:\/\//.test(z?.strona || '') ? String(z.strona).slice(0, 500) : '', licencja: str(z?.licencja, 60) })).filter((z) => z.url),
     };
   }
@@ -1044,7 +1048,7 @@
       const gc = g.sum.map((v) => v / g.n);
       if (p.rozst) {
         // Wlasny kierunek czesci, a do tego odjazd calego podzespolu, zeby grupy na siebie nie nachodzily.
-        out[p.id] = groups.size > 1 ? p.rozst.map((v, k) => v + (gc[k] - center[k]) * 1.1) : p.rozst.slice();
+        out[p.id] = groups.size > 1 ? p.rozst.map((v, k) => v + (gc[k] - center[k]) * 0.6) : p.rozst.slice();
         continue;
       }
       const v = [0, 1, 2].map((k) => (gc[k] - center[k]) * 0.9 + (c[k] - gc[k]) * 1.25);

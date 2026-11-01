@@ -86,6 +86,73 @@
     return threeLoading;
   }
 
+  // ---------- zdjecie ----------
+  const authHeaders = () => {
+    const token = localStorage.getItem('jarvis.token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+  async function photoBlob(url) {
+    if (/^(blob:|data:)/.test(url)) return (await fetch(url)).blob();
+    const r = await fetch(`/api/studio/image?url=${encodeURIComponent(url)}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Nie udało się pobrać zdjęcia.');
+    return r.blob();
+  }
+  const blobToB64 = (blob) => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1]);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+  /** Odrys 1:1: zdjecie z boku + dlugosc -> czesci z konturow, z podzialem od modelu AI, gdy dziala. */
+  async function fromPhoto({ url, blob, dlugosc, nazwa }) {
+    const PT = window.PhotoTrace;
+    const source = blob || (await photoBlob(url));
+    const bmp = await createImageBitmap(source);
+    const scale = Math.min(1, 2400 / bmp.width);
+    const w = Math.round(bmp.width * scale);
+    const h = Math.round(bmp.height * scale);
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const q = PT.photoQuality(img);
+    if (q.touches) throw new Error('Przedmiot dotyka krawędzi zdjęcia. Potrzebne jest całe zdjęcie z boku, na jednolitym tle.');
+    if (!q.ok) throw new Error('To zdjęcie nie nadaje się do odrysu: potrzebny jest widok z boku na jednolitym tle.');
+    // Podzial na czesci: prostokaty z modelu; bez niego jedna czesc, ale obrys i tak jest dokladny.
+    const small = document.createElement('canvas');
+    const sk = Math.min(1, 1100 / w);
+    small.width = Math.round(w * sk);
+    small.height = Math.round(h * sk);
+    small.getContext('2d').drawImage(cv, 0, 0, small.width, small.height);
+    let split = { czesci: [], dlugosc_mm: 0 };
+    try {
+      split = await api('/api/studio/photo-parts', json({ image: small.toDataURL('image/jpeg', 0.85), nazwa }));
+    } catch (e) {
+      toast(`Bez podziału na części: ${e.message}`);
+    }
+    const length = Number(dlugosc) > 0 ? Number(dlugosc) : split.dlugosc_mm;
+    if (!(length > 0)) throw new Error('Podaj prawdziwą długość w milimetrach: bez niej nie da się ustalić skali.');
+    const parts = split.czesci.map((c) => ({ id: c.id, nazwa: c.nazwa, grupa: c.grupa, krok: c.krok, gr: c.gr, obrotowa: c.obrotowa, metal: c.metal, szorstkosc: c.szorstkosc, kolor: '#2a2d30', faza: 1, obszar: [c.box[0] * w, c.box[1] * h, c.box[2] * w, c.box[3] * h] }));
+    parts.push({ id: 'reszta', nazwa: split.czesci.length ? 'Pozostała część korpusu' : (nazwa || 'Obrys'), grupa: 'Korpus', krok: 1, gr: Math.round(length * 0.06), kolor: '#2a2d30', metal: 0.2, szorstkosc: 0.6, faza: 1, obszar: [0, 0, w, h] });
+    const t = PT.traceParts(img, { dlugosc: length, parts, eps: 1, minHole: Math.max(40, (w * w) / 26000) });
+    const objectUrl = URL.createObjectURL(source);
+    setProject({
+      nazwa: nazwa || 'Odrys ze zdjęcia',
+      opis: `Obrys odrysowany ze zdjęcia i przeskalowany do ${Math.round(length)} mm (${t.k.toFixed(2)} mm na piksel).`,
+      realny: true,
+      uwagi: 'Z boku obrys jest zgodny ze zdjęciem. Drugi bok i grubości to szacunek, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.',
+      zdjecie: { url: objectUrl, strona: /^https:/.test(url || '') ? url : '', tytul: 'Zdjęcie użyte do odrysu', k: t.k, cx: t.cx, cy: t.cy, flip: t.flip, w: t.w, h: t.h },
+      czesci: t.parts.map((p) => PT.toPart(p)),
+      kroki: [...new Set(t.parts.map((p) => p.krok))].sort((a, b) => a - b).map((nr) => ({ nr, tytul: t.parts.filter((p) => p.krok === nr).map((p) => p.nazwa).join(', ').slice(0, 90) })),
+      zrodla: /^https:/.test(url || '') ? [{ tytul: 'Zdjęcie użyte do odrysu', url }] : [],
+    });
+    emit(`Odrys 1:1 gotowy: ${S.project.nazwa}, ${S.project.czesci.length} części.`);
+    if (UI.isLive?.()) UI.liveSend({ type: 'react', text: `Odrysowałem model ze zdjęcia, ${S.project.czesci.length} części, ${t.k.toFixed(2)} mm na piksel. Powiedz krótko, że bok jest zgodny ze zdjęciem, a grubości to szacunek.` });
+    return S.project;
+  }
+
   // ---------- podglad ----------
   function createViewer(host, THREE, hooks) {
     const canvas = el('canvas', 'st-canvas');
@@ -163,12 +230,70 @@
       if (S.style === 'xray') return new THREE.MeshStandardMaterial({ color: p.kolor, transparent: true, opacity: 0.28, metalness: 0.1, roughness: 0.4, depthWrite: false, side: THREE.DoubleSide });
       return new THREE.MeshStandardMaterial({ color: p.kolor, metalness: p.metal, roughness: p.szorstkosc, transparent: true, opacity: 1, side: THREE.DoubleSide });
     }
+    // Zdjecie na bokach czesci: mapujemy je tam, gdzie te piksele naprawde lezaly.
+    let photoTex = null;
+    function ensurePhoto() {
+      const z = S.project?.zdjecie;
+      if (!z || photoTex?.url === z.url) return;
+      photoTex = { url: z.url, map: null };
+      const here = photoTex;
+      photoBlob(z.url)
+        .then((blob) => createImageBitmap(blob, { imageOrientation: 'flipY' }))
+        .then((bmp) => {
+          if (photoTex !== here) return;
+          const map = new THREE.Texture(bmp);
+          map.flipY = false;
+          map.colorSpace = THREE.SRGBColorSpace;
+          map.anisotropy = 8;
+          map.needsUpdate = true;
+          here.map = map;
+          Object.values(meshes).forEach(decorate);
+        })
+        .catch(() => toast('Nie udało się wczytać zdjęcia: model jest bez powierzchni ze zdjęcia.'));
+    }
+    function addSkin(mesh) {
+      const z = S.project?.zdjecie;
+      const p = S.project?.czesci.find((c) => c.id === mesh.userData.id);
+      if (!z || !p?.skora || !photoTex?.map) return;
+      const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+      const pos = g.attributes.position;
+      let zMax = -Infinity;
+      let zMin = Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        zMax = Math.max(zMax, pos.getZ(i));
+        zMin = Math.min(zMin, pos.getZ(i));
+      }
+      const eps = (zMax - zMin) * 0.002 + 1e-4;
+      const out = [];
+      const uv = [];
+      for (let i = 0; i + 2 < pos.count; i += 3) {
+        const zs = [pos.getZ(i), pos.getZ(i + 1), pos.getZ(i + 2)];
+        const side = zs.every((v) => v > zMax - eps) ? 1 : zs.every((v) => v < zMin + eps) ? -1 : 0;
+        // Tylko strona, ktora zdjecie naprawde pokazuje: na drugiej napisy bylyby w lustrzanym odbiciu.
+        if (side !== (z.flip < 0 ? -1 : 1)) continue;
+        for (let k = 0; k < 3; k++) {
+          const x = pos.getX(i + k);
+          const y = pos.getY(i + k);
+          out.push(x, y, zs[k] + side * 0.03);
+          uv.push(((x + p.x) / (z.k * z.flip) + z.cx) / z.w, 1 - (z.cy - (y + p.y) / z.k) / z.h);
+        }
+      }
+      if (!out.length) return;
+      const skin = new THREE.BufferGeometry();
+      skin.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+      skin.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      skin.computeVertexNormals();
+      const s = new THREE.Mesh(skin, new THREE.MeshStandardMaterial({ map: photoTex.map, metalness: 0.15, roughness: 0.6, side: THREE.DoubleSide }));
+      s.raycast = () => {};
+      mesh.add(s);
+    }
     function decorate(mesh) {
       mesh.children.slice().forEach((c) => {
         c.geometry.dispose();
         c.material.dispose();
         mesh.remove(c);
       });
+      if (S.style === 'real') addSkin(mesh);
       if (S.style !== 'holo' && S.style !== 'wire') return;
       const lines = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 28), new THREE.LineBasicMaterial({ color: accent(), transparent: true, opacity: 0.8 }));
       lines.raycast = () => {};
@@ -182,6 +307,7 @@
     function setProject(project, keepCamera) {
       gizmo.detach();
       disposeMeshes();
+      ensurePhoto();
       m = K.measure(project);
       vectors = K.explodeVectors(project, m);
       center.set(...K.centerOf(m.bounds));
@@ -212,6 +338,7 @@
       if (!keepCamera) {
         // Dlugi przedmiot ogladamy z boku, nie od czola.
         const dir = m.size[0] >= m.size[2] ? new THREE.Vector3(0.42, 0.26, 0.87) : new THREE.Vector3(0.87, 0.26, 0.42);
+        if (project.zdjecie?.flip < 0) dir.z = -Math.abs(dir.z); // zaczynamy od strony ze zdjecia
         controls.target.copy(center);
         camera.position.copy(center).add(dir.normalize().multiplyScalar(span));
         const aspect = host.clientWidth && host.clientHeight ? host.clientWidth / host.clientHeight : 1.6;
@@ -446,18 +573,25 @@
             const scale = new THREE.Matrix4().makeScale(1 / sf, 1 / sf, 1 / sf);
             const byId = new Map(S.project.czesci.map((p) => [p.id, p]));
             const found = {};
+            const merge = (a, b) => {
+              const x = a.index ? a.toNonIndexed() : a;
+              const y = b.index ? b.toNonIndexed() : b;
+              const g = new THREE.BufferGeometry();
+              ['position', 'normal'].forEach((n) => g.setAttribute(n, new THREE.Float32BufferAttribute([...x.attributes[n].array, ...y.attributes[n].array], 3)));
+              return g;
+            };
             gltf.scene.traverse((o) => {
               if (!o.isMesh) return;
               let id = o.name;
               for (let q = o; q && !byId.has(id); q = q.parent) id = q.name;
               const p = byId.get(id);
-              if (!p || found[id]) return;
+              if (!p) return;
               const part = new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromEuler(new THREE.Euler((p.rx * Math.PI) / 180, (p.ry * Math.PI) / 180, (p.rz * Math.PI) / 180, 'XYZ')), new THREE.Vector3(1, 1, 1));
               const g = o.geometry.clone();
               g.applyMatrix4(scale.clone().multiply(o.matrixWorld));
               g.applyMatrix4(part.clone().invert());
               g.computeBoundingSphere();
-              found[id] = g;
+              found[id] = found[id] ? merge(found[id], g) : g;
             });
             resolve(found);
           }, reject);
@@ -628,6 +762,7 @@
           S.tab = 'czesci';
           S.redraw();
           const m = K.measure(S.project);
+          if (S.project.obrazy?.length) toast('Znalazłem zdjęcia. Żeby wygląd był 1:1, użyj ODRYSUJ w zakładce PLANY.', 'ok');
           const note = `Projekt gotowy: ${S.project.nazwa}. ${S.project.czesci.length} części, ${K.stepNumbers(S.project).length} kroków montażu.`;
           emit(note, { react: false, important: true });
           if (UI.isLive?.()) UI.liveSend({ type: 'react', text: `${note} Wymiary ${m.size.map((v) => Math.round(v)).join(' x ')} mm${S.project.skala > 1 ? `, skala 1:${S.project.skala}` : ''}. ${S.project.uwagi ? `Uwagi: ${S.project.uwagi}` : ''} Powiedz to krótko, zaznacz, co jest szacunkiem, a co z planów, i zapytaj, czy pokazać rozbieranie.` });
@@ -699,7 +834,7 @@
       opcje,
       czesci: pr.czesci.map((p) => ({
         id: p.id, nazwa: p.nazwa, grupa: p.grupa, krok: p.krok, kolor: p.kolor, metal: p.metal, szorstkosc: p.szorstkosc,
-        faza: p.faza, gladki: p.gladki, ciecie: p.ciecie, x: p.x, y: p.y, z: p.z, rx: p.rx, ry: p.ry, rz: p.rz,
+        faza: p.faza, gladki: p.gladki, ciecie: p.ciecie, skora: p.skora, x: p.x, y: p.y, z: p.z, rx: p.rx, ry: p.ry, rz: p.rz,
         rozst: vec[p.id], siatka: K.partMesh(p).map((v) => Math.round(v * 1000) / 1000),
       })),
     };
@@ -718,7 +853,22 @@
     }, 1000);
     const forProject = S.project;
     try {
-      const r = await blenderAction('blender-buduj', blenderPayload({ render: true, stl: true, probki: 48, ...opcje }));
+      const payload = blenderPayload({ render: true, stl: true, probki: 48, ...opcje });
+      if (S.project.zdjecie) {
+        const z = S.project.zdjecie;
+        payload.zdjecie = { k: z.k, cx: z.cx, cy: z.cy, flip: z.flip, w: z.w, h: z.h };
+        payload.zdjecie_b64 = await photoBlob(z.url).then(async (b) => {
+          // Blender czyta PNG, a sklepy czesto daja WebP.
+          const bmp = await createImageBitmap(b);
+          const cv = document.createElement('canvas');
+          cv.width = bmp.width;
+          cv.height = bmp.height;
+          cv.getContext('2d').drawImage(bmp, 0, 0);
+          return blobToB64(await new Promise((res) => cv.toBlob(res, 'image/png')));
+        }).catch(() => null);
+        if (!payload.zdjecie_b64) delete payload.zdjecie;
+      }
+      const r = await blenderAction('blender-buduj', payload);
       if (!r.ok) throw new Error(r.error);
       if (S.project !== forProject) return; // uzytkownik przeszedl do innego projektu
       S.blender.result = { ...S.blender.result, ...r };
@@ -828,6 +978,49 @@
         });
         chips.appendChild(c);
       });
+      const photoBtn = el('button', 'cad-tool on', '📷 ODRYSUJ ZE ZDJĘCIA 1:1');
+      chips.appendChild(photoBtn);
+      const photoForm = el('div', 'st-photo');
+      photoForm.hidden = true;
+      const photoHint = el('div', 'w-dim', 'Zdjęcie z boku, cały przedmiot, jednolite tło. Skalę daje prawdziwa długość.');
+      const photoFile = el('input');
+      photoFile.type = 'file';
+      photoFile.accept = 'image/*';
+      const photoUrl = el('input', 'inp');
+      photoUrl.placeholder = 'albo adres zdjęcia https://…';
+      const photoLen = el('input', 'inp');
+      photoLen.type = 'number';
+      photoLen.placeholder = 'długość mm';
+      const photoName = el('input', 'inp');
+      photoName.placeholder = 'nazwa, np. M4 CQB';
+      const photoGo = el('button', 'btn primary', 'ODRYSUJ');
+      const photoRow = el('div', 'st-row');
+      photoRow.append(photoFile, photoUrl, photoLen, photoName, photoGo);
+      photoForm.append(photoHint, photoRow);
+      S.openPhoto = (u, len) => {
+        photoForm.hidden = false;
+        if (u) photoUrl.value = u;
+        if (len) photoLen.value = String(Math.round(len));
+      };
+      photoBtn.addEventListener('click', () => {
+        photoForm.hidden = !photoForm.hidden;
+      });
+      photoGo.addEventListener('click', async () => {
+        const blob = photoFile.files?.[0];
+        const url = photoUrl.value.trim();
+        if (!blob && !url) return toast('Wybierz zdjęcie albo podaj adres.');
+        photoGo.disabled = true;
+        photoGo.textContent = 'ODRYSOWUJĘ...';
+        try {
+          await fromPhoto({ blob, url, dlugosc: photoLen.value, nazwa: photoName.value.trim() || prompt.value.trim() });
+          photoForm.hidden = true;
+        } catch (e) {
+          toast(e.message || 'Nie udało się odrysować.');
+        }
+        photoGo.disabled = false;
+        photoGo.textContent = 'ODRYSUJ';
+        return undefined;
+      });
       const jobBox = el('div', 'st-job');
       jobBox.hidden = true;
       const jobBar = el('div', 'st-job-bar');
@@ -909,6 +1102,7 @@
       lab('TEMPO', speed);
       // Przekroj modelu: pokazuje budowe w srodku bez rozbierania.
       const clip = { axis: null, t: 0.5 };
+      S.clip = clip;
       const clipBtn = el('button', 'cad-tool', 'PRZEKRÓJ');
       const clipIn = el('input');
       clipIn.type = 'range';
@@ -964,7 +1158,7 @@
       });
       side.append(tabs, pane);
       stage.append(left, side);
-      wrap.append(head, chips, jobBox, stage);
+      wrap.append(head, chips, photoForm, jobBox, stage);
       body.appendChild(wrap);
 
       // Zdarzenia
@@ -1074,7 +1268,7 @@
             const row = el('div', `st-part${p.id === S.selected ? ' on' : ''}${S.hidden.has(p.id) ? ' off' : ''}`);
             const dot = el('i', 'st-dot');
             dot.style.background = p.kolor;
-            const badge = el('span', `st-src ${p.zrodlo}`, p.zrodlo === 'plany' ? 'plany' : 'szac.');
+            const badge = el('span', `st-src ${p.zrodlo}`, p.skora ? 'zdjęcie' : p.zrodlo === 'plany' ? 'plany' : 'szac.');
             row.append(dot, el('span', 'st-name', p.nazwa), el('span', 'w-dim', `k.${p.krok}`), badge);
             row.addEventListener('click', () => select(p.id === S.selected ? null : p.id));
             pane.appendChild(row);
@@ -1262,6 +1456,25 @@
           const all = pr.czesci.length || 1;
           const fromPlans = pr.czesci.filter((p) => p.zrodlo === 'plany').length;
           pane.appendChild(el('div', 'w-dim st-desc', `Z planów: ${fromPlans} z ${all} części. Reszta to szacunek: nie traktuj tych wymiarów jako dokumentacji.`));
+        }
+        if (src.zdjecie) {
+          pane.appendChild(el('div', 'st-sub', 'ZDJĘCIE-WZÓR'));
+          const a = el(src.zdjecie.strona ? 'a' : 'div', 'st-link', src.zdjecie.tytul || 'Zdjęcie użyte do odrysu');
+          if (src.zdjecie.strona) {
+            a.href = src.zdjecie.strona;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+          }
+          pane.append(a, el('div', 'w-dim', `${src.zdjecie.k.toFixed(2)} mm na piksel. Obrys z boku pochodzi z tego zdjęcia.`));
+        }
+        if (src.obrazy?.length && !src.zdjecie) {
+          pane.appendChild(el('div', 'st-sub', 'ZDJĘCIA Z SIECI DO ODRYSU 1:1'));
+          src.obrazy.forEach((u, i) => {
+            const b = el('button', 'btn ghost', `ODRYSUJ Z OBRAZU ${i + 1}`);
+            b.title = u;
+            b.addEventListener('click', () => S.openPhoto(u));
+            pane.appendChild(b);
+          });
         }
         if (src.fakty?.length) {
           pane.appendChild(el('div', 'st-sub', 'DANE ZE ŹRÓDEŁ'));
@@ -1626,5 +1839,5 @@
     };
   }
   // Dla Jarvisa i testow.
-  UI.studio = { design, aiEdit, setProject, play, goToStep, blenderBuild, blenderRefresh, state: S };
+  UI.studio = { fromPhoto, design, aiEdit, setProject, play, goToStep, blenderBuild, blenderRefresh, state: S };
 })();

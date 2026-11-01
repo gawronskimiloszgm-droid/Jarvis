@@ -395,6 +395,8 @@ body.dictating::before { content: 'DYKTUJĘ'; position: fixed; top: 12px; left: 
 .st-head .inp { flex: 1 1 280px; min-width: 0; }
 .st-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--dim); cursor: pointer; }
 .st-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.st-photo { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 3px; }
+.st-photo[hidden] { display: none; }
 .st-job { display: flex; flex-direction: column; gap: 4px; }
 .st-job-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; margin: 4px 0; }
 .st-job-bar i { display: block; height: 100%; background: var(--blue); box-shadow: 0 0 10px var(--blue); transition: width .4s; }

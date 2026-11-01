@@ -35,6 +35,23 @@ def to_scene(v):
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 materials = {}
+photo = data.get("zdjecie")
+photo_mat = None
+if photo:
+    # Zdjecie-wzor na bokach czesci: te same piksele w tych samych miejscach co w podgladzie.
+    try:
+        image = bpy.data.images.load(os.path.join(out_dir, photo["plik"]))
+        photo_mat = bpy.data.materials.new("Zdjecie")
+        photo_mat.use_nodes = True
+        tree = photo_mat.node_tree
+        tex = tree.nodes.new("ShaderNodeTexImage")
+        tex.image = image
+        bsdf = tree.nodes.get("Principled BSDF")
+        tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        bsdf.inputs["Metallic"].default_value = 0.15
+        bsdf.inputs["Roughness"].default_value = 0.6
+    except Exception as exc:
+        manifest["uwagi"].append(f"Zdjęcie: {exc}")
 
 
 def srgb(c):
@@ -82,6 +99,19 @@ def build_mesh(p):
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.normal_update()  # bez tego kat miedzy scianami wychodzi zero i wszystko sie wygladza
+    if photo_mat and p.get("skora") and len(bm.verts):
+        zs = [v.co.z for v in bm.verts]
+        z_max, z_min = max(zs), min(zs)
+        eps = (z_max - z_min) * 0.002 + 1e-6
+        uv = bm.loops.layers.uv.new("UVMap")
+        for f in bm.faces:
+            # Tylko strona ze zdjecia: na drugiej napisy bylyby w lustrzanym odbiciu.
+            if (photo["flip"] > 0 and all(v.co.z > z_max - eps for v in f.verts)) or (photo["flip"] < 0 and all(v.co.z < z_min + eps for v in f.verts)):
+                f.material_index = 1
+                for loop in f.loops:
+                    mm_x = loop.vert.co.x / SF + p["x"]
+                    mm_y = loop.vert.co.y / SF + p["y"]
+                    loop[uv].uv = ((mm_x / (photo["k"] * photo["flip"]) + photo["cx"]) / photo["w"], 1 - (photo["cy"] - mm_y / photo["k"]) / photo["h"])
     # Wygladzone sciany, ostre krawedzie zostaja ostre.
     for f in bm.faces:
         f.smooth = True
@@ -114,6 +144,8 @@ for idx, p in enumerate(parts):
         collections[group] = col
     col.objects.link(ob)
     me.materials.append(material_for(p))
+    if photo_mat and p.get("skora"):
+        me.materials.append(photo_mat)
     d = math.pi / 180
     pos = to_scene((p["x"], p["y"], p["z"]))
     # Macierz Rx*Ry*Rz jak w podgladzie, potem zamiana osi. Euler 'ZYX' w Blenderze to ten sam obrot.
@@ -249,9 +281,11 @@ def add_light(name, kind, loc, energy, size, color):
 
 
 # Energia swiatla obszarowego rosnie z kwadratem odleglosci, stad radius**2.
-key = center + Vector((radius * 2.2, -radius * 2.4, radius * 2.8))
-fill = center + Vector((-radius * 3.0, -radius * 1.2, radius * 1.2))
-rim = center + Vector((-radius * 0.5, radius * 3.2, radius * 2.0))
+# Kamera patrzy od strony ze zdjecia; +1 to strona +Z projektu (w Blenderze -Y).
+VIEW_SIDE = -1 if photo and photo.get("flip", 1) < 0 else 1
+key = center + Vector((radius * 2.2, -radius * 2.4 * VIEW_SIDE, radius * 2.8))
+fill = center + Vector((-radius * 3.0, -radius * 1.2 * VIEW_SIDE, radius * 1.2))
+rim = center + Vector((-radius * 0.5, radius * 3.2 * VIEW_SIDE, radius * 2.0))
 add_light("Glowne", "AREA", key, 300 * radius ** 2, radius * 2.2, (1.0, 0.96, 0.9))
 add_light("Wypelniajace", "AREA", fill, 110 * radius ** 2, radius * 3, (0.72, 0.84, 1.0))
 add_light("Kontra", "AREA", rim, 220 * radius ** 2, radius * 1.6, (0.3, 0.8, 1.0))
@@ -276,7 +310,7 @@ def frame_camera(lo, hi):
     c = Vector(((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2))
     target.location = c
     long_x = (hi[0] - lo[0]) >= (hi[1] - lo[1])
-    d = (Vector((0.42, -0.87, 0.26)) if long_x else Vector((0.87, -0.42, 0.26))).normalized()
+    d = (Vector((0.42, -0.87 * VIEW_SIDE, 0.26)) if long_x else Vector((0.87, -0.42 * VIEW_SIDE, 0.26))).normalized()
     right = Vector((0, 0, 1)).cross(d).normalized()
     up = d.cross(right).normalized()
     tan_h = math.tan(math.radians(19.8))

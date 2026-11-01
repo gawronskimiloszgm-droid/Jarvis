@@ -129,6 +129,7 @@ export const LIFE_TOOLS = [
 ];
 
 const CHANGELOG = [
+  'Odrys 1:1 ze zdjecia z boku, replika SA-F01 FLEX, zdjecie na bokach modelu',
   'Studio 3D co do sruby: gotowe podzespoly, wzorzec repliki ASG, przycisk dopracuj, przekroj',
   'Studio 3D: projekty z wielu czesci, replika po znalezieniu planow, animacja rozbierania, dodawanie elementow, Blender na PC',
   'Automatyzacje gdy X zrob Y, sterowanie domem przez Home Assistant, tryb warsztatu krok po kroku',
@@ -227,7 +228,7 @@ export async function runLifeTool(name, args = {}) {
       };
     }
     case 'co_nowego':
-      return { wersja: '0.11.0', nowosci: CHANGELOG };
+      return { wersja: '0.12.0', nowosci: CHANGELOG };
     case 'podsumowanie_tygodnia':
       return { podsumowanie: lifeWeekSummary() };
     case 'zegar_swiata': {

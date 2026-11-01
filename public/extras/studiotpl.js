@@ -138,6 +138,73 @@
     };
   }
 
+  // SA-F01 FLEX: wyglad odrysowany ze zdjecia tego modelu, wnetrze to uklad AEG V2 wpasowany w ten korpus.
+  function saf01() {
+    const G = globalThis;
+    const D = G.StudioSAF01;
+    const PT = G.PhotoTrace;
+    const k = D.zdjecie.k;
+    const at = (px, py) => [-(px - D.zdjecie.cx) * k, (D.zdjecie.cy - py) * k];
+    const GB = -28;
+    const steel = { kolor: '#a7aeb3', metal: 0.9, szorstkosc: 0.35 };
+    const [pin1x, pin1y] = at(805, 541);
+    const [pin2x, pin2y] = at(1248, 545);
+    const [gripx, gripy] = [-86, -96];
+    const [magx, magy] = at(895, 850);
+    const up = [Math.sin((11 * Math.PI) / 180) * -1, Math.cos((11 * Math.PI) / 180)];
+    return {
+      nazwa: 'Specna Arms SA-F01 FLEX (1:1 ze zdjęcia)',
+      opis: 'Wygląd zewnętrzny odrysowany piksel po pikselu ze zdjęcia tego modelu i przeskalowany do długości 650 mm ze specyfikacji (0,38 mm na piksel). Wnętrze to typowy układ AEG V2 wpasowany w korpus.',
+      skala: 1,
+      realny: true,
+      material: 'PLA',
+      zdjecie: D.zdjecie,
+      uwagi: 'Z boku obrys jest zgodny ze zdjęciem co do około pół milimetra. Drugi bok, grubości i całe wnętrze to szacunek, bo to zdjęcie ich nie pokazuje; dokładne wymiary wymagają pomiaru suwmiarką. Kolba jest ustawiona jak na zdjęciu, przy 650 mm.',
+      fakty: ['Długość 650-740 mm, masa około 2150 g, kolba Crane, magazynek S-MAG Hi-Cap 300 kulek', 'Gearbox V2, sprężyna M90, lufa 6,03 mm, gwint 14 mm lewy'],
+      zrodla: [{ tytul: 'Specna Arms SA-F01 Flex Gen.2 X-ASR: Milgear', url: D.zdjecie.strona }, { tytul: 'SA-F01 FLEX: Fox Airsoft', url: 'https://foxairsoft.com/products/specna-arms-sa-f01-flex' }],
+      czesci: [
+        ...D.czesci.map((t) => PT.toPart(t)),
+        { makro: 'aeg_gearbox_v2', id: 'gb', grupa: 'Gearbox V2', krok_od: 1, x: GB, bez_spustu: 1, zrodlo: 'szacunek' },
+        { makro: 'aeg_hopup', id: 'hop', grupa: 'Komora hop-up', krok: 9, x: GB + 102 },
+        { id: 'lufa_pr', nazwa: 'Lufa precyzyjna 6,03 x 229', grupa: 'Lufa', krok: 10, ksztalt: 'rura', r: 4.5, ri: 3.015, h: 229, x: 203, rz: 90, kolor: '#c8b27a', metal: 0.95, szorstkosc: 0.2, rozst: [120, 60, 0] },
+        { id: 'lufa_zew', nazwa: 'Lufa zewnętrzna', grupa: 'Lufa', krok: 17, ksztalt: 'rura', r: 10, ri: 7, h: 180, x: 180, rz: 90, kolor: '#1f2225', metal: 0.7, szorstkosc: 0.45, rozst: [120, -70, 0] },
+        { makro: 'aeg_silnik', id: 'silnik', grupa: 'Chwyt i silnik', krok: 11, x: gripx, y: gripy, rz: -27.6, dl: 56 },
+        { id: 'stopka', nazwa: 'Płytka mocowania silnika', grupa: 'Chwyt i silnik', krok: 11, ksztalt: 'walec', r: 13, h: 3, x: gripx - 16, y: gripy - 30, rz: -27.6, kolor: '#55585c', metal: 0.7, szorstkosc: 0.5, rozst: [-60, -270, 0] },
+        { makro: 'sruba', id: 'sr_chwyt', nazwa: 'Śruba płytki silnika M3 x 12', grupa: 'Chwyt i silnik', krok: 11, d: 3, l: 12, x: gripx - 19, y: gripy - 36, rz: 152.4, rozst: [-70, -320, 0] },
+        { makro: 'kolek', id: 'pin_p', nazwa: 'Kołek przedni korpusu', grupa: 'Korpus górny', krok: 13, d: 5, l: 30, x: pin1x, y: pin1y, rx: 90, rozst: [0, 40, 260] },
+        { makro: 'kolek', id: 'pin_t', nazwa: 'Kołek tylny korpusu', grupa: 'Korpus górny', krok: 13, d: 5, l: 30, x: pin2x, y: pin2y, rx: 90, rozst: [0, 40, 260] },
+        { id: 'rura_w', nazwa: 'Rura kolby w środku', grupa: 'Kolba', krok: 14, ksztalt: 'rura', r: 15, ri: 12.5, h: 150, x: -192, y: 2, rz: 90, kolor: '#30343a', metal: 0.7, szorstkosc: 0.45, rozst: [-120, 0, 0] },
+        { id: 'akumulator', nazwa: 'Akumulator 7,4 V', grupa: 'Kolba', krok: 14, ksztalt: 'walec', r: 10.5, h: 110, x: -190, y: 2, rz: 90, kolor: '#b84234', metal: 0.1, szorstkosc: 0.5, rozst: [-180, 130, 0] },
+        { id: 'mag_spr', nazwa: 'Sprężyna podajnika', grupa: 'Magazynek', krok: 20, ksztalt: 'sprezyna', R: 7, r: 0.6, skok: 7, zwoje: 11, x: magx, y: magy, rz: 11, kolor: '#9aa1a6', metal: 0.9, szorstkosc: 0.3, rozst: [110, -240, 0] },
+        { id: 'mag_pop', nazwa: 'Popychacz', grupa: 'Magazynek', krok: 20, ksztalt: 'pudelko', sx: 20, sy: 8, sz: 14, x: magx + up[0] * 44, y: magy + up[1] * 44, rz: 11, kolor: '#55585c', metal: 0.1, szorstkosc: 0.7, rozst: [110, -190, 0] },
+        { id: 'mag_kulki', nazwa: 'Kulki 6 mm', grupa: 'Magazynek', krok: 20, ksztalt: 'zespol', x: magx + up[0] * 54, y: magy + up[1] * 54, rz: 11, kolor: '#f1efe6', metal: 0, szorstkosc: 0.25, rozst: [110, -150, 0], elementy: Array.from({ length: 5 }, (_, i) => ({ ksztalt: 'kula', r: 3, x: i % 2 ? 1.5 : -1.5, y: i * 5 })) },
+        { id: 'sruba_steel', nazwa: 'Kołek spustu', grupa: 'Gearbox V2', krok: 6, ksztalt: 'walec', r: 1.5, h: 24, x: GB - 4, y: -44, rx: 90, ...steel, rozst: [20, -60, 30] },
+      ],
+      kroki: [
+        { nr: 1, tytul: 'Skorupa lewa gearboxa', opis: 'Baza gearboxa V2.' },
+        { nr: 2, tytul: 'Tuleje', opis: 'Tuleje osi kół w obu skorupach.' },
+        { nr: 3, tytul: 'Koła zębate', opis: 'Stożkowe, pośrednie i sektorowe oraz zapadka.' },
+        { nr: 4, tytul: 'Cylinder i tłok', opis: 'Cylinder, tłok, sprężyna M90 i prowadnica.' },
+        { nr: 5, tytul: 'Dysza i popychacz', opis: 'Dysza i płytka popychacza.' },
+        { nr: 6, tytul: 'Spust i elektronika', opis: 'Spust, przełącznik, układ HAL lub MOSFET i płytka selektora.' },
+        { nr: 7, tytul: 'Skorupa prawa', opis: 'Zamyka gearbox.' },
+        { nr: 8, tytul: 'Śruby gearboxa', opis: 'Siedem śrub M3.' },
+        { nr: 9, tytul: 'Komora hop-up', opis: 'Gumka, docisk i pokrętło.' },
+        { nr: 10, tytul: 'Lufa precyzyjna', opis: 'Lufa 6,03 mm w komorze hop-up.' },
+        { nr: 11, tytul: 'Chwyt i silnik', opis: 'Silnik w chwycie, płytka i śruba mocująca.' },
+        { nr: 12, tytul: 'Korpus dolny', opis: 'Dolna część korpusu z osłoną spustu i gniazdem magazynka.' },
+        { nr: 13, tytul: 'Korpus górny', opis: 'Górna część korpusu z szyną, spięta dwoma kołkami.' },
+        { nr: 14, tytul: 'Rura kolby i akumulator', opis: 'Rura z nakrętką i akumulator w środku.' },
+        { nr: 15, tytul: 'Kolba Crane', opis: 'Kolba nasunięta na rurę, ustawiona na 650 mm.' },
+        { nr: 16, tytul: 'Front', opis: 'Front z 16 otworami i szynami Picatinny.' },
+        { nr: 17, tytul: 'Lufa zewnętrzna', opis: 'Lufa zewnętrzna i tuleja z gwintem 14 mm.' },
+        { nr: 18, tytul: 'Tłumik płomienia', opis: 'Tłumik nakręcony na gwint.' },
+        { nr: 19, tytul: 'Przyrządy', opis: 'Muszka i szczerbinka składane.' },
+        { nr: 20, tytul: 'Magazynek', opis: 'S-MAG ze sprężyną, popychaczem i kulkami.' },
+      ],
+    };
+  }
+
   // Replika ASG: wzorzec szczegolowosci. Uklad jak w typowym AEG z gearboxem V2, wymiary dobrane do
   // dlugosci okolo 680 mm. To nie sa pomiary konkretnego modelu i projekt mowi o tym wprost.
   function asg() {
@@ -162,9 +229,9 @@
       uwagi: 'Układ i nazwy jak w typowym AEG V2. Wymiary to szacunek proporcji, a nie pomiar konkretnego modelu: do repliki SA-F01 podaj Jarvisowi nazwę, a dane przyjdą z jej źródeł.',
       fakty: ['Typowy gearbox V2, sprężyna M90, lufa 6,03 mm i gwint M14 lewy to częste parametry tego typu replik.'],
       czesci: [
-        { makro: 'aeg_gearbox_v2', id: 'gb', grupa: 'Gearbox V2', krok_od: 1 },
-        { makro: 'aeg_hopup', id: 'hop', grupa: 'Komora hop-up', krok: 9, x: 96 },
-        { makro: 'aeg_lufa', id: 'lufa', grupa: 'Lufy', krok: 10, x: 112, dl_wew: 235, dl_zew: 226 },
+        { makro: 'aeg_gearbox_v2', id: 'gb', grupa: 'Gearbox V2', krok_od: 1, x: 37 },
+        { makro: 'aeg_hopup', id: 'hop', grupa: 'Komora hop-up', krok: 9, x: 133 },
+        { makro: 'aeg_lufa', id: 'lufa', grupa: 'Lufy', krok: 10, x: 149, dl_wew: 198, dl_zew: 189 },
         { makro: 'aeg_silnik', id: 'silnik', grupa: 'Silnik i chwyt', krok: 11, x: -40, y: -97, rz: -18, dl: 56 },
         { id: 'chwyt', nazwa: 'Chwyt pistoletowy', grupa: 'Silnik i chwyt', krok: 12, ksztalt: 'boczny', gr: 30, z: 0, zaokr: 7, faza: 1.5, ...P, kontur: [[-12, -50], [-60, -50], [-80, -112], [-78, -150], [-38, -154], [-26, -116], [-12, -70]], rozst: [-60, -200, 0] },
         { id: 'stopka_chwyt', nazwa: 'Stopka chwytu', grupa: 'Silnik i chwyt', krok: 13, ksztalt: 'plyta', sx: 42, sy: 4, sz: 30, faza: 0.6, x: -58, y: -155, rz: 7, ...P, rozst: [-60, -270, 0], otwory: [{ x: 0, z: 0, r: 2 }] },
@@ -223,6 +290,7 @@
   }
 
   const LIST = [
+    { id: 'saf01', nazwa: 'SA-F01 FLEX 1:1', sub: 'odrysowana ze zdjęcia tego modelu', make: saf01 },
     { id: 'asg', nazwa: 'Replika ASG', sub: 'gearbox V2 i cały rozkład, co do śruby', make: asg },
     { id: 'saturn', nazwa: 'Saturn V', sub: 'replika ze znanych wymiarów', make: saturn },
     { id: 'silnik', nazwa: 'Silnik', sub: 'budowa jednego cylindra', make: engine },
