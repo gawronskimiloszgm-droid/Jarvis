@@ -10,7 +10,7 @@ import express from 'express';
 import { nanoid } from 'nanoid';
 import { GoogleGenAI, Type } from '@google/genai';
 import { requireOwner } from '../core/auth.js';
-import { withModel, isOverloaded } from '../core/geminiChain.js';
+import { withModel, isOverloaded, isUnavailable } from '../core/geminiChain.js';
 
 const router = express.Router();
 
@@ -227,7 +227,7 @@ async function liveGenerate(prompt, schema, images = []) {
   try {
     return await once({ ...base, responseSchema: schema });
   } catch (e) {
-    if (isOverloaded(e)) throw e;
+    if (isOverloaded(e) || isUnavailable(e)) throw e;
     return once(base); // model odrzucil schemat: opis formatu w tresci wystarcza
   }
 }
@@ -617,16 +617,18 @@ router.post('/api/studio/reference', requireOwner, async (req, res) => {
   const opis = String(req.body?.opis || '').trim().slice(0, 200);
   if (!opis) return res.status(400).json({ error: 'Brak opisu.' });
   const prompt = `${opis}, exact side view, orthographic technical product photo, entire object fully visible with wide margin around it, centered, isolated on pure white background, no shadow, no text, no people`;
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const r = await ai.models.generateContent({ model: 'gemini-2.5-flash-image', contents: prompt, config: { responseModalities: ['IMAGE'] } });
-    const part = r.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
-    if (part) {
-      res.setHeader('Content-Type', part.inlineData.mimeType || 'image/png');
-      return res.send(Buffer.from(part.inlineData.data, 'base64'));
+  for (const model of ['gemini-3.1-flash-lite-image', 'gemini-2.5-flash-image']) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const r = await ai.models.generateContent({ model, contents: prompt, config: { responseModalities: ['IMAGE'] } });
+      const part = r.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+      if (part) {
+        res.setHeader('Content-Type', part.inlineData.mimeType || 'image/png');
+        return res.send(Buffer.from(part.inlineData.data, 'base64'));
+      }
+    } catch {
+      /* nastepny model, na koncu generator zapasowy */
     }
-  } catch {
-    /* zostaje generator zapasowy */
   }
   try {
     const { generateImage } = await import('../vision/image.js');
