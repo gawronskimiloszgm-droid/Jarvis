@@ -176,8 +176,9 @@
         stack.push(q);
       }
     }
-    // Linia styku z ziemia bywa ciemna, ale jest bardzo cienka i dluga: tak nie wyglada zadna czesc przedmiotu.
-    const thinMax = Math.max(2, Math.round((maxY - minY) * 0.012));
+    // Linia styku z ziemia bywa ciemna, ale jest cienka, dluga, szara i odstaje od reszty przedmiotu.
+    // Podstawa przedmiotu styka sie z nim, wiec ma nad soba material i tu nie pasuje.
+    const thinMax = Math.max(2, Math.round((maxY - minY) * 0.035));
     const line = new Uint8Array(w * h);
     const clear = (i) => !blob[i] || pale[i];
     let runStart = -1;
@@ -192,7 +193,15 @@
         bottom = y;
         while (y >= band && !clear(y * w + x)) y--;
         top = y + 1;
-        thin = bottom >= band && y >= band && bottom - top + 1 <= thinMax;
+        const thick = bottom - top + 1;
+        thin = bottom >= band && y >= band && thick <= thinMax;
+        if (thin) {
+          const mid = Math.floor((top + bottom) / 2) * w + x;
+          if (Math.max(data[mid * 4], data[mid * 4 + 1], data[mid * 4 + 2]) - Math.min(data[mid * 4], data[mid * 4 + 1], data[mid * 4 + 2]) >= 16) thin = false;
+          for (let k = 0; thin && k < thick * 2; k++) {
+            if (y - k >= 0 && !clear((y - k) * w + x)) thin = false;
+          }
+        }
       }
       if (thin && runStart < 0) runStart = x;
       if (!thin && runStart >= 0) {

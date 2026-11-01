@@ -225,6 +225,15 @@ test('cienka ciemna linia styku z ziemia znika, a opony zostaja', () => {
   assert.equal(t.bbox[3], 180);
 });
 
+test('szara podstawa stykajaca sie z przedmiotem zostaje w obrysie', () => {
+  const { img, paint } = canvas(400, 200);
+  paint(100, 40, 300, 170, [150, 30, 30]);
+  paint(40, 170, 360, 180, [70, 70, 70]);
+  const t = PT.traceParts(img, { ...opts, parts: [{ id: 'a', nazwa: 'A', reszta: true, obszar: [0, 0, 400, 200] }] });
+  assert.equal(t.bbox[3], 180);
+  assert.equal(t.bbox[0], 40);
+});
+
 test('dopasowanie omija przeswity w obudowie', () => {
   const hollow = [{ ksztalt: 'boczny', id: 'o', kontur: bar(400, 200), gr: 60, otwory: [{ kontur: [[-40, -80], [180, -80], [180, 80], [-40, 80]] }] }];
   const fit = K.fitInside([{ id: 'a', grupa: 'Silnik', ksztalt: 'pudelko', sx: 40, sy: 40, sz: 20, x: 60 }], hollow);
