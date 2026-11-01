@@ -529,7 +529,10 @@
       // Krawedz prawie w kolorze tla: przedmiot zlewa sie z tlem i obrys bedzie poszarpany.
       if (i % w > 0 && i % w < w - 1 && i >= w && i < w * (h - 1) && (!blob[i - 1] || !blob[i + 1] || !blob[i - w] || !blob[i + w])) {
         border++;
-        const d = Math.abs(img.data[i * 4] - m.bg[0]) + Math.abs(img.data[i * 4 + 1] - m.bg[1]) + Math.abs(img.data[i * 4 + 2] - m.bg[2]);
+        // Mierzymy pare pikseli w glab: sam brzeg jest wygladzony i na kazdym zdjeciu wyglada na blady.
+        const inward = !blob[i - 1] ? 3 : !blob[i + 1] ? -3 : !blob[i - w] ? 3 * w : -3 * w;
+        const q = Math.max(0, Math.min(w * h - 1, i + inward));
+        const d = Math.abs(img.data[q * 4] - m.bg[0]) + Math.abs(img.data[q * 4 + 1] - m.bg[1]) + Math.abs(img.data[q * 4 + 2] - m.bg[2]);
         if (d < 90) faint++;
       }
     }

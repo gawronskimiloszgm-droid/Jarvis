@@ -113,6 +113,31 @@ export function imageUrlsFromBing(html, limit = 16) {
   const urls = [...String(html).matchAll(/murl&quot;:&quot;(https?:[^&]+?)&quot;/g)].map((m) => m[1]);
   return [...new Set(urls)].filter((u) => /^https:/.test(u)).slice(0, limit);
 }
+/** Wyniki z tytulami: tytul pozwala odrzucic obcy przedmiot jeszcze bez pytania modelu. */
+export function imagesFromBing(html) {
+  const out = [];
+  for (const m of String(html).matchAll(/\bm="(\{[^"]+\})"/g)) {
+    try {
+      const item = JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+      if (/^https:/.test(item.murl || '')) out.push({ url: item.murl, title: String(item.t || '') });
+    } catch {
+      /* uszkodzony wpis */
+    }
+  }
+  return out;
+}
+
+/** Czy wynik dotyczy tego przedmiotu: przynajmniej polowa slow nazwy (rdzenie, bo polskie slowa sie odmieniaja). */
+export function photoMatchesTopic({ url, title }, topic) {
+  const hay = fold(`${title} ${url}`);
+  const words = fold(topic).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 || /\d/.test(w)).map((w) => w.slice(0, Math.max(4, w.length - 2)));
+  if (!words.length) return true;
+  return words.filter((w) => hay.includes(w)).length >= Math.ceil(words.length / 2);
+}
+
+// Rysunki i obrazy z generatora nie sa zdjeciem tego przedmiotu.
+const NOT_PHOTO = /premium-vector|\bvector\b|illustration|clipart|cartoon|drawing|\bai[- ](image|generated)/i;
+
 // Banki zdjec: znak wodny lezalby na modelu, a te zdjecia sa platne.
 const STOCK = /(^|\.)(dreamstime|alamy|shutterstock|ftcdn|123rf|istockphoto|gettyimages|depositphotos|vecteezy|bigstockphoto|canstockphoto|stock\.adobe)\./i;
 export const isStockPhoto = (url) => {
@@ -134,7 +159,8 @@ export async function findPhotos(topic) {
     const q = `${topic} ${view}`;
     try {
       const r = await fetch(`https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=0&count=30&mmasync=1`, { headers: { ...BROWSER, 'Accept-Language': 'en-US,en' }, signal: AbortSignal.timeout(9000) });
-      lists.push(r.ok ? imageUrlsFromBing(await r.text()).filter((u) => !isStockPhoto(u)) : []);
+      const found = r.ok ? imagesFromBing(await r.text()) : [];
+      lists.push(found.filter((i) => !isStockPhoto(i.url) && !NOT_PHOTO.test(`${i.title} ${i.url}`) && photoMatchesTopic(i, topic)).map((i) => i.url));
     } catch {
       lists.push([]);
     }
@@ -153,7 +179,7 @@ export async function pickPhoto(images, nazwa, deps = {}) {
   const generate = deps.generate || liveGenerate;
   const parts = images.map((u) => /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(u))).filter(Boolean).slice(0, 8).map((m) => ({ inlineData: { mimeType: m[1], data: m[2] } }));
   if (!parts.length) throw new Error('Brak zdjęć.');
-  const out = await generate(`Obrazy są ponumerowane od 0 do ${parts.length - 1}, w tej kolejności. Szukam zdjęcia, z którego da się odrysować obrys tego przedmiotu: ${nazwa}. Dobre zdjęcie pokazuje cały przedmiot, prosto, bez perspektywy i bez obrotu, od strony, z której najlepiej widać jego kształt (gitara i inne płaskie przedmioty od frontu, nigdy od wąskiej krawędzi; pojazdy i broń z boku), bez ludzi i bez kilku przedmiotów na jednym obrazie. Musi to być właśnie ten przedmiot. Zwróć JSON {"najlepszy": numer albo -1, gdy żaden się nie nadaje, "powod": "krótko po polsku"}.`, null, parts);
+  const out = await generate(`Obrazy są ponumerowane od 0 do ${parts.length - 1}, w tej kolejności. Szukam zdjęcia, z którego da się odrysować obrys tego przedmiotu: ${nazwa}. Jeśli na żadnym obrazie nie ma właśnie tego przedmiotu, zwróć -1. Dobre zdjęcie pokazuje cały przedmiot, prosto, bez perspektywy i bez obrotu, od strony, z której najlepiej widać jego kształt (gitara i inne płaskie przedmioty od frontu, nigdy od wąskiej krawędzi; pojazdy i broń z boku), bez ludzi i bez kilku przedmiotów na jednym obrazie. Musi to być właśnie ten przedmiot. Zwróć JSON {"najlepszy": numer albo -1, gdy żaden się nie nadaje, "powod": "krótko po polsku"}.`, null, parts);
   const n = Number(out?.najlepszy);
   return { najlepszy: Number.isInteger(n) && n >= 0 && n < parts.length ? n : -1, powod: String(out?.powod || '').slice(0, 200) };
 }
@@ -684,12 +710,12 @@ export async function photoParts(dataUrl, nazwa, deps = {}) {
   const generate = deps.generate || liveGenerate;
   const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(String(dataUrl));
   if (!m) throw new Error('Nieprawidłowy obraz.');
-  const out = await generate(`To zdjęcie z boku: ${nazwa || 'przedmiot'}. Podziel go na zewnętrzne części tak, jak rozkłada się go naprawdę. Dla każdej podaj: "nazwa" po polsku, "grupa", "box_2d" [ymin, xmin, ymax, xmax] w skali 0-1000 ciasno wokół części, "gr" (szerokość w mm, patrząc z góry), "obrotowa": true dla części okrągłych w przekroju (lufy, rury, tłumiki), "krok" (kolejność montażu od 1), "metal" i "szorstkosc" od 0 do 1, "obly": true dla części wypukłych w przekroju (bak, owiewka, karoseria, kadłub, siedzenie, opona), false dla płaskich (płyty, listwy, większość korpusów z płaskimi ścianami), "szerokosci": grubość w mm patrząc z góry w 5 równych miejscach od lewej do prawej strony części. Mniejsze części podaj pierwsze, bo ich prostokąty mają pierwszeństwo. "dlugosc_mm": prawdziwa długość całości, jeśli ją znasz, inaczej 0. "widok_z_boku": true tylko wtedy, gdy zdjęcie naprawdę pokazuje cały ten przedmiot prosto z boku, a nie pod kątem, nie co innego. Zwróć JSON {"widok_z_boku": true, "dlugosc_mm": 0, "czesci": [...]}.`, null, [{ inlineData: { mimeType: m[1], data: m[2] } }]);
+  const out = await generate(`Ma to być zdjęcie tego przedmiotu: ${nazwa || 'przedmiot'}. Podziel go na zewnętrzne części tak, jak rozkłada się go naprawdę. Dla każdej podaj: "nazwa" po polsku, "grupa", "box_2d" [ymin, xmin, ymax, xmax] w skali 0-1000 ciasno wokół części, "gr" (szerokość w mm, patrząc z góry), "obrotowa": true dla części okrągłych w przekroju (lufy, rury, tłumiki), "krok" (kolejność montażu od 1), "metal" i "szorstkosc" od 0 do 1, "obly": true dla części wypukłych w przekroju (bak, owiewka, karoseria, kadłub, siedzenie, opona), false dla płaskich (płyty, listwy, większość korpusów z płaskimi ścianami), "szerokosci": grubość w mm patrząc z góry w 5 równych miejscach od lewej do prawej strony części. Mniejsze części podaj pierwsze, bo ich prostokąty mają pierwszeństwo. "dlugosc_mm": prawdziwa długość całości, jeśli ją znasz, inaczej 0. "to_ten_przedmiot": true tylko wtedy, gdy na zdjęciu naprawdę jest ten przedmiot, a nie coś innego (jeśli to coś innego, daj false i pustą listę części). "widok_z_boku": true tylko wtedy, gdy zdjęcie pokazuje cały przedmiot prosto, od tej strony, z której najlepiej widać jego kształt (z boku albo od frontu), a nie pod kątem i nie od wąskiej krawędzi. Zwróć JSON {"to_ten_przedmiot": true, "widok_z_boku": true, "dlugosc_mm": 0, "czesci": [...]}.`, null, [{ inlineData: { mimeType: m[1], data: m[2] } }]);
   const czesci = (Array.isArray(out?.czesci) ? out.czesci : []).slice(0, 40).map((c, i) => {
     const b = Array.isArray(c?.box_2d) && c.box_2d.length === 4 && c.box_2d.every(Number.isFinite) ? c.box_2d : null;
     return b && { id: `f${i + 1}`, nazwa: String(c.nazwa || `Część ${i + 1}`).slice(0, 80), grupa: String(c.grupa || 'Korpus').slice(0, 60), box: [b[1] / 1000, b[0] / 1000, b[3] / 1000, b[2] / 1000], gr: Math.max(1, Math.min(2000, Number(c.gr) || 20)), obrotowa: Boolean(c.obrotowa), krok: Math.max(1, Math.min(200, Math.round(Number(c.krok) || 1))), metal: Number(c.metal) || 0.2, szorstkosc: Number(c.szorstkosc) || 0.6, obly: c.obly !== false, szer: Array.isArray(c.szerokosci) && c.szerokosci.length >= 2 && c.szerokosci.every((v) => Number(v) > 0) ? c.szerokosci.slice(0, 9).map((v, k, all) => [k / (all.length - 1), Math.min(2000, Number(v))]) : undefined };
   }).filter(Boolean);
-  return { czesci, widok_z_boku: out?.widok_z_boku !== false, dlugosc_mm: Number(out?.dlugosc_mm) > 0 ? Number(out.dlugosc_mm) : 0 };
+  return { czesci, to_ten_przedmiot: out?.to_ten_przedmiot === true, widok_z_boku: out?.widok_z_boku !== false, dlugosc_mm: Number(out?.dlugosc_mm) > 0 ? Number(out.dlugosc_mm) : 0 };
 }
 
 router.post('/api/studio/pick-photo', requireOwner, async (req, res) => {

@@ -117,8 +117,21 @@
     const img = ctx.getImageData(0, 0, w, h);
     return { cv, img, w, h, q: window.PhotoTrace.photoQuality(img) };
   }
+  const BUSY = /przeciążone|limit zapytań/i;
+  /** Chwilowe przeciazenie modelu: czekamy i ponawiamy, zamiast poddawac sie po pierwszej odmowie. */
+  async function retryBusy(fn, onWait) {
+    for (let i = 0; ; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        if (i >= 2 || !BUSY.test(e.message || '')) throw e;
+        onWait?.(i);
+        await new Promise((r) => setTimeout(r, i ? 15000 : 6000));
+      }
+    }
+  }
   /** Obudowa ze zdjecia: kontury czesci, bez tworzenia projektu. */
-  async function tracePhoto({ read, source, url, dlugosc, nazwa, ai, strictView }) {
+  async function tracePhoto({ read, source, url, dlugosc, nazwa, ai, strictView, onWait }) {
     const PT = window.PhotoTrace;
     const { cv, img, w, h, q } = read;
     if (q.touches) throw new Error('Przedmiot dotyka krawędzi zdjęcia. Potrzebne jest całe zdjęcie z boku, na jednolitym tle.');
@@ -131,11 +144,14 @@
     small.getContext('2d').drawImage(cv, 0, 0, small.width, small.height);
     let split = { czesci: [], dlugosc_mm: 0 };
     try {
-      split = await api('/api/studio/photo-parts', json({ image: small.toDataURL('image/jpeg', 0.85), nazwa }));
+      split = await retryBusy(() => api('/api/studio/photo-parts', json({ image: small.toDataURL('image/jpeg', 0.85), nazwa })), onWait);
     } catch (e) {
-      if (!strictView) toast(`Bez podziału na części: ${e.message}`);
+      // Zdjecie z sieci bez potwierdzenia, ze to ten przedmiot, nie moze zostac modelem: tak powstaly zaciski zamiast gitary.
+      if (strictView) throw Object.assign(new Error(`Nie mogłem sprawdzić zdjęcia: ${e.message}`), { niesprawdzone: true });
+      toast(`Bez podziału na części: ${e.message}`);
     }
-    if (strictView && split.widok_z_boku === false) throw new Error('To nie jest widok z boku.');
+    if (strictView && split.to_ten_przedmiot !== true) throw new Error('Na zdjęciu jest coś innego.');
+    if (strictView && split.widok_z_boku === false) throw new Error('Zły widok na zdjęciu.');
     const length = Number(dlugosc) > 0 ? Number(dlugosc) : split.dlugosc_mm;
     if (!(length > 0)) throw new Error('Podaj prawdziwą długość w milimetrach: bez niej nie da się ustalić skali.');
     // Faza wieksza niz pare pikseli psuje dokladny kontur: krawedz zaczyna przecinac sama siebie.
@@ -797,6 +813,7 @@
   }
   /** Wybor zdjecia: najpierw prawdziwe z sieci (najlepsze oceny), a gdy zadne nie pasuje, obraz od generatora. */
   async function autoOutline(job, nazwa, setStage) {
+    const wait = () => setStage('Gemini jest przeciążony, czekam i ponawiam');
     const candidates = (job.obrazy || []).slice(0, 20);
     const rated = [];
     let idx = 0;
@@ -828,19 +845,21 @@
           c.getContext('2d').drawImage(read.cv, 0, 0, c.width, c.height);
           return c.toDataURL('image/jpeg', 0.75);
         });
-        const r = await api('/api/studio/pick-photo', json({ obrazy, nazwa }));
+        const r = await retryBusy(() => api('/api/studio/pick-photo', json({ obrazy, nazwa })), wait);
         if (r.najlepszy >= 0) pool.unshift(pool.splice(r.najlepszy, 1)[0]);
+        else pool.length = 0; // model nie widzi tego przedmiotu na zadnym zdjeciu
       } catch {
-        /* zostaje kolejnosc z oceny pikseli */
+        /* kazde zdjecie i tak przejdzie niżej sprawdzenie, czy to ten przedmiot */
       }
     }
     const dlugosc = job.plan?.dlugosc_mm;
     for (const c of pool.slice(0, 3)) {
-      setStage(`Odrysowuję obudowę ze zdjęcia: ${new URL(c.url).hostname}`);
+      setStage(`Sprawdzam i odrysowuję zdjęcie: ${new URL(c.url).hostname}`);
       try {
-        return await tracePhoto({ ...c, dlugosc, nazwa, strictView: true });
-      } catch {
-        /* zdjecie pod katem albo inny przedmiot: nastepne */
+        return await tracePhoto({ ...c, dlugosc, nazwa, strictView: true, onWait: wait });
+      } catch (e) {
+        if (e.niesprawdzone) throw e; // model nie odpowiada, wiec nastepne zdjecie tez nie przejdzie
+        /* inny przedmiot albo zly widok: nastepne */
       }
     }
     setStage('Nie ma dobrego zdjęcia: generuję obraz referencyjny');
@@ -848,7 +867,7 @@
     if (!r.ok) throw new Error('Nie ma obrazu referencyjnego.');
     const source = await r.blob();
     const read = await readPhoto(source);
-    return tracePhoto({ read, source, dlugosc, nazwa, ai: true, strictView: true });
+    return tracePhoto({ read, source, dlugosc, nazwa, ai: true, strictView: true, onWait: wait });
   }
   /** Laczy odrysowana obudowe z wnetrzem: najpierw montujemy srodek, potem to, co na wierzchu. */
   function mergeOutline(inner, outline) {
@@ -922,6 +941,7 @@
       let toldSources = false;
       let outline = null;
       let outlineSent = false;
+      let outlineWhy = '';
       for (;;) {
         await new Promise((r) => setTimeout(r, 1500));
         const j = await api(`/api/studio/job/${start.id}`);
@@ -936,8 +956,9 @@
           try {
             outline = await autoOutline(j, j.plan?.nazwa || text, setStage);
             emit(`Studio 3D: obudowa odrysowana, ${outline.czesci.length} części.`);
-          } catch {
+          } catch (e) {
             outline = null; // zostaje projekt z samego opisu, a ostrzezenie mowi o tym wprost
+            outlineWhy = e.niesprawdzone ? 'Gemini był przeciążony i nie dało się sprawdzić, czy zdjęcia pokazują ten przedmiot, więc ich nie użyłem. Wygląd powstał z samego opisu: spróbuj ponownie za chwilę.' : '';
           }
           const round = (v) => Math.round(v);
           const brief = outline ? outline.czesci.map((c) => {
@@ -956,11 +977,12 @@
         if (j.stan === 'blad') throw new Error(j.etap);
         if (j.stan === 'gotowe') {
           setProject(outline ? mergeOutline(j.projekt, outline) : j.projekt);
-          if (!outline) S.warnings = [...(j.ostrzezenia || []), 'Nie znalazłem zdjęcia z boku: wygląd powstał z samego opisu. Podaj zdjęcie w ODRYSUJ ZE ZDJĘCIA, a będzie dokładny.'];
+          if (!outline) S.warnings = [...(j.ostrzezenia || []), outlineWhy || 'Nie znalazłem zdjęcia tego przedmiotu: wygląd powstał z samego opisu. Podaj zdjęcie w ODRYSUJ ZE ZDJĘCIA, a będzie dokładny.'];
           else S.warnings = [...S.warnings.filter((w) => !/kroków/.test(w)), ...(j.ostrzezenia || []).filter((w) => /zawiódł/.test(w))];
           const notes = S.warnings.slice();
           if (outline) {
             const fit = outline.dopasowanie;
+            if (outline.zdjecie.strona) notes.push(`Obudowa ze zdjęcia: ${new URL(outline.zdjecie.strona).hostname}. Inny przedmiot? Podaj własne zdjęcie.`);
             if (fit?.przesuniete.length) notes.push(`Dopasowałem do obudowy: ${fit.przesuniete.slice(0, 5).join(', ')}.`);
             if (fit?.wystaje.length) notes.push(`Nie mieści się w obudowie: ${fit.wystaje.slice(0, 5).join(', ')}. Użyj DOPRACUJ przy tym podzespole.`);
             if (outline.t.pokrycie < 0.97) notes.push(`Część obrysu ze zdjęcia nie weszła do modelu (pokrycie ${Math.round(outline.t.pokrycie * 100)}%).`);

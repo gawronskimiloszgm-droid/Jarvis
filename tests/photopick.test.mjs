@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { findPhotos, isStockPhoto, pickPhoto, reviewProject } from '../server/extras/studio.js';
+import { findPhotos, imagesFromBing, isStockPhoto, photoMatchesTopic, photoParts, pickPhoto, reviewProject } from '../server/extras/studio.js';
 
 const m = { exports: {} };
 new Function('module', fs.readFileSync(new URL('../public/extras/phototrace.js', import.meta.url), 'utf8'))(m);
@@ -51,9 +51,11 @@ test('banki zdjec sa rozpoznawane, a zwykle sklepy nie', () => {
   assert.equal(isStockPhoto('to nie adres'), true);
 });
 
+const entry = (u, t = 'electric guitar') => `m="${JSON.stringify({ murl: u, t }).replace(/"/g, '&quot;')}"`;
+
 test('wyszukiwanie pyta o oba widoki, na przemian, bez bankow zdjec i bez powtorzen', async (t) => {
   const asked = [];
-  const page = (list) => list.map((u) => `murl&quot;:&quot;${u}&quot;`).join(' ');
+  const page = (list) => list.map((u) => entry(u)).join(' ');
   t.mock.method(globalThis, 'fetch', async (url) => {
     const q = decodeURIComponent(String(url));
     asked.push(q);
@@ -68,12 +70,40 @@ test('awaria jednego zapytania nie przekresla drugiego', async (t) => {
   let n = 0;
   t.mock.method(globalThis, 'fetch', async () => {
     if (n++ === 0) throw new Error('siec');
-    return new Response('murl&quot;:&quot;https://a.pl/f.jpg&quot;');
+    return new Response(entry('https://a.pl/f.jpg', 'x'));
   });
   assert.deepEqual(await findPhotos('x'), ['https://a.pl/f.jpg']);
 });
 
 const IMG = 'data:image/jpeg;base64,AAAA';
+
+test('obcy przedmiot, rysunek i obraz z generatora odpadaja juz po tytule', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response([
+    entry('https://a.pl/1.jpg', 'Classical guitar 4/4 Ortega'),
+    entry('https://a.pl/2.jpg', 'Lock Jaw barbell collars red'),
+    entry('https://a.pl/guitar3.jpg', 'Sklep'),
+    entry('https://a.pl/4.jpg', 'Premium Vector | classical guitar'),
+    entry('https://a.pl/5.jpg', 'Premium AI Image | classical guitar'),
+  ].join(' ')));
+  assert.deepEqual(await findPhotos('classical guitar'), ['https://a.pl/1.jpg', 'https://a.pl/guitar3.jpg']);
+});
+
+test('dopasowanie do nazwy radzi sobie z odmiana i numerami', () => {
+  assert.equal(photoMatchesTopic({ url: 'https://a/x.jpg', title: 'Gitara klasyczna Ortega' }, 'gitarę klasyczną'), true);
+  assert.equal(photoMatchesTopic({ url: 'https://a/x.jpg', title: 'Zacisk na sztangę' }, 'gitarę klasyczną'), false);
+  assert.equal(photoMatchesTopic({ url: 'https://a/honda-cb650r.jpg', title: 'Motor' }, 'Honda CB650R'), true);
+});
+
+test('wynik z bledem w opisie jest pomijany', () => {
+  assert.deepEqual(imagesFromBing('m="{zepsute}" m="{&quot;murl&quot;:&quot;http://a/x&quot;}"'), []);
+});
+
+test('potwierdzenie przedmiotu musi przyjsc wprost od modelu', async () => {
+  const say = (o) => photoParts(IMG, 'gitara', { generate: async () => o });
+  assert.equal((await say({ to_ten_przedmiot: true })).to_ten_przedmiot, true);
+  assert.equal((await say({ to_ten_przedmiot: false })).to_ten_przedmiot, false);
+  assert.equal((await say({})).to_ten_przedmiot, false);
+});
 
 test('wybor zdjecia pilnuje numeru i wysyla miniatury', async () => {
   let seen;
