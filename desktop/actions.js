@@ -14,6 +14,7 @@ const blender = require('./blender');
 const mediaSession = require('./mediaSession');
 const agentCursor = require('./agentCursor');
 const { webTarget } = require('./webUrl');
+const pcPlus = require('./pcPlus');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -153,6 +154,25 @@ const ACTIONS = {
     await shell.openExternal(url);
     return { ok: true, url };
   },
+  // Porzadki: tylko odczyt. Usuwanie zostaje decyzja uzytkownika w Eksploratorze.
+  'duze-pliki': async () => ({ ok: true, ...(await pcPlus.bigFiles()) }),
+  dyski: async () => ({ ok: true, dyski: await pcPlus.disks() }),
+  'otworz-pobrane': async () => {
+    const err = await shell.openPath(pcPlus.downloadsDir());
+    return err ? { ok: false, error: err } : { ok: true };
+  },
+  'przypnij-okno': async (params) => {
+    const title = String(params.tytul || params.title || '').trim();
+    if (!title) return { ok: false, error: 'Podaj fragment tytulu okna.' };
+    const res = await runPowerShell(pcPlus.pinScript(title, params.wl !== false && params.on !== false));
+    try {
+      return JSON.parse(res.output.trim().split(/\r?\n/).pop());
+    } catch {
+      return { ok: false, error: 'Nie udalo sie przypiac okna.' };
+    }
+  },
+  // Do diagnostyki: jakie akcje zna ta wersja aplikacji.
+  'lista-akcji': async () => ({ ok: true, akcje: module.exports.actionNames }),
   'kursor-jarvisa': async (params) => {
     await agentCursor.pin(params.pokaz);
     return { ok: true, wlaczony: agentCursor.enabled() };

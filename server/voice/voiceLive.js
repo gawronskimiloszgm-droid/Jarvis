@@ -501,6 +501,16 @@ const ALL_TOOLS = [
     },
   },
   {
+    name: 'przypnij_okno',
+    description: 'Przypnij okno na wierzch (zawsze widoczne) albo odepnij je, po fragmencie tytulu, np. "przypnij kalkulator".',
+    parameters: { type: 'object', properties: { tytul: { type: 'string' }, przypnij: { type: 'boolean', description: 'false odpina' } }, required: ['tytul'] },
+  },
+  {
+    name: 'porzadki_na_dysku',
+    description: 'Ile miejsca zostalo na dyskach i co zajmuje najwiecej w Pobranych (tylko odczyt, niczego nie usuwa). otworz=true otwiera folder Pobrane.',
+    parameters: { type: 'object', properties: { otworz: { type: 'boolean' } } },
+  },
+  {
     name: 'otworz_aplikacje',
     description: 'Otworz/uruchom DOWOLNA aplikacje na komputerze po nazwie (np. "notepad", "calc", "steam", "obs") - nie tylko te z listy steruj_urzadzeniem.',
     parameters: {
@@ -1374,6 +1384,25 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 } else {
                   safeSend(JSON.stringify({ type: 'deviceAction', action: 'otworz-strone', params: { adres: String(adres || ''), zapytanie: String(zapytanie || '') } }));
                   result = { ok: true, note: 'strona sie otwiera; powiedz krotko co otwierasz' };
+                }
+              } else if (call.name === 'przypnij_okno') {
+                const { tytul, przypnij } = call.args || {};
+                const reply = await requestFromClient({ type: 'fileAction', action: 'przypnij-okno', params: { tytul: String(tytul || ''), wl: przypnij !== false } }, 10000);
+                result = reply ? (reply.ok ? { ok: true, okno: reply.title, na_wierzchu: reply.onTop } : { error: reply.error }) : { error: 'to dziala tylko w aplikacji na komputerze' };
+              } else if (call.name === 'porzadki_na_dysku') {
+                const [d, f] = await Promise.all([
+                  requestFromClient({ type: 'fileAction', action: 'dyski' }, 10000),
+                  requestFromClient({ type: 'fileAction', action: 'duze-pliki' }, 20000),
+                ]);
+                if (!d?.ok && !f?.ok) result = { error: 'to dziala tylko w aplikacji na komputerze' };
+                else {
+                  result = {
+                    dyski: (d?.dyski || []).map((x) => `${x.drive} wolne ${x.freeGb} z ${x.totalGb} GB`),
+                    pobrane: f?.ok ? `${f.count} plikow, ${Math.round(f.totalBytes / 1e9 * 10) / 10} GB, z czego ${f.oldCount} starszych niz 90 dni (${Math.round(f.oldBytes / 1e9 * 10) / 10} GB)` : null,
+                    najwieksze: (f?.biggest || []).slice(0, 5).map((x) => `${x.name} ${x.mb} MB`),
+                    uwaga: 'niczego nie usuwam; uzytkownik decyduje sam',
+                  };
+                  if (call.args?.otworz) safeSend(JSON.stringify({ type: 'deviceAction', action: 'otworz-pobrane' }));
                 }
               } else if (call.name === 'otworz_aplikacje') {
                 const { nazwa } = call.args || {};

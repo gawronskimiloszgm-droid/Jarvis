@@ -10,6 +10,11 @@ const SAFE_ACTIONS = new Set([
   'otworz-przegladarke',
   'otworz-strone',
   'kursor-jarvisa',
+  'duze-pliki',
+  'dyski',
+  'otworz-pobrane',
+  'przypnij-okno',
+  'lista-akcji',
   'otworz-discord',
   'otworz-teams',
   'otworz-slack',
@@ -92,7 +97,7 @@ const READ_ONLY = new Set([
   'blender-postep',
   'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
   'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
-  'zrzut-i-opisz', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'zapisz-kopie', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
+  'zrzut-i-opisz', 'duze-pliki', 'dyski', 'lista-akcji', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'zapisz-kopie', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
 ]);
 
 const MODES = ['podglad', 'pytaj', 'zaufany'];
