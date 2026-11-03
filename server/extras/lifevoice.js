@@ -6,6 +6,7 @@ import { webcrypto } from 'node:crypto';
 import { whatDoIKnow } from './graphmem.js';
 import { currentSuggestions } from './suggest.js';
 import { lifeAdd, lifeList, lifeDaily, lifeToggleHabit, lifeWeekSummary, warsawDay } from './life.js';
+import { FIT_TOOLS, FIT_VOICE_PROMPT, runFitTool, FIT_TAGS, FIT_TAG_PROMPT, persistFitTags } from './fitness.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto; // Node 18: toolkit.js korzysta z globalnego crypto
 
@@ -22,7 +23,7 @@ const toolkit = (() => {
 const str = (v, n = 200) => String(v ?? '').trim().slice(0, n);
 const items = (v) => String(v || '').split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean).slice(0, 30);
 
-export const LIFE_TOOLS = [
+const BASE_TOOLS = [
   {
     name: 'dodaj_zakupy',
     description: 'Dodaj pozycje do listy zakupow (np. "dopisz mleko i chleb do zakupow"). Kilka pozycji rozdziel przecinkami.',
@@ -150,11 +151,15 @@ const CHANGELOG = [
   'Telefon: gesty, wibracje, pasek szybkich akcji, tryb jednej reki, OLED',
 ];
 
+export const LIFE_TOOLS = [...BASE_TOOLS, ...FIT_TOOLS];
 export const LIFE_TOOL_NAMES = LIFE_TOOLS.map((t) => t.name);
 
-export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci. co_wiem_o: gdy pyta, co wiesz o kims lub czyms. propozycje: gdy pyta, co dalej albo o czym zapomnial.`;
+export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci. co_wiem_o: gdy pyta, co wiesz o kims lub czyms. propozycje: gdy pyta, co dalej albo o czym zapomnial.
+${FIT_VOICE_PROMPT}`;
 
 export async function runLifeTool(name, args = {}) {
+  const fit = await runFitTool(name, args);
+  if (fit !== undefined) return fit;
   switch (name) {
     case 'dodaj_zakupy': {
       const list = items(args.pozycje);
@@ -271,14 +276,15 @@ export const LIFE_TAGS = {
   NOTATKA: R('NOTATKA'),
   TABLICA: R('TABLICA'),
 };
-export const LIFE_TAG_PATTERNS = Object.values(LIFE_TAGS);
+export const LIFE_TAG_PATTERNS = [...Object.values(LIFE_TAGS), ...Object.values(FIT_TAGS)];
 
 export const LIFE_TAG_PROMPT = `- [ZAKUPY: mleko, chleb] - dopisanie pozycji do listy zakupow (kilka po przecinku).
 - [WODA: 1] - zapis wypitych szklanek wody dzisiaj (liczba; domyslnie 1).
 - [NASTROJ: 4] - nastroj na dzis w skali 1-5, gdy uzytkownik sam o nim mowi.
 - [DZIENNIK: tresc] - wpis do dziennika, gdy uzytkownik prosi "zapisz w dzienniku".
 - [NAWYK: nazwa] - odhaczenie nawyku na dzis (np. bieganie).
-- [CEL: tresc] - nowy cel; [NOTATKA: tresc] - szybka notatka; [TABLICA: tresc] - karta na tablice kanban.`;
+- [CEL: tresc] - nowy cel; [NOTATKA: tresc] - szybka notatka; [TABLICA: tresc] - karta na tablice kanban.
+${FIT_TAG_PROMPT}`;
 
 export function persistLifeTags(rawFull) {
   const each = (re, fn) => {
@@ -297,6 +303,7 @@ export function persistLifeTags(rawFull) {
   each(LIFE_TAGS.CEL, (v) => lifeAdd('goals', { text: v }));
   each(LIFE_TAGS.NOTATKA, (v) => lifeAdd('quicknotes', { text: v }));
   each(LIFE_TAGS.TABLICA, (v) => lifeAdd('kanban', { text: v }));
+  persistFitTags(rawFull);
 }
 
 export { warsawDay };

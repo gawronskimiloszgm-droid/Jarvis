@@ -138,6 +138,27 @@ const SCHEMAS = {
       ...(b.done != null && { done: bool(b.done) }),
     }),
   },
+  // Trening i cialo (logika w public/extras/fitkit.js, trasy w fitness.js).
+  sets: {
+    max: 20000,
+    make: (b) => (str(b.ex, 60) && num(b.reps) > 0 && isDay(b.day) ? { ex: str(b.ex, 60), kg: Math.max(0, Math.min(1000, num(b.kg))), reps: Math.max(1, Math.min(200, Math.round(num(b.reps)))), rpe: Math.max(0, Math.min(10, num(b.rpe))), day: b.day } : null),
+    patch: (b) => ({ ...(b.kg != null && { kg: Math.max(0, Math.min(1000, num(b.kg))) }), ...(b.reps != null && { reps: Math.max(1, Math.min(200, Math.round(num(b.reps)))) }), ...(b.ex != null && { ex: str(b.ex, 60) }) }),
+  },
+  body: {
+    max: 3000,
+    make: (b) => (num(b.kg) > 20 && num(b.kg) < 400 && isDay(b.day) ? { kg: Math.round(num(b.kg) * 10) / 10, day: b.day } : null),
+    patch: (b) => ({ ...(b.kg != null && { kg: Math.round(num(b.kg) * 10) / 10 }) }),
+  },
+  meals: {
+    max: 6000,
+    make: (b) => (str(b.text, 120) && isDay(b.day) ? { text: str(b.text, 120), kcal: Math.max(0, Math.min(6000, Math.round(num(b.kcal)))), protein: Math.max(0, Math.min(400, Math.round(num(b.protein)))), day: b.day } : null),
+    patch: (b) => ({ ...(b.text != null && { text: str(b.text, 120) }), ...(b.kcal != null && { kcal: Math.max(0, Math.round(num(b.kcal))) }), ...(b.protein != null && { protein: Math.max(0, Math.round(num(b.protein))) }) }),
+  },
+  sleep: {
+    max: 1500,
+    make: (b) => (num(b.hours) > 0 && num(b.hours) <= 20 && isDay(b.day) ? { hours: Math.round(num(b.hours) * 100) / 100, from: str(b.from, 5), to: str(b.to, 5), quality: Math.max(0, Math.min(5, Math.round(num(b.quality)))), day: b.day } : null),
+    patch: (b) => ({ ...(b.hours != null && { hours: Math.round(num(b.hours) * 100) / 100 }), ...(b.quality != null && { quality: Math.max(0, Math.min(5, Math.round(num(b.quality)))) }) }),
+  },
   recurring: {
     max: 60,
     make: (b) => (str(b.text, 140) ? { text: str(b.text, 140), every: oneOf(b.every, ['daily', 'weekly', 'monthly'], 'daily'), time: /^\d{2}:\d{2}$/.test(str(b.time, 5)) ? str(b.time, 5) : '09:00', dow: Math.max(0, Math.min(6, num(b.dow, 1))), dom: Math.max(1, Math.min(28, num(b.dom, 1))), last: '' } : null),

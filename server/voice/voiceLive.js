@@ -998,11 +998,13 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
   let reconnectAttempts = 0;
 
   // Przepiecie na inny model albo glos: stary uchwyt wznowienia nie jest juz wiarygodny.
+  let announced = 0;
   const announceSwitch = (kind, why) => {
     resumeHandle = null;
     const text = `Rozmowa glosowa: ${why}, przechodze na ${kind === 'voice' ? `glos ${choice.voice()}` : `model ${choice.model()}`}.`;
     console.warn(text);
-    bus.publish('glos', 'live.fallback', text, { level: 'warn' });
+    // Na ekran tylko pierwsze przelaczenie w rozmowie: przy zlym kluczu kolejne proby zasypalyby go komunikatami.
+    if (announced++ === 0) bus.publish('glos', 'live.fallback', text, { level: 'warn' });
   };
 
   const sendReact = (text) => {
@@ -1544,6 +1546,12 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                 }
               } else {
                 result = await executeTool(call.name, call.args || {}, coords);
+              }
+              // Narzedzie zycia moze poprosic o cos na ekranie (przerwa po serii, rundy): to idzie do klienta, nie do modelu.
+              if (result && typeof result === 'object' && result.klient) {
+                const { klient, ...rest } = result;
+                if (isOwner && typeof klient.action === 'string') safeSend(JSON.stringify({ type: 'deviceAction', action: klient.action, params: klient.params || {} }));
+                result = rest;
               }
               liveSession.sendToolResponse({
                 functionResponses: [{ id: call.id, name: call.name, response: result }],
