@@ -76,3 +76,9 @@ test('E.D.I.T.H. z jednym glosem przechodzi od razu na zapasowy model', () => {
   assert.equal(c.turnEnded({ assistantText: 'x' }), 'model');
   assert.equal(c.voice(), 'Kore');
 });
+
+test('narzedzi w rozmowie glosowej jest mniej niz limit Gemini (128)', async () => {
+  const { OWNER_TOOL_COUNT } = await import('../server/voice/voiceLive.js');
+  assert.ok(OWNER_TOOL_COUNT <= 128, `narzedzi: ${OWNER_TOOL_COUNT}`);
+  console.log(`# narzedzi glosowych: ${OWNER_TOOL_COUNT}`);
+});

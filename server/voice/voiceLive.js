@@ -765,6 +765,8 @@ const ALL_TOOLS = [
 
 // Nazwy narzedzi w tresci promptu musza zostac dokladnie takie jak w deklaracjach.
 const TOOL_NAMES = new Set([...ALL_TOOLS, ...LIFE_TOOLS].map((t) => t.name));
+// Gemini przyjmuje do 128 deklaracji funkcji na zapytanie: test pilnuje, zeby rozmowa nie przestala sie laczyc.
+export const OWNER_TOOL_COUNT = ALL_TOOLS.length + LIFE_TOOLS.length;
 
 function toolsForRole(isOwner) {
   const declarations = isOwner ? [...ALL_TOOLS, ...LIFE_TOOLS] : ALL_TOOLS.filter((t) => GUEST_TOOL_NAMES.includes(t.name));
