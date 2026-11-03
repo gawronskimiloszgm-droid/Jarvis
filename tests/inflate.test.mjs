@@ -312,3 +312,20 @@ test('przeglad przekazuje obrazy, a bez obrazow odmawia', async () => {
   assert.equal(seen[0].inlineData.mimeType, 'image/jpeg');
   await assert.rejects(reviewProject(reviewed, ['x'], { generate: async () => ({}) }), /Brak obrazów/);
 });
+
+test('zdjecie z gory: profil szerokosci i szerokosc czesci w mm', () => {
+  // Przedmiot 200 px dlugi: lewa polowa szeroka na 60 px, prawa na 20 px.
+  const { img, paint } = canvas(300, 200);
+  paint(50, 70, 150, 130, [30, 30, 30]);
+  paint(150, 90, 250, 110, [30, 30, 30]);
+  const prof = PT.widthProfile(img);
+  assert.deepEqual([prof.x0, prof.x1], [50, 249]);
+  assert.equal(prof.widths[60], 60);
+  assert.equal(prof.widths[200], 20);
+  // Dlugosc 400 mm, czyli 2 mm na piksel; model od -200 do 200 mm.
+  const left = PT.partWidths(prof, { length: 400, modelXMin: -200, xFrom: -180, xTo: -20 });
+  assert.ok(left.every(([, mm]) => mm === 120), JSON.stringify(left));
+  const right = PT.partWidths(prof, { length: 400, modelXMin: -200, xFrom: 20, xTo: 180 });
+  assert.ok(right.every(([, mm]) => mm === 40), JSON.stringify(right));
+  assert.equal(PT.partWidths(prof, { length: 400, modelXMin: -200, xFrom: 10, xTo: 10 }), null);
+});

@@ -59,6 +59,41 @@
     },
   };
   const library = () => store.get(LIB_KEY, []);
+  const VER_KEY = (name) => `jarvis.studio.versions.${String(name || 'projekt').slice(0, 60)}`;
+  function versions(name) {
+    try {
+      return JSON.parse(localStorage.getItem(VER_KEY(name)) || '[]');
+    } catch {
+      return [];
+    }
+  }
+  function saveVersion(label) {
+    if (!S.project) return;
+    const list = [{ at: Date.now(), label, parts: S.project.czesci.length, projekt: S.project }, ...versions(S.project.nazwa)].slice(0, 15);
+    // Duze projekty potrafia przekroczyc limit przegladarki: wtedy zostaje mniej wersji.
+    while (list.length) {
+      try {
+        localStorage.setItem(VER_KEY(S.project.nazwa), JSON.stringify(list));
+        return;
+      } catch {
+        list.pop();
+      }
+    }
+  }
+  // OBJ: kazda czesc jako osobny obiekt, w mm wydruku (z uwzglednieniem skali).
+  function objText(pr) {
+    const sk = pr.skala || 1;
+    const out = [`# ${pr.nazwa} - J.A.R.V.I.S Studio 3D, jednostki: mm${sk > 1 ? `, skala 1:${sk}` : ''}`];
+    let base = 1;
+    for (const p of pr.czesci.filter((c) => !c.ciecie && !S.hidden.has(c.id))) {
+      const wm = S.view ? S.view.worldArray(p) : K.worldMesh(p);
+      out.push(`o ${String(p.nazwa).replace(/\s+/g, '_')}`);
+      for (let i = 0; i < wm.length; i += 3) out.push(`v ${(wm[i] / sk).toFixed(3)} ${(wm[i + 1] / sk).toFixed(3)} ${(wm[i + 2] / sk).toFixed(3)}`);
+      for (let i = 0; i < wm.length / 3; i += 3) out.push(`f ${base + i} ${base + i + 1} ${base + i + 2}`);
+      base += wm.length / 3;
+    }
+    return out.join('\n');
+  }
   function saveToLibrary() {
     if (!S.project) return;
     const list = library().filter((x) => x.nazwa !== S.project.nazwa);
@@ -170,15 +205,45 @@
     return { t, zdjecie, length, czesci: t.parts.map((p) => PT.toPart(p)) };
   }
   /** Odrys 1:1 na zadanie: zdjecie od uzytkownika + dlugosc. */
-  async function fromPhoto({ url, blob, dlugosc, nazwa }) {
+  /**
+   * Zdjecie z gory podaje prawdziwa szerokosc wzdluz przedmiotu. Bez niego grubosc obłych czesci to szacunek.
+   * Zwraca czesci z polem szer albo bez zmian, gdy zdjecie sie nie nadaje.
+   */
+  async function applyTopPhoto(czesci, topBlob, length) {
+    const read = await readPhoto(topBlob);
+    if (read.q.touches || !read.q.ok) throw new Error('Zdjęcie z góry musi pokazywać cały przedmiot na jednolitym tle.');
+    const prof = window.PhotoTrace.widthProfile(read.img);
+    const all = czesci.flatMap((c) => (c.kontur ? c.kontur.map(([x]) => x + c.x) : [c.x]));
+    const xMin = Math.min(...all);
+    let used = 0;
+    const out = czesci.map((c) => {
+      if (c.ksztalt !== 'boczny' || !c.kontur) return c;
+      const xs = c.kontur.map(([x]) => x + c.x);
+      const szer = window.PhotoTrace.partWidths(prof, { length, modelXMin: xMin, xFrom: Math.min(...xs), xTo: Math.max(...xs) });
+      if (!szer) return c;
+      used++;
+      return { ...c, oble: true, szer, gr: Math.max(...szer.map((s) => s[1])) };
+    });
+    return { czesci: out, used };
+  }
+
+  async function fromPhoto({ url, blob, dlugosc, nazwa, topBlob }) {
     const source = blob || (await photoBlob(url));
     const read = await readPhoto(source);
-    const { t, zdjecie, length, czesci } = await tracePhoto({ read, source, url, dlugosc, nazwa });
+    const traced = await tracePhoto({ read, source, url, dlugosc, nazwa });
+    const { t, zdjecie, length } = traced;
+    let { czesci } = traced;
+    let topNote = '';
+    if (topBlob) {
+      const r = await applyTopPhoto(czesci, topBlob, length);
+      czesci = r.czesci;
+      topNote = ` Szerokość ${r.used} części wzięta ze zdjęcia z góry (przedmiot musi na nim leżeć tym samym końcem w lewo).`;
+    }
     setProject({
       nazwa: nazwa || 'Odrys ze zdjęcia',
       opis: `Obrys odrysowany ze zdjęcia i przeskalowany do ${Math.round(length)} mm (${t.k.toFixed(2)} mm na piksel).`,
       realny: true,
-      uwagi: 'Z boku obrys jest zgodny ze zdjęciem. Grubości i krzywizna to szacunek, drugi bok obłych części to lustrzane odbicie zdjęcia, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.',
+      uwagi: `Z boku obrys jest zgodny ze zdjęciem. ${topBlob ? '' : 'Grubości i krzywizna to szacunek, '}drugi bok obłych części to lustrzane odbicie zdjęcia, a wnętrza zdjęcie z boku nie pokazuje: dodaj je w zakładce EDYCJA albo poleceniem.${topNote}`,
       zdjecie,
       czesci,
       kroki: [...new Set(t.parts.map((p) => p.krok))].sort((a, b) => a - b).map((nr) => ({ nr, tytul: t.parts.filter((p) => p.krok === nr).map((p) => p.nazwa).join(', ').slice(0, 90) })),
@@ -515,8 +580,44 @@
     });
     canvas.addEventListener('pointerup', (e) => {
       if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5 || gizmo.axis) return;
+      if (S.measure?.on) {
+        const r = canvas.getBoundingClientRect();
+        pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        ray.setFromCamera(pointer, camera);
+        const hit = ray.intersectObjects(Object.values(meshes).filter((o) => o.visible), false)[0];
+        if (hit) hooks.onMeasure?.(hit.point.clone());
+        return;
+      }
       hooks.onSelect(pick(e));
     });
+    // Miarka: kulki w punktach i linia miedzy nimi, widoczne przez model.
+    let measureGroup = null;
+    function drawMeasure(pts) {
+      if (measureGroup) {
+        scene.remove(measureGroup);
+        measureGroup.traverse((o) => {
+          o.geometry?.dispose();
+          o.material?.dispose();
+        });
+        measureGroup = null;
+      }
+      if (!pts?.length || !m) return;
+      measureGroup = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffd25d, depthTest: false });
+      const r = Math.max(0.5, m.span * 0.006);
+      for (const p of pts) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), mat.clone());
+        s.position.copy(p);
+        s.renderOrder = 999;
+        measureGroup.add(s);
+      }
+      if (pts.length === 2) {
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffd25d, depthTest: false }));
+        line.renderOrder = 999;
+        measureGroup.add(line);
+      }
+      scene.add(measureGroup);
+    }
     let lastHover = 0;
     canvas.addEventListener('pointermove', (e) => {
       if (e.buttons || performance.now() - lastHover < 60 || !S.project) return;
@@ -661,6 +762,7 @@
         }
         return K.transform(p, local);
       },
+      drawMeasure,
       png() {
         renderer.render(scene, camera);
         return canvas.toDataURL('image/png');
@@ -1007,6 +1109,7 @@
           const note = `Projekt gotowy: ${S.project.nazwa}. ${S.project.czesci.length} części, ${K.stepNumbers(S.project).length} kroków montażu.`;
           emit(note, { react: false, important: true });
           if (UI.isLive?.()) UI.liveSend({ type: 'react', text: `${note} Wymiary ${m.size.map((v) => Math.round(v)).join(' x ')} mm${S.project.skala > 1 ? `, skala 1:${S.project.skala}` : ''}. ${S.project.uwagi ? `Uwagi: ${S.project.uwagi}` : ''} Powiedz to krótko, zaznacz, co jest szacunkiem, a co z planów, i zapytaj, czy pokazać rozbieranie.` });
+          saveVersion('po zaprojektowaniu');
           setTimeout(() => play(1), 1400);
           if (S.blender.auto) autoBlender();
           return;
@@ -1237,7 +1340,12 @@
       const photoGo = el('button', 'btn primary', 'ODRYSUJ');
       const photoRow = el('div', 'st-row');
       photoRow.append(photoFile, photoUrl, photoLen, photoName, photoGo);
-      photoForm.append(photoHint, photoRow);
+      const topFile = el('input');
+      topFile.type = 'file';
+      topFile.accept = 'image/*';
+      const topRow = el('div', 'st-row');
+      topRow.append(el('span', 'w-dim', 'Opcjonalnie zdjęcie z góry (prawdziwa szerokość):'), topFile);
+      photoForm.append(photoHint, photoRow, topRow);
       S.openPhoto = (u, len) => {
         photoForm.hidden = false;
         if (u) photoUrl.value = u;
@@ -1253,7 +1361,7 @@
         photoGo.disabled = true;
         photoGo.textContent = 'ODRYSOWUJĘ...';
         try {
-          await fromPhoto({ blob, url, dlugosc: photoLen.value, nazwa: photoName.value.trim() || prompt.value.trim() });
+          await fromPhoto({ blob, url, dlugosc: photoLen.value, nazwa: photoName.value.trim() || prompt.value.trim(), topBlob: topFile.files?.[0] });
           photoForm.hidden = true;
         } catch (e) {
           toast(e.message || 'Nie udało się odrysować.');
@@ -1367,6 +1475,31 @@
         applyClip();
       });
       row2.appendChild(clipBtn);
+      // Miarka: dwa klikniecia na modelu daja odleglosc w mm (w skali 1:1, a z skala modelu takze wydruku).
+      const measBtn = el('button', 'cad-tool', 'MIARKA');
+      measBtn.title = 'Kliknij dwa punkty na modelu';
+      S.measure = { on: false, pts: [] };
+      measBtn.addEventListener('click', () => {
+        S.measure = { on: !S.measure.on, pts: [] };
+        measBtn.classList.toggle('on', S.measure.on);
+        measBtn.textContent = S.measure.on ? 'MIARKA: kliknij 2 punkty' : 'MIARKA';
+        S.view?.drawMeasure([]);
+      });
+      row2.appendChild(measBtn);
+      S.onMeasure = (p) => {
+        const pts = S.measure.pts.length >= 2 ? [p] : [...S.measure.pts, p];
+        S.measure.pts = pts;
+        S.view?.drawMeasure(pts);
+        if (pts.length === 2) {
+          const d = pts[0].distanceTo(pts[1]);
+          const sk = S.project?.skala || 1;
+          const dx = Math.abs(pts[0].x - pts[1].x);
+          const dy = Math.abs(pts[0].y - pts[1].y);
+          const dz = Math.abs(pts[0].z - pts[1].z);
+          measBtn.textContent = `${d.toFixed(1)} mm${sk > 1 ? ` (w druku ${(d / sk).toFixed(1)})` : ''}`;
+          toast(`Odległość ${d.toFixed(1)} mm · X ${dx.toFixed(1)} · Y ${dy.toFixed(1)} · Z ${dz.toFixed(1)}${S.tau > 0.02 ? ' (model jest rozłożony: mierz na złożonym)' : ''}`, 'ok');
+        } else measBtn.textContent = 'MIARKA: drugi punkt';
+      };
       lab('CIĘCIE', clipIn);
       S.clip = clip;
       S.applyClip = applyClip;
@@ -1670,7 +1803,13 @@
         });
         form.append(numberField('metal 0-1', p.metal, (v) => commit(K.applyOps(S.project, { zmien: [{ id: p.id, metal: v }] }))), numberField('szorstkość 0-1', p.szorstkosc, (v) => commit(K.applyOps(S.project, { zmien: [{ id: p.id, szorstkosc: v }] }))));
         pane.appendChild(form);
-        if (p.opis) pane.appendChild(el('div', 'w-dim st-desc', p.opis));
+        const note = el('textarea', 'inp');
+        note.placeholder = 'Notatka do tej części (np. „wydrukować z PETG”, „śruba M3x12”)';
+        note.value = p.opis || '';
+        note.rows = 2;
+        note.style.cssText = 'width:100%;margin-top:6px;resize:vertical';
+        note.addEventListener('change', () => commit(K.applyOps(S.project, { zmien: [{ id: p.id, opis: note.value.slice(0, 300) }] })));
+        pane.appendChild(note);
       }
       function drawSteps() {
         const pr = S.project;
@@ -1860,6 +1999,103 @@
         openIt('PLIKI STL', r.stl);
         pane.appendChild(files);
       }
+      // Szacunek druku, dopasowanie do stolu i rozklad czesci: liczy WorkKit z prawdziwych siatek.
+      function drawPrint(pr) {
+        const W = window.WorkKit;
+        if (!W) return;
+        pane.appendChild(el('div', 'st-sub', 'WYDRUK: CZAS, MATERIAŁ, STÓŁ'));
+        const cfg = (() => {
+          try {
+            return { material: 'PLA', infill: 20, bed: [220, 220, 250], price: 0, ...JSON.parse(localStorage.getItem('jarvis.studio.print') || '{}') };
+          } catch {
+            return { material: 'PLA', infill: 20, bed: [220, 220, 250], price: 0 };
+          }
+        })();
+        const save = () => localStorage.setItem('jarvis.studio.print', JSON.stringify(cfg));
+        const row = el('div', 'st-row');
+        const mat = el('select', 'inp');
+        Object.keys(W.MATERIALS).forEach((k) => {
+          const o = el('option', null, k);
+          o.value = k;
+          mat.appendChild(o);
+        });
+        mat.value = cfg.material;
+        mat.addEventListener('change', () => {
+          cfg.material = mat.value;
+          save();
+          S.redraw();
+        });
+        row.append(mat, numberField('wypełnienie %', cfg.infill, (v) => { cfg.infill = Math.max(0, Math.min(100, v)); save(); S.redraw(); }, '5'), numberField('zł/kg (0 = typowa)', cfg.price, (v) => { cfg.price = Math.max(0, v); save(); S.redraw(); }, '1'));
+        const bed = el('div', 'st-row');
+        ['X', 'Y', 'Z'].forEach((a, i) => bed.appendChild(numberField(`stół ${a}`, cfg.bed[i], (v) => { cfg.bed[i] = Math.max(50, v || 220); save(); S.redraw(); }, '1')));
+        pane.append(row, bed);
+        const sk = pr.skala || 1;
+        const parts = pr.czesci.filter((p) => !p.ciecie && !S.hidden.has(p.id));
+        let vol = 0;
+        let area = 0;
+        const foot = [];
+        for (const p of parts) {
+          const wm = S.view ? S.view.worldArray(p) : K.worldMesh(p);
+          vol += Math.abs(K.signedVolume(wm));
+          for (let i = 0; i < wm.length; i += 9) {
+            const ax = wm[i + 3] - wm[i]; const ay = wm[i + 4] - wm[i + 1]; const az = wm[i + 5] - wm[i + 2];
+            const bx = wm[i + 6] - wm[i]; const by = wm[i + 7] - wm[i + 1]; const bz = wm[i + 8] - wm[i + 2];
+            area += Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) / 2;
+          }
+          const b = K.boundsOf(wm);
+          foot.push({ id: p.id, w: (b.hi[0] - b.lo[0]) / sk, d: (b.hi[2] - b.lo[2]) / sk });
+        }
+        const est = W.printEstimate({ volume: vol / sk ** 3, area: area / sk ** 2, material: cfg.material, infill: cfg.infill, pricePerKg: cfg.price });
+        if (est) pane.appendChild(el('div', 'w-mid', `${parts.length} części: ok. ${est.grams} g ${est.material}, ${est.meters} m filamentu, ok. ${Math.floor(est.minutes / 60)} h ${est.minutes % 60} min, koszt ok. ${est.cost.toFixed(2)} zł (szacunek: zależy od drukarki i ustawień)`));
+        const m = K.measure(pr);
+        const fit = W.fitScale(m.size.map((v) => v / sk), cfg.bed);
+        if (fit) {
+          const need = Math.ceil(sk / fit.maxScale);
+          const line = el('div', fit.fits ? 'w-dim' : 'w-mid', fit.fits ? 'Całość zmieści się na stole w jednym kawałku.' : `Całość w jednym kawałku nie zmieści się na stole. Najmniejsza skala, przy której wejdzie: 1:${need}.`);
+          pane.appendChild(line);
+          if (!fit.fits) {
+            const b = el('button', 'btn ghost', `USTAW SKALĘ 1:${need}`);
+            b.addEventListener('click', () => commit({ ...pr, skala: need }));
+            pane.appendChild(b);
+          }
+        }
+        // Rozklad na stoly: kolejne stoly dostaja to, co nie weszlo na poprzedni.
+        let left = foot;
+        const plates = [];
+        for (let i = 0; i < 30 && left.length; i++) {
+          const r = W.packBed(left, cfg.bed.slice(0, 2), 4);
+          if (!r.placed.length) break;
+          plates.push(r);
+          left = left.filter((f) => r.left.includes(f.id));
+        }
+        const tooBig = left.length;
+        pane.appendChild(el('div', 'w-dim', `Rozkład części: ${plates.length} ${plates.length === 1 ? 'stół' : 'stołów'}${tooBig ? `, ${tooBig} części za dużych na stół (podziel albo zmniejsz skalę)` : ''}. Rzut z góry, części mogą wymagać obrotu na płaską stronę.`));
+        const names = Object.fromEntries(pr.czesci.map((p) => [p.id, p.nazwa]));
+        plates.slice(0, 4).forEach((pl, i) => {
+          const [bw, bd] = cfg.bed;
+          const sc = 220 / Math.max(bw, bd);
+          pane.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 ${bw * sc} ${bd * sc}" style="width:220px;margin:4px;border:1px solid rgba(51,224,255,.4);background:rgba(51,224,255,.04)"><text x="4" y="12" fill="#9fd8ff" font-size="10">stół ${i + 1} · ${Math.round(pl.fill * 100)}%</text>${pl.placed.map((p) => `<rect x="${p.x * sc}" y="${p.y * sc}" width="${p.w * sc}" height="${p.d * sc}" fill="rgba(51,224,255,.25)" stroke="#33e0ff" stroke-width=".6"><title>${String(names[p.id] || p.id).replace(/[<&]/g, '')}</title></rect>`).join('')}</svg>`);
+        });
+      }
+
+      // Wersje projektu na tym urzadzeniu: ostatnie 15, z przywracaniem.
+      function drawVersions(pr) {
+        const list = versions(pr.nazwa);
+        pane.appendChild(el('div', 'st-sub', `WERSJE: ${pr.nazwa}`));
+        if (!list.length) pane.appendChild(el('div', 'w-empty', 'Brak zapisanych wersji. Zapisują się same po zaprojektowaniu albo przyciskiem ZAPISZ WERSJĘ.'));
+        list.forEach((v) => {
+          const row = el('div', 'st-group');
+          const b = el('button', 'cad-tool', 'PRZYWRÓĆ');
+          b.addEventListener('click', () => {
+            saveVersion('przed przywróceniem');
+            commit(K.normalizeProject(v.projekt));
+            toast('Przywrócono wersję.', 'ok');
+          });
+          row.append(el('span', null, `${new Date(v.at).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${v.label} · ${v.parts} części`), b);
+          pane.appendChild(row);
+        });
+      }
+
       function drawFiles() {
         const pr = S.project;
         if (pr) {
@@ -1882,6 +2118,7 @@
               toast(e.message);
             }
           });
+          mk('OBJ', () => downloadBlob(fileName('obj'), new Blob([objText(pr)], { type: 'text/plain' })));
           mk('LISTA CZĘŚCI (CSV)', () => downloadBlob(fileName('csv'), new Blob([K.bomCsv(pr)], { type: 'text/csv' })));
           mk('PROJEKT (JSON)', () => downloadBlob(fileName('json'), new Blob([JSON.stringify(pr)], { type: 'application/json' })));
           mk('WYŚLIJ NA DRUKARKĘ', async () => {
@@ -1893,7 +2130,13 @@
             }
           });
           mk('ZAPISZ W BIBLIOTECE', saveToLibrary, 'btn primary');
+          mk('ZAPISZ WERSJĘ', () => {
+            saveVersion('ręcznie');
+            S.redraw();
+          });
           pane.appendChild(bar);
+          drawPrint(pr);
+          drawVersions(pr);
         }
         pane.appendChild(el('div', 'st-sub', 'MOJE PROJEKTY'));
         const imp = el('input');
@@ -1972,6 +2215,7 @@
         .then((THREE) => {
           S.view = createViewer(host, THREE, {
             onSelect: select,
+            onMeasure: (p) => S.onMeasure?.(p),
             onTick: tick,
             onGizmoStart() {
               S.preDrag = JSON.stringify(S.project.czesci);

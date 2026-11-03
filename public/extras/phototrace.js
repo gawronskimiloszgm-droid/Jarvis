@@ -592,5 +592,55 @@
     return { ...base, ksztalt: 'boczny', kontur, otwory, gr, faza: t.faza, ...place };
   }
 
-  return { fillReflections, dropShadow, buildMask, largestBlob, traceLoops, traceParts, photoQuality, simplifyLoop, toPart };
+  /**
+   * Profil szerokosci ze zdjecia z gory: dla kazdej kolumny wysokosc przedmiotu w pikselach.
+   * Przedmiot ma lezec dluzszym bokiem poziomo, jak na zdjeciu z boku.
+   */
+  function widthProfile(img) {
+    const m = buildMask(img);
+    const blob = fillReflections(dropShadow(largestBlob(m), img, m.bg, m.w, m.h), img, m.bg, m.w, m.h);
+    const { w, h } = m;
+    const cols = new Float32Array(w);
+    let x0 = w;
+    let x1 = -1;
+    for (let x = 0; x < w; x++) {
+      let lo = -1;
+      let hi = -1;
+      for (let y = 0; y < h; y++) {
+        if (blob[y * w + x]) {
+          if (lo < 0) lo = y;
+          hi = y;
+        }
+      }
+      if (lo >= 0) {
+        cols[x] = hi - lo + 1;
+        if (x < x0) x0 = x;
+        x1 = x;
+      }
+    }
+    return { x0, x1, widths: cols };
+  }
+
+  /**
+   * Szerokosc czesci wzdluz X z profilu z gory: punkty [t, mm] dla czesci od xFrom do xTo (mm),
+   * gdy caly przedmiot ma dlugosc length (mm) i lewy koniec w modelXMin (mm).
+   */
+  function partWidths(profile, { length, modelXMin, xFrom, xTo, samples = 7 }) {
+    const span = profile.x1 - profile.x0 + 1;
+    if (!(span > 1) || !(length > 0) || !(xTo > xFrom)) return null;
+    const k = length / span;
+    const out = [];
+    for (let i = 0; i < samples; i++) {
+      const t = i / (samples - 1);
+      const gx = xFrom + t * (xTo - xFrom);
+      const col = Math.round(profile.x0 + ((gx - modelXMin) / length) * span);
+      // Kilka sasiednich kolumn: pojedyncza bywa przerwana odblaskiem.
+      let best = 0;
+      for (let c = col - 2; c <= col + 2; c++) if (c >= profile.x0 && c <= profile.x1) best = Math.max(best, profile.widths[c] || 0);
+      if (best > 0) out.push([Math.round(t * 1000) / 1000, Math.round(best * k * 10) / 10]);
+    }
+    return out.length >= 2 ? out : null;
+  }
+
+  return { widthProfile, partWidths, fillReflections, dropShadow, buildMask, largestBlob, traceLoops, traceParts, photoQuality, simplifyLoop, toPart };
 });
