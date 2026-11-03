@@ -8,6 +8,7 @@ import { currentSuggestions } from './suggest.js';
 import { lifeAdd, lifeList, lifeDaily, lifeToggleHabit, lifeWeekSummary, warsawDay } from './life.js';
 import { FIT_TOOLS, FIT_VOICE_PROMPT, runFitTool, FIT_TAGS, FIT_TAG_PROMPT, persistFitTags } from './fitness.js';
 import { WORK_TOOLS, WORK_VOICE_PROMPT, runWorkTool } from './workcalc.js';
+import { MUSIC_TOOLS, MUSIC_VOICE_PROMPT, runMusicTool } from './musicvoice.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto; // Node 18: toolkit.js korzysta z globalnego crypto
 
@@ -152,18 +153,21 @@ const CHANGELOG = [
   'Telefon: gesty, wibracje, pasek szybkich akcji, tryb jednej reki, OLED',
 ];
 
-export const LIFE_TOOLS = [...BASE_TOOLS, ...FIT_TOOLS, ...WORK_TOOLS];
+export const LIFE_TOOLS = [...BASE_TOOLS, ...FIT_TOOLS, ...WORK_TOOLS, ...MUSIC_TOOLS];
 export const LIFE_TOOL_NAMES = LIFE_TOOLS.map((t) => t.name);
 
 export const LIFE_VOICE_PROMPT = `- Moduly zycia: dodaj_zakupy / lista_zakupow (zakupy), woda (szklanki wody), nastroj (1-5), wpis_dziennika, odhacz_nawyk (zwraca serie), dodaj_cel, dodaj_odliczanie, karta_na_tablice, szybka_notatka, dodaj_zakladke. Wolaj je od razu, gdy uzytkownik o to prosi, i potwierdz jednym zdaniem. policz: ZAWSZE do rachunkow i przeliczen jednostek. losuj: kostka, moneta, wybor z listy. podsumowanie_tygodnia: zwiezle statystyki z 7 dni. zegar_swiata: ktora godzina w innym miescie. podsumowanie_dnia: jak minal dzien z danych. co_nowego: lista nowosci. co_wiem_o: gdy pyta, co wiesz o kims lub czyms. propozycje: gdy pyta, co dalej albo o czym zapomnial.
 ${FIT_VOICE_PROMPT}
-${WORK_VOICE_PROMPT}`;
+${WORK_VOICE_PROMPT}
+${MUSIC_VOICE_PROMPT}`;
 
 export async function runLifeTool(name, args = {}) {
   const fit = await runFitTool(name, args);
   if (fit !== undefined) return fit;
   const work = runWorkTool(name, args);
   if (work !== undefined) return work;
+  const music = await runMusicTool(name, args);
+  if (music !== undefined) return music;
   switch (name) {
     case 'dodaj_zakupy': {
       const list = items(args.pozycje);

@@ -7,6 +7,7 @@ import express from 'express';
 import { requireOwner } from '../core/auth.js';
 import * as spotify from '../connect/spotify.js';
 import * as player from '../connect/spotifyPlayer.js';
+import * as more from '../connect/spotifyMore.js';
 import { logJournal } from './life.js';
 
 const router = express.Router();
@@ -63,7 +64,7 @@ function origin(req) {
 }
 
 router.get('/api/spotify/status', requireOwner, (req, res) => {
-  res.json({ configured: player.isConfigured(), connected: player.isConnected(), redirectUri: origin(req) + '/callback' });
+  res.json({ configured: player.isConfigured(), connected: player.isConnected(), redirectUri: origin(req) + '/callback', missingScopes: player.isConnected() ? more.missingScopes() : [], sleep: more.sleepStatus() });
 });
 
 router.get('/api/spotify/auth-url', requireOwner, (req, res) => {
@@ -111,6 +112,34 @@ router.post('/api/spotify/control', requireOwner, async (req, res) => {
     res.status(502).json({ error: err.message });
   }
 });
+
+// ---------- wiecej niz "graj X" (spotifyMore.js) ----------
+const more$ = (fn) => async (req, res) => {
+  if (!player.isConnected()) return res.status(409).json({ error: 'Spotify nie jest polaczone.', notConnected: true });
+  try {
+    res.json(await fn(req));
+  } catch (err) {
+    res.status(err.code === 'scope' ? 403 : 502).json({ error: err.message, scope: err.code === 'scope' });
+  }
+};
+router.get('/api/spotify/playlists', requireOwner, more$(async () => ({ items: await more.myPlaylists() })));
+router.post('/api/spotify/playlist', requireOwner, more$(async (req) => {
+  const r = await more.playPlaylist(String(req.body?.nazwa || req.body?.uri || ''), { komputer: req.body?.komputer === true });
+  logJournal('music', `Playlista: ${r.name}${r.mine ? '' : ' (z wyszukiwarki)'} (na: ${r.device})`, 'muzyka');
+  return r;
+}));
+router.post('/api/spotify/queue', requireOwner, more$(async (req) => {
+  const found = await resolveTrack(String(req.body?.zapytanie || ''), 'spotify');
+  if (!found) throw new Error('Nie znalazłem takiego utworu na Spotify.');
+  await more.addToQueue(found.url.replace(/:play$/, ''));
+  return { nazwa: found.nazwa };
+}));
+router.post('/api/spotify/like', requireOwner, more$(() => more.likeCurrent()));
+router.get('/api/spotify/recent', requireOwner, more$(async () => ({ items: await more.recentlyPlayed(20) })));
+router.post('/api/spotify/shuffle', requireOwner, more$((req) => more.setShuffle(req.body?.on === true)));
+router.post('/api/spotify/repeat', requireOwner, more$((req) => more.setRepeat(String(req.body?.mode || 'off'))));
+router.post('/api/spotify/seek', requireOwner, more$((req) => more.seekBy(Number(req.body?.s) || 0)));
+router.post('/api/spotify/sleep', requireOwner, more$(async (req) => more.sleepAfter(Number(req.body?.minutes) || 0)));
 
 router.post('/api/spotify/disconnect', requireOwner, (req, res) => {
   player.disconnect();

@@ -134,4 +134,110 @@
     },
   };
   UI.extend('set', { music: def });
+
+  // ---------- modul Muzyka: playlisty, kolejka, tryby, wylacznik czasowy ----------
+  const more = {
+    title: 'SPOTIFY: PLAYLISTY, KOLEJKA, TRYBY',
+    glyph: '♫',
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+      if (!isOwner()) return body.appendChild(el('div', 'hint', 'Wymaga zalogowania.'));
+      const warn = el('div', 'hint');
+      const now = el('div', 'w-mid');
+      const btn = (label, fn, cls = 'btn') => {
+        const b = el('button', cls, label);
+        b.type = 'button';
+        b.addEventListener('click', async () => {
+          try {
+            await fn();
+            setTimeout(() => UI.refreshNowPlaying?.(), 800);
+          } catch (e) {
+            toast(e.message);
+          }
+        });
+        return b;
+      };
+      const rowEl = (...kids) => {
+        const r = el('div', 'field');
+        r.style.cssText = 'gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center';
+        r.append(...kids);
+        return r;
+      };
+      const post = (url, body) => api(url, json(body || {}));
+      const controls = rowEl(
+        btn('⏮', () => UI.musicControl?.('wstecz')),
+        btn('⏯', () => UI.musicControl?.(UI.nowPlaying?.playing ? 'pauza' : 'wznow')),
+        btn('⏭', () => UI.musicControl?.('dalej')),
+        btn('−15 s', () => post('/api/spotify/seek', { s: -15 })),
+        btn('+30 s', () => post('/api/spotify/seek', { s: 30 })),
+        btn('♥ POLUB', async () => {
+          const r = await post('/api/spotify/like');
+          toast(`Polubione: ${r.track}`, 'ok');
+        }),
+        btn('🔀 LOSOWO', async () => toast((await post('/api/spotify/shuffle', { on: true })).shuffle ? 'Losowo: włączone' : 'Losowo: wyłączone', 'ok')),
+        btn('➡ PO KOLEI', () => post('/api/spotify/shuffle', { on: false })),
+      );
+      const repeat = el('select', 'inp');
+      for (const [v, t] of [['off', 'bez powtarzania'], ['context', 'powtarzaj playlistę'], ['track', 'powtarzaj utwór']]) {
+        const o = el('option', null, t);
+        o.value = v;
+        repeat.appendChild(o);
+      }
+      repeat.addEventListener('change', () => post('/api/spotify/repeat', { mode: repeat.value }).catch((e) => toast(e.message)));
+      const sleepInfo = el('span', 'w-dim');
+      const sleep = rowEl(el('span', 'w-dim', 'Wyłącz muzykę za:'), ...[15, 30, 45, 60].map((m) => btn(`${m} min`, async () => {
+        await post('/api/spotify/sleep', { minutes: m });
+        toast(`Muzyka wyłączy się za ${m} min (ostatnia minuta ciszej).`, 'ok');
+        paintStatus();
+      })), btn('ODWOŁAJ', async () => {
+        await post('/api/spotify/sleep', { minutes: 0 });
+        paintStatus();
+      }, 'btn ghost'), sleepInfo);
+      const q = el('input', 'inp');
+      q.placeholder = 'dodaj do kolejki: wykonawca i tytuł';
+      q.style.flex = '1 1 260px';
+      const qAdd = btn('DO KOLEJKI', async () => {
+        if (!q.value.trim()) return;
+        const r = await post('/api/spotify/queue', { zapytanie: q.value });
+        toast(`W kolejce: ${r.nazwa}`, 'ok');
+        q.value = '';
+      }, 'btn primary');
+      q.addEventListener('keydown', (e) => e.key === 'Enter' && qAdd.click());
+      const lists = el('div');
+      const recent = el('div');
+      body.append(warn, now, controls, rowEl(repeat), sleep, rowEl(q, qAdd), el('div', 'sub', 'Twoje playlisty (kliknij, żeby włączyć):'), lists, el('div', 'sub', 'Ostatnio grane:'), recent);
+
+      const paintNow = () => {
+        const n = UI.nowPlaying || {};
+        now.textContent = n.track ? `${n.playing ? '▶' : '⏸'} ${n.track} - ${n.artist}${n.device ? ` (na: ${n.device})` : ''}` : n.connected === false ? 'Spotify niepołączone.' : 'Nic nie gra.';
+      };
+      window.addEventListener('jarvis:now-playing', paintNow);
+      paintNow();
+      async function paintStatus() {
+        const s = await api('/api/spotify/status').catch(() => null);
+        if (!s) return;
+        warn.textContent = !s.connected ? 'Połącz konto w Ustawienia → Muzyka.' : s.missingScopes?.length ? 'Playlisty, polubienia i historia wymagają ponownego połączenia: Ustawienia → Muzyka → POŁĄCZ PONOWNIE.' : '';
+        sleepInfo.textContent = s.sleep ? `wyłączy się o ${new Date(s.sleep.end).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}` : '';
+        if (!s.connected) return;
+        lists.innerHTML = '';
+        recent.innerHTML = '';
+        try {
+          const pl = await api('/api/spotify/playlists');
+          for (const p of pl.items) {
+            lists.appendChild(btn(`${p.name} (${p.tracks})`, async () => {
+              const r = await post('/api/spotify/playlist', { nazwa: p.name, komputer: Boolean(D()) });
+              toast(`Gra: ${r.name} (na: ${r.device})`, 'ok');
+            }, 'btn ghost'));
+          }
+          const rp = await api('/api/spotify/recent');
+          for (const t of rp.items.slice(0, 10)) recent.appendChild(el('div', 'w-dim', `${new Date(t.at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })} · ${t.track} - ${t.artist}`));
+        } catch (e) {
+          lists.appendChild(el('div', 'hint', e.message));
+        }
+      }
+      paintStatus();
+    },
+  };
+  UI.register({ id: 'muzyka', title: 'Muzyka', sub: 'Spotify: playlisty i kolejka', icon: '♫', owner: true, group: 'Glowne', panels: { music_more: more } });
 })();

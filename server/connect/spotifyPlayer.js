@@ -13,7 +13,14 @@ import * as memory from '../memory/memory.js';
 
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || '';
-const SCOPE = 'user-modify-playback-state user-read-playback-state';
+// Kolejka, playlisty, polubienia i historia (spotifyMore.js) potrzebuja wiecej niz samo sterowanie.
+const SCOPE = 'user-modify-playback-state user-read-playback-state playlist-read-private user-library-modify user-library-read user-read-recently-played';
+
+/** Uprawnienia, ktore Spotify faktycznie dalo; null, gdy jeszcze nie wiadomo (stare polaczenie przed odswiezeniem tokenu). */
+export function spotifyScopes() {
+  const s = memory.load().spotifyScope;
+  return typeof s === 'string' ? s.split(/\s+/).filter(Boolean) : null;
+}
 
 export function isConfigured() {
   return Boolean(CLIENT_ID && CLIENT_SECRET);
@@ -65,6 +72,7 @@ export async function exchangeCode(code, state) {
   if (!res.ok || !data.refresh_token) throw new Error(data.error_description || data.error || `HTTP ${res.status}`);
   const d = memory.load();
   d.spotifyRefreshToken = data.refresh_token;
+  if (typeof data.scope === 'string') d.spotifyScope = data.scope;
   memory.save(d);
   cached = { token: data.access_token, exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
 }
@@ -95,8 +103,17 @@ async function userToken() {
     d.spotifyRefreshToken = data.refresh_token;
     memory.save(d);
   }
+  if (typeof data.scope === 'string' && memory.load().spotifyScope !== data.scope) {
+    const d = memory.load();
+    d.spotifyScope = data.scope;
+    memory.save(d);
+  }
   cached = { token: data.access_token, exp: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
   return cached.token;
+}
+
+export async function spotifyApi(method, path, body) {
+  return api(method, path, body);
 }
 
 async function api(method, path, body) {
@@ -142,10 +159,24 @@ async function confirmPlaying(uri, target, tries = 4, gapMs = 700) {
       return; // nie da sie odczytac stanu: polecenie przyjeto, wiec nie zglaszamy bledu na zapas
     }
     const item = state?.item;
-    const sameTrack = item?.uri === uri || item?.linked_from?.uri === uri;
-    if (sameTrack && state.is_playing && state.device?.id === target.id) return;
+    const same = item?.uri === uri || item?.linked_from?.uri === uri || state?.context?.uri === uri;
+    if (same && state.is_playing && state.device?.id === target.id) return;
   }
   throw new Error(`Spotify przyjęło polecenie, ale na „${target.name}” nie zagrało.`);
+}
+
+/** Playlista albo album od poczatku, z tym samym wyborem urzadzenia i sprawdzeniem co playUri. */
+export async function playContext(contextUri, { komputer = false, gapMs = 700 } = {}) {
+  const target = pickDevice(await devices(), komputer);
+  if (!target) throw new Error(komputer ? 'Spotify nie jest uruchomione na tym komputerze.' : 'Spotify nie jest uruchomione na żadnym urządzeniu.');
+  try {
+    await api('PUT', `/me/player/play?device_id=${encodeURIComponent(target.id)}`, { context_uri: contextUri });
+  } catch (e) {
+    if (e.status === 403) throw new Error('Spotify odmawia sterowania odtwarzaniem - to wymaga konta Premium.');
+    throw e;
+  }
+  await confirmPlaying(contextUri, target, 4, gapMs);
+  return { device: target.name };
 }
 
 /**

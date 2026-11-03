@@ -47,6 +47,7 @@ function loadMusic({ connected = false, controlFails = false, desktop = null, pl
     toast: () => {},
     isOwner: () => true,
     extend: () => {},
+    register: () => {},
     clientActions: {},
     pushSaid: (_k, t) => calls.push(`powiedz: ${t}`),
     // Prawdziwa funkcja niczego nie zwraca: atrapa zwracajaca wynik maskowala tu blad.
