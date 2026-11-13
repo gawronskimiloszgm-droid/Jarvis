@@ -15,14 +15,15 @@ export const FitKit = (() => {
 const router = express.Router();
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-const PROFILE_DEFAULTS = { sex: 'm', age: 0, height: 0, activity: 1.55, goal: 'utrzymanie', program: 'ppl', bar: 20, rest: 120, repMin: 8, repMax: 12, done: 0 };
+const PROFILE_DEFAULTS = { sex: 'm', age: 0, height: 0, activity: 1.55, goal: 'utrzymanie', program: 'ppl', bar: 20, rest: 120, repMin: 8, repMax: 12, done: 0, perWeek: 3, playlist: '' };
 
 export function fitProfile(patch) {
   const d = memory.load();
   const cur = { ...PROFILE_DEFAULTS, ...(d.fitProfile || {}) };
   if (patch) {
     if (['m', 'k'].includes(patch.sex)) cur.sex = patch.sex;
-    for (const [k, lo, hi] of [['age', 0, 110], ['height', 0, 250], ['activity', 1.2, 2.0], ['bar', 5, 30], ['rest', 15, 600], ['repMin', 1, 30], ['repMax', 1, 50], ['done', 0, 100000]]) {
+    if (typeof patch.playlist === 'string') cur.playlist = patch.playlist.trim().slice(0, 80);
+    for (const [k, lo, hi] of [['age', 0, 110], ['height', 0, 250], ['activity', 1.2, 2.0], ['bar', 5, 30], ['rest', 15, 600], ['repMin', 1, 30], ['repMax', 1, 50], ['done', 0, 100000], ['perWeek', 1, 7]]) {
       if (patch[k] != null && Number.isFinite(Number(patch[k]))) cur[k] = Math.max(lo, Math.min(hi, Number(patch[k])));
     }
     if (['redukcja', 'utrzymanie', 'masa'].includes(patch.goal)) cur.goal = patch.goal;

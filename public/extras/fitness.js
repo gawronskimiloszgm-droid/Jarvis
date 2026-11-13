@@ -141,6 +141,7 @@
       box.listeners.forEach((fn) => fn({ seg: box.plan[box.i], left, i: box.i, n: box.plan.length }));
     }, 250);
   }
+  UI.clientActions['trening-start'] = () => UI.openWindow?.('trening');
   UI.clientActions['trening-rundy'] = (p) => {
     UI.openWindow?.('trening');
     startRounds(p || {});
@@ -456,8 +457,12 @@
         const program = sel(Object.entries(F.PROGRAMS).map(([k, v]) => [k, v.name]), p.program);
         const restS = input('przerwa s', '90px', 'number');
         restS.value = p.rest;
-        prof.append(el('div', 'sub', 'Profil (do celów kalorii i planu):'), row(sex, age, height, act, goal), row(program, restS, button('ZAPISZ PROFIL', 'primary', async () => {
-          await api('/api/fit/profile', json('PUT', { sex: sex.value, age: Number(age.value), height: Number(height.value), activity: Number(act.value), goal: goal.value, program: program.value, rest: Number(restS.value) }));
+        const perWeek = input('treningów/tydz.', '120px', 'number');
+        perWeek.value = p.perWeek || 3;
+        const playlist = input('playlista na trening, np. GYM', '200px');
+        playlist.value = p.playlist || '';
+        prof.append(el('div', 'sub', 'Profil (do celów kalorii, planu i przypomnień trenera):'), row(sex, age, height, act, goal), row(program, restS, perWeek, playlist, button('ZAPISZ PROFIL', 'primary', async () => {
+          await api('/api/fit/profile', json('PUT', { sex: sex.value, age: Number(age.value), height: Number(height.value), activity: Number(act.value), goal: goal.value, program: program.value, rest: Number(restS.value), perWeek: Number(perWeek.value), playlist: playlist.value }));
           toast('Profil zapisany.', 'ok');
           changed();
         })));

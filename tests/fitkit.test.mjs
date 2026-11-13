@@ -126,3 +126,23 @@ test('bilans dnia', () => {
   const meals = [{ day: '2026-11-03', kcal: 600, protein: 40 }, { day: '2026-11-03', kcal: 800, protein: 50 }, { day: '2026-11-02', kcal: 999 }];
   assert.deepEqual(F.dayIntake(meals, '2026-11-03', { kcal: 2500, protein: 150 }), { kcal: 1400, protein: 90, meals: 2, kcalLeft: 1100, proteinLeft: 60 });
 });
+
+test('zaniedbane partie: od tygodnia do miesiaca, bez cardio', () => {
+  const sets = [S('Przysiad', 100, 5, '2026-11-01'), S('Wyciskanie na ławce', 80, 8, '2026-11-12'), S('Podciąganie', 0, 8, '2026-09-01'), S('Worek', 0, 1, '2026-10-01')];
+  assert.deepEqual(F.neglected(sets, '2026-11-13'), [{ part: 'nogi', days: 12 }]);
+});
+
+test('raport tygodnia: rekordy tylko z tego tygodnia', () => {
+  const sets = [
+    { ...S('Przysiad', 100, 5, '2026-10-01'), at: 1 },
+    { ...S('Przysiad', 105, 5, '2026-11-10'), at: 2 },
+    { ...S('Przysiad', 100, 5, '2026-11-12'), at: 3 },
+    { ...S('Wyciskanie', 60, 10, '2026-11-12'), at: 4 },
+  ];
+  const r = F.weekReport({ sets, body: [{ day: '2026-11-01', kg: 82 }, { day: '2026-11-12', kg: 81 }], sleep: [{ day: '2026-11-12', hours: 7 }, { day: '2026-11-11', hours: 6 }] }, '2026-11-13');
+  assert.deepEqual(r.prs, ['Przysiad 105 kg × 5']);
+  assert.equal(r.days, 2);
+  assert.equal(r.sets, 3);
+  assert.equal(r.volume, 525 + 500 + 600);
+  assert.equal(r.sleepAvg, 6.5);
+});

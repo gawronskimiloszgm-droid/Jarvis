@@ -263,5 +263,41 @@
     return { kcal, protein, meals: mine.length, kcalLeft: target ? target.kcal - kcal : null, proteinLeft: target ? target.protein - protein : null };
   }
 
-  return { oneRepMax, plates, warmup, muscle, exKey, records, isRecord, nextLoad, weekVolume, daysSince, parseSet, PROGRAMS, planDay, rounds, energy, weightTrend, sleepHours, dayIntake, shiftDay, dayDiff };
+  /** Partie, ktore lezaly odlogiem: trenowane kiedys, ale nie od min do max dni (starsze to juz porzucone). */
+  function neglected(sets, todayKey, { min = 7, max = 30 } = {}) {
+    const since = daysSince(sets, todayKey);
+    return Object.entries(since)
+      .filter(([p, d]) => !['inne', 'cardio'].includes(p) && d >= min && d <= max)
+      .sort((a, b) => b[1] - a[1])
+      .map(([p, d]) => ({ part: p, days: d }));
+  }
+
+  /** Tydzien w liczbach: dni treningowe, serie, objetosc, rekordy pobite w tym tygodniu, waga i sen. */
+  function weekReport({ sets = [], body = [], sleep = [] }, todayKey) {
+    const from = shiftDay(todayKey, -6);
+    const inWeek = (d) => d >= from && d <= todayKey;
+    const chrono = [...sets].sort((a, b) => (a.day === b.day ? (a.at || 0) - (b.at || 0) : a.day < b.day ? -1 : 1));
+    const seen = [];
+    const prs = [];
+    for (const s of chrono) {
+      if (inWeek(s.day)) {
+        const r = isRecord(seen, s);
+        if (!r.first && (r.kg || r.oneRm)) prs.push(`${s.ex} ${s.kg} kg × ${s.reps}`);
+      }
+      seen.push(s);
+    }
+    const week = sets.filter((s) => inWeek(s.day));
+    const wt = weightTrend(body.filter((b) => b.day <= todayKey));
+    const nights = sleep.filter((x) => inWeek(x.day));
+    return {
+      days: new Set(week.map((s) => s.day)).size,
+      sets: week.length,
+      volume: Math.round(week.reduce((a, s) => a + (s.kg || 0) * (s.reps || 0), 0)),
+      prs: [...new Set(prs)],
+      weightChange: wt ? wt.change : null,
+      sleepAvg: nights.length ? Math.round((nights.reduce((a, x) => a + x.hours, 0) / nights.length) * 10) / 10 : null,
+    };
+  }
+
+  return { neglected, weekReport, oneRepMax, plates, warmup, muscle, exKey, records, isRecord, nextLoad, weekVolume, daysSince, parseSet, PROGRAMS, planDay, rounds, energy, weightTrend, sleepHours, dayIntake, shiftDay, dayDiff };
 });
