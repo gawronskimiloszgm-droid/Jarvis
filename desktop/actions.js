@@ -327,6 +327,8 @@ const DYNAMIC_SYSTEM_ACTIONS = {
   'zamknij-proces': async (params) => {
     const processName = String(params.nazwa || params.process || '').trim();
     if (!processName) return { ok: false, error: 'Nie podano nazwy procesu.' };
+    // Nazwa trafia do wiersza polecen: tylko zwykla nazwa pliku .exe, bez cudzyslowow i operatorow.
+    if (!/^[\w .()+-]{1,80}\.exe$/i.test(processName)) return { ok: false, error: 'Nieprawidlowa nazwa procesu (oczekuje np. notepad.exe).' };
     return runWindowsCommand(`taskkill /IM "${processName}" /F`);
   },
 

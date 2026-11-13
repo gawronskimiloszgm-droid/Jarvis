@@ -293,7 +293,9 @@
         const lo = Math.min(...vals) * 0.95;
         const hi = Math.max(...vals) * 1.05;
         const xy = pts.map(([, v], i) => [20 + (i * (W - 40)) / (pts.length - 1), H - 20 - ((v - lo) / (hi - lo || 1)) * (H - 40)]);
-        host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px"><polyline fill="none" stroke="#33e0ff" stroke-width="2" points="${xy.map((p) => p.join(',')).join(' ')}"/>${xy.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="3" fill="#33e0ff"><title>${pts[i][0]}: ${pts[i][1]} kg</title></circle>`).join('')}<text x="20" y="14" fill="#9fd8ff" font-size="11">${ex}: ${vals[0]} → ${vals[vals.length - 1]} kg (1RM)</text></svg>`;
+        // Nazwa cwiczenia przychodzi z mowy albo od modelu: do SVG tylko jako zwykly tekst.
+        const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+        host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px"><polyline fill="none" stroke="#33e0ff" stroke-width="2" points="${xy.map((p) => p.join(',')).join(' ')}"/>${xy.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="3" fill="#33e0ff"><title>${esc(pts[i][0])}: ${pts[i][1]} kg</title></circle>`).join('')}<text x="20" y="14" fill="#9fd8ff" font-size="11">${esc(ex)}: ${vals[0]} → ${vals[vals.length - 1]} kg (1RM)</text></svg>`;
       }
       load().catch((e) => (out.textContent = e.message));
       onChange(body, () => load().catch(() => {}));

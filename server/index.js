@@ -1,3 +1,4 @@
+import compression from 'compression';
 import 'dotenv/config';
 import { storeStatus } from './core/store.js';
 import { createLimiter, guestLimit } from './core/ratelimit.js';
@@ -163,6 +164,10 @@ const BIG_BODY_PATHS = new Set(['/api/docs', '/api/screen/analyze', '/api/agent/
 const BIG_BODY = (req) => req.method === 'POST' && BIG_BODY_PATHS.has(req.path);
 const smallJson = express.json({ limit: '8mb' });
 app.use((req, res, next) => (BIG_BODY(req) ? next() : smallJson(req, res, next)));
+// Pliki strony skompresowane (app.js ma kilkaset KB, a telefon laduje go przy kazdym starcie).
+// Tylko statyczne: odpowiedzi API bywaja strumieniowane slowo po slowie i kompresja by je wstrzymywala.
+const STATIC_EXT = /\.(js|mjs|css|html|svg|json|txt|map)$/i;
+app.use(compression({ filter: (req, res) => (req.path === '/' || STATIC_EXT.test(req.path)) && !req.path.startsWith('/api/') && compression.filter(req, res) }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(devicesRouter);
 app.use(agentCoreRouter);

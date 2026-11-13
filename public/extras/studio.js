@@ -2098,7 +2098,7 @@
         plates.slice(0, 4).forEach((pl, i) => {
           const [bw, bd] = cfg.bed;
           const sc = 220 / Math.max(bw, bd);
-          pane.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 ${bw * sc} ${bd * sc}" style="width:220px;margin:4px;border:1px solid rgba(51,224,255,.4);background:rgba(51,224,255,.04)"><text x="4" y="12" fill="#9fd8ff" font-size="10">stół ${i + 1} · ${Math.round(pl.fill * 100)}%</text>${pl.placed.map((p) => `<rect x="${p.x * sc}" y="${p.y * sc}" width="${p.w * sc}" height="${p.d * sc}" fill="rgba(51,224,255,.25)" stroke="#33e0ff" stroke-width=".6"><title>${String(names[p.id] || p.id).replace(/[<&]/g, '')}</title></rect>`).join('')}</svg>`);
+          pane.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 ${bw * sc} ${bd * sc}" style="width:220px;margin:4px;border:1px solid rgba(51,224,255,.4);background:rgba(51,224,255,.04)"><text x="4" y="12" fill="#9fd8ff" font-size="10">stół ${i + 1} · ${Math.round(pl.fill * 100)}%</text>${pl.placed.map((p) => `<rect x="${p.x * sc}" y="${p.y * sc}" width="${p.w * sc}" height="${p.d * sc}" fill="rgba(51,224,255,.25)" stroke="#33e0ff" stroke-width=".6"><title>${String(names[p.id] || p.id).replace(/[<>&"]/g, '')}</title></rect>`).join('')}</svg>`);
         });
       }
 
