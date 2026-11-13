@@ -21,6 +21,7 @@ import { runCheck as runProactiveCheck } from '../home/proactive.js';
 import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
 import { maybeRecurring, maybeNudges } from '../extras/life.js';
 import { maybeCoach } from '../extras/coach.js';
+import { watchPrinter } from '../extras/printq.js';
 import { maybeMorningPlan } from '../extras/suggest.js';
 import { maybeLearn } from '../extras/graphmem.js';
 import { maybeSnapshot } from '../extras/backupplus.js';
@@ -102,6 +103,7 @@ export function startUpkeep() {
       await maybeRecurring();
       await maybeNudges();
       await maybeCoach();
+      await watchPrinter();
       await maybeMorningPlan();
       await maybeLearn();
       await maybeSnapshot();

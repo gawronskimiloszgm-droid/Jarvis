@@ -2047,6 +2047,30 @@
         }
         const est = W.printEstimate({ volume: vol / sk ** 3, area: area / sk ** 2, material: cfg.material, infill: cfg.infill, pricePerKg: cfg.price });
         if (est) pane.appendChild(el('div', 'w-mid', `${parts.length} części: ok. ${est.grams} g ${est.material}, ${est.meters} m filamentu, ok. ${Math.floor(est.minutes / 60)} h ${est.minutes % 60} min, koszt ok. ${est.cost.toFixed(2)} zł (szacunek: zależy od drukarki i ustawień)`));
+        if (est && UI.printQueue) {
+          const q = el('div', 'st-btns');
+          const one = (p) => {
+            const wm = S.view ? S.view.worldArray(p) : K.worldMesh(p);
+            let a = 0;
+            for (let i = 0; i < wm.length; i += 9) {
+              const ax = wm[i + 3] - wm[i]; const ay = wm[i + 4] - wm[i + 1]; const az = wm[i + 5] - wm[i + 2];
+              const bx = wm[i + 6] - wm[i]; const by = wm[i + 7] - wm[i + 1]; const bz = wm[i + 8] - wm[i + 2];
+              a += Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) / 2;
+            }
+            const e = W.printEstimate({ volume: Math.abs(K.signedVolume(wm)) / sk ** 3, area: a / sk ** 2, material: cfg.material, infill: cfg.infill, pricePerKg: cfg.price });
+            return { name: p.nazwa, project: pr.nazwa, material: cfg.material, grams: e?.grams || 0, minutes: e?.minutes || 0, note: p.opis || '' };
+          };
+          const all = el('button', 'btn ghost', 'CAŁOŚĆ DO KOLEJKI WYDRUKÓW');
+          all.addEventListener('click', () => UI.printQueue.add(parts.map(one)).catch((e) => toast(e.message)));
+          q.appendChild(all);
+          const selPart = parts.find((p) => p.id === S.selected);
+          if (selPart) {
+            const b = el('button', 'btn ghost', `„${selPart.nazwa}” DO KOLEJKI`);
+            b.addEventListener('click', () => UI.printQueue.add([one(selPart)]).catch((e) => toast(e.message)));
+            q.appendChild(b);
+          }
+          pane.appendChild(q);
+        }
         const m = K.measure(pr);
         const fit = W.fitScale(m.size.map((v) => v / sk), cfg.bed);
         if (fit) {

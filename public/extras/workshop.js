@@ -55,6 +55,7 @@
   }
 
   function finish() {
+    UI.workshopLight?.(false);
     const title = W.plan?.tytul;
     if (title) UI.life?.add('journal', { text: `Warsztat ukończony: ${title}`, kind: 'manual' }).catch(() => {});
     if (UI.isLive?.()) UI.liveSend({ type: 'react', text: `Ostatni krok zrobiony: ${title}. Pogratuluj jednym zdaniem.` });
@@ -136,6 +137,7 @@
       /* blokada ekranu niedostepna */
     }
     UI.activity?.emit('warsztat', `Tryb warsztatu: ${W.plan.tytul}`);
+    UI.workshopLight?.(true);
     if (UI.isLive?.()) UI.liveSend({ type: 'note', text: `[UI] Tryb warsztatu "${W.plan.tytul}". Kroki: ${W.plan.steps.map((s, i) => `${i + 1}. ${s.tekst}`).join(' ')}. Prowadz po jednym kroku; "dalej", "wroc", "powtorz" obsluz narzedziem warsztat.` });
     announce();
   }

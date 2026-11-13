@@ -546,7 +546,7 @@ app.post('/api/cad/:id/print', requireOwner, async (req, res) => {
 });
 
 app.get('/api/printer/status', requireOwner, async (req, res) => {
-  res.json({ configured: printer.isConfigured(), job: await printer.jobStatus() });
+  res.json({ configured: printer.isConfigured(), type: printer.isConfigured() ? printer.printerType() : null, job: await printer.jobStatus() });
 });
 
 // --- Kalendarz Google --- tylko wlasciciel. Autoryzacja to jednorazowy

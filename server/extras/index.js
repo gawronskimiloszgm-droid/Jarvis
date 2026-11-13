@@ -20,6 +20,7 @@ import visionplus from './visionplus.js';
 import agentlearn from './agentlearn.js';
 import life from './life.js';
 import fitness from './fitness.js';
+import printq from './printq.js';
 import suggest from './suggest.js';
 import graphmem from './graphmem.js';
 import phonecam from './phonecam.js';
@@ -27,5 +28,5 @@ import backupplus from './backupplus.js';
 import studio from './studio.js';
 import bundle from './bundle.js';
 
-export const extraRouters = [fitness, system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam, backupplus, studio, bundle];
+export const extraRouters = [fitness, printq, system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam, backupplus, studio, bundle];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };
