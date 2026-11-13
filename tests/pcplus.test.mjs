@@ -43,8 +43,7 @@ test('przypinanie: tytul tylko jako tekst, a polityka wpuszcza nowe akcje', () =
 
 test('zamkniecie procesu: tylko zwykla nazwa .exe trafia do wiersza polecen', async () => {
   const src = fs.readFileSync(new URL('../desktop/actions.js', import.meta.url), 'utf8');
-  const re = new RegExp(/\/\^\[\w \.\(\)\+-\]\{1,80\}\\.exe\$\/i/.source);
-  assert.match(src, re);
+  assert.ok(src.includes(String.raw`/^[\w .()+-]{1,80}\.exe$/i.test(processName)`), 'actions.js sprawdza nazwe procesu');
   const ok = /^[\w .()+-]{1,80}\.exe$/i;
   assert.ok(ok.test('notepad.exe') && ok.test('Code (1).exe'));
   for (const bad of ['x" & calc & ".exe', 'a.exe" /F & del *', 'notepad', '../a.exe']) assert.ok(!ok.test(bad), bad);
