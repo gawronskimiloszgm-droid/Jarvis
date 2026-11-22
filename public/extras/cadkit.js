@@ -28,7 +28,11 @@
     boczny: 'rysunek z boku, najlepszy do korpusów: kontur [[x, y]...] wyciągnięty na grubość gr wzdłuż Z, zaokr (promień narożników), faza, otwory [{x, y, r}]; oble: true daje zamiast płaskich ścian wypukłą, zaokrągloną bryłę (bak, owiewka, karoseria, kadłub, rama z rur), a szer [[t, gr]...] zmienia grubość wzdłuż X (t od 0 do 1)',
     gwint: 'pręt z gwintem: r, h, skok',
     zespol: 'jedna część z wielu kształtów (np. wał z kołami): elementy [{ksztalt, x, y, z, rx, ry, rz, ...wymiary}]',
+    siatka: 'gotowa siatka trójkątów ze skanu 3D (v: współrzędne, f: trójkąty); tworzy ją tylko SKAN 3D w Studiu, nie używaj jej w projektach',
   };
+  // Siatka ze skanu: limity, zeby projekt miescil sie w pamieci przegladarki.
+  const MAX_SCAN_VERTS = 40000;
+  const MAX_SCAN_TRIS = 80000;
   const MAX_PARTS = 1500;
   const MAX_POINTS = 800;
   const clamp = (v, lo, hi, d) => {
@@ -887,12 +891,28 @@
         const szer = raw.szer.filter((s) => Array.isArray(s) && Number.isFinite(s[0]) && Number(s[1]) > 0).slice(0, 12).map((s) => [clamp(s[0], 0, 1, 0), size(s[1], p.gr)]);
         if (szer.length >= 2) p.szer = szer;
       }
+    } else if (ksztalt === 'siatka') {
+      const v = Array.isArray(raw.v) ? raw.v : [];
+      const nv = Math.min(MAX_SCAN_VERTS, Math.floor(v.length / 3));
+      const f = Array.isArray(raw.f) ? raw.f : [];
+      const tris = [];
+      for (let t = 0; t + 2 < f.length && tris.length < MAX_SCAN_TRIS * 3; t += 3) {
+        const a = f[t];
+        const b = f[t + 1];
+        const c = f[t + 2];
+        if ([a, b, c].every((k) => Number.isInteger(k) && k >= 0 && k < nv) && a !== b && b !== c && a !== c) tris.push(a, b, c);
+      }
+      if (nv >= 4 && tris.length >= 12) {
+        p.v = Array.from({ length: nv * 3 }, (_, k) => Math.round(clamp(v[k], -LIM, LIM, 0) * 100) / 100);
+        p.f = tris;
+        if (raw.skan && typeof raw.skan === 'object') p.skan = { zdjec: Math.round(clamp(raw.skan.zdjec, 0, 200, 0)), wysokosc: size(raw.skan.wysokosc, 0) };
+      } else Object.assign(p, { ksztalt: 'pudelko', sx: 40, sy: 40, sz: 40 });
     } else if (ksztalt === 'gwint') {
       p.r = size(raw.r, 3);
       p.h = size(raw.h, 10);
       p.skok = clamp(raw.skok, Math.max(0.05, p.h / 80), p.h, Math.max(p.h / 80, p.r * 0.3));
     } else if (ksztalt === 'zespol') {
-      p.elementy = (Array.isArray(raw.elementy) ? raw.elementy : []).filter((e) => e && typeof e === 'object').slice(0, 90).map((e) => normalizePart({ ...e, ksztalt: SHAPES[e.ksztalt] && e.ksztalt !== 'zespol' ? e.ksztalt : 'pudelko' }));
+      p.elementy = (Array.isArray(raw.elementy) ? raw.elementy : []).filter((e) => e && typeof e === 'object').slice(0, 90).map((e) => normalizePart({ ...e, ksztalt: SHAPES[e.ksztalt] && !['zespol', 'siatka'].includes(e.ksztalt) ? e.ksztalt : 'pudelko' }));
       if (!p.elementy.length) p.elementy = [normalizePart({ sx: 10, sy: 10, sz: 10 })];
     }
     else if (ksztalt === 'walec') {
@@ -1152,6 +1172,16 @@
       case 'kolo_zebate':
         m = extrude(gearOutline(p.zeby, p.m, p.sektor), p.otwor > 0 ? [circle(0, 0, p.otwor, 32)] : [], p.h, p.faza);
         break;
+      case 'siatka': {
+        m = new Array(p.f.length * 3);
+        for (let t = 0; t < p.f.length; t++) {
+          const k = p.f[t] * 3;
+          m[t * 3] = p.v[k];
+          m[t * 3 + 1] = p.v[k + 1];
+          m[t * 3 + 2] = p.v[k + 2];
+        }
+        break;
+      }
       default:
         // Faza pudelka: sciete takze pionowe krawedzie, bo w podgladzie to one najbardziej lapia swiatlo.
         m = p.faza > 0 ? extrude(rectCut(p.sx / 2, p.sz / 2, Math.min(p.faza, p.sx * 0.3, p.sz * 0.3)), [], p.sy, Math.min(p.faza, p.sy * 0.4)) : box(p.sx, p.sy, p.sz);
@@ -1313,7 +1343,7 @@
       if (loose.length) warnings.push(`Oderwane od reszty: ${loose.slice(0, 6).map((id) => real.find((p) => p.id === id).nazwa).join(', ')}${loose.length > 6 ? ` i ${loose.length - 6} innych` : ''}.`);
     }
     if (!project.kroki.length) warnings.push('Brak opisanych kroków montażu.');
-    if (project.realny && project.czesci.length && project.czesci.every((p) => p.zrodlo !== 'plany')) warnings.push('Żaden wymiar nie pochodzi z planów: cały model jest szacunkiem.');
+    if (project.realny && project.czesci.length && project.czesci.every((p) => p.zrodlo !== 'plany' && p.ksztalt !== 'siatka')) warnings.push('Żaden wymiar nie pochodzi z planów: cały model jest szacunkiem.');
     return warnings;
   }
 

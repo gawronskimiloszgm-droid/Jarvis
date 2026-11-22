@@ -326,7 +326,7 @@ const PLAN_SCHEMA = obj({
   }, ['nazwa', 'srodek', 'rozmiar', 'kroki'])),
 }, ['nazwa', 'podzespoly']);
 
-const SHAPE_DOC = Object.entries(CadKit.SHAPES).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+const SHAPE_DOC = Object.entries(CadKit.SHAPES).filter(([k]) => k !== 'siatka').map(([k, v]) => `- ${k}: ${v}`).join('\n');
 const FRAME_DOC = `Układ współrzędnych: milimetry, oś Y w górę, x i z poziomo. x, y, z to ŚRODEK części. Oś wzdłużna walca, rury, pryzmatu, koła, płyty i wyciągnięcia to Y; żeby ją położyć, obróć: rz=90 (wzdłuż X) albo rx=90 (wzdłuż Z). Obrót rx, ry, rz w stopniach.
 Dostępne kształty i ich pola:
 ${SHAPE_DOC}

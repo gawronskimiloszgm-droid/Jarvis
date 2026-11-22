@@ -47,6 +47,7 @@ const SAMPLES = {
   kolo_zebate: { zeby: 18, m: 2, h: 8, otwor: 5, faza: 0.4 },
   boczny: { kontur: [[0, 0], [60, 0], [60, 20], [30, 35], [0, 30]], gr: 6, zaokr: 3, faza: 0.5, otwory: [{ x: 15, y: 15, r: 4 }, { x: 40, y: 12, r: 3, dl: 18 }, { x: 22, y: 25, r: 2, n: 6 }] },
   gwint: { r: 3, h: 12, skok: 0.7 },
+  siatka: { v: [0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10], f: [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3] },
   zespol: { elementy: [{ ksztalt: 'walec', r: 3, h: 20 }, { ksztalt: 'kolo_zebate', zeby: 20, m: 1, h: 4, y: 5 }, { ksztalt: 'pudelko', sx: 8, sy: 2, sz: 8, faza: 0.4, y: -9 }] },
 };
 
@@ -198,4 +199,14 @@ test('uszkodzone dane od modelu nie wywracaja projektu', () => {
   assert.ok(pr.czesci.length > 0 && pr.czesci.length <= K.MAX_PARTS);
   assert.equal(pr.zrodla.length, 0);
   for (const p of pr.czesci) assert.ok(K.partMesh(p).every(Number.isFinite), p.ksztalt);
+});
+
+test('siatka ze skanu: zle indeksy odrzucone, za malo trojkatow to pudelko, nie trafia do zespolu', () => {
+  const p = K.normalizePart({ ksztalt: 'siatka', v: [0, 0, 0, 10, 0, 0, 0, 10, 0, 0, 0, 10, 'x'], f: [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3, 0, 1, 99, 1, 1, 2, 0.5, 1, 2] });
+  assert.equal(p.ksztalt, 'siatka');
+  assert.equal(p.v.length, 12);
+  assert.deepEqual(p.f, [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3]);
+  assert.ok(Math.abs(K.signedVolume(K.partMesh(p)) - 1000 / 6) < 0.01);
+  assert.equal(K.normalizePart({ ksztalt: 'siatka', v: [0, 0, 0], f: [0, 0, 0] }).ksztalt, 'pudelko');
+  assert.equal(K.normalizePart({ ksztalt: 'zespol', elementy: [{ ksztalt: 'siatka', v: [], f: [] }] }).elementy[0].ksztalt, 'pudelko');
 });

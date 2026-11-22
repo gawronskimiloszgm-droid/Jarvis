@@ -254,6 +254,74 @@
     return S.project;
   }
 
+  /**
+   * Skan 3D ze zdjec dookola przedmiotu: telefon na statywie, przedmiot obracany o rowne katy na jednolitym
+   * tle. Z kazdego zdjecia sylwetka, z sylwetek bryla (Scan3D), wysokosc w mm daje skale.
+   */
+  async function fromScan({ blobs, wysokosc, nazwa, kierunek = 1, dokladnosc = 64 }) {
+    const SC = window.Scan3D;
+    const PT = window.PhotoTrace;
+    if (!SC || !PT) throw new Error('Brak modułu skanu.');
+    if (!blobs || blobs.length < 4) throw new Error('Potrzeba co najmniej 4 zdjęć dookoła przedmiotu (najlepiej 12-24).');
+    const height = Number(wysokosc);
+    if (!(height > 0)) throw new Error('Podaj prawdziwą wysokość przedmiotu w milimetrach: bez niej nie ma skali.');
+    let size = null;
+    const views = [];
+    const colors = [];
+    for (let i = 0; i < blobs.length; i++) {
+      const bmp = await createImageBitmap(blobs[i]);
+      if (!size) {
+        const k = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
+        size = { bw: bmp.width, bh: bmp.height, w: Math.round(bmp.width * k), h: Math.round(bmp.height * k) };
+      } else if (bmp.width !== size.bw || bmp.height !== size.bh) throw new Error(`Zdjęcie ${i + 1} ma inny rozmiar niż pierwsze: wszystkie muszą być z tego samego aparatu, bez kadrowania.`);
+      const cv = document.createElement('canvas');
+      cv.width = size.w;
+      cv.height = size.h;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bmp, 0, 0, size.w, size.h);
+      const img = ctx.getImageData(0, 0, size.w, size.h);
+      const blob = PT.largestBlob(PT.buildMask(img));
+      let n = 0;
+      let touch = false;
+      for (let p = 0; p < blob.length; p++) {
+        if (!blob[p]) continue;
+        n++;
+        const x = p % size.w;
+        const y = (p - x) / size.w;
+        if (x === 0 || x === size.w - 1 || y === 0) touch = true;
+        if (n % 37 === 0) colors.push([img.data[p * 4], img.data[p * 4 + 1], img.data[p * 4 + 2]]);
+      }
+      if (n < size.w * size.h * 0.01) throw new Error(`Na zdjęciu ${i + 1} nie widać przedmiotu: potrzebne jednolite tło, inne niż przedmiot.`);
+      if (touch) throw new Error(`Na zdjęciu ${i + 1} przedmiot dotyka krawędzi kadru: odsuń telefon.`);
+      const mask = SC.fillSmallHoles(blob, size.w, size.h, Math.round(n * 0.004));
+      views.push({ mask, w: size.w, h: size.h, angle: (kierunek < 0 ? -1 : 1) * (i / blobs.length) * Math.PI * 2 });
+    }
+    // Za gesta siatka nie zmiesci sie w projekcie: wtedy rzadsza siatka wokseli.
+    let res = Math.max(32, Math.min(96, Number(dokladnosc) || 64));
+    let r;
+    for (;;) {
+      r = SC.scan(views, { height, res });
+      if (r.positions.length / 3 <= 38000 || res <= 32) break;
+      res = Math.round(res * 0.8);
+    }
+    const med = (k) => colors.map((c) => c[k]).sort((a, b) => a - b)[colors.length >> 1] || 140;
+    const kolor = `#${[med(0), med(1), med(2)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+    const v = Array.from(r.positions, (x, i) => Math.round((i % 3 === 1 ? x - height / 2 : x) * 100) / 100);
+    const objetosc = Math.round(SC.volume(r) / 1000);
+    setProject({
+      nazwa: nazwa || 'Skan 3D',
+      opis: `Bryła ze skanu ${blobs.length} zdjęć dookoła, wysokość ${Math.round(height)} mm, ok. ${objetosc} cm³.`,
+      realny: true,
+      uwagi: 'Skan z sylwetek: zewnętrzny kształt jest wierny, ale wklęsłości niewidoczne z boku (wnętrze kubka, zagłębienia) są wypełnione. Kolor to średni kolor przedmiotu ze zdjęć.',
+      czesci: [{ id: 'skan', nazwa: nazwa || 'Skan', grupa: 'Skan', krok: 1, ksztalt: 'siatka', v, f: Array.from(r.indices), kolor, metal: 0.1, szorstkosc: 0.7, skan: { zdjec: blobs.length, wysokosc: height } }],
+      kroki: [{ nr: 1, tytul: 'Skan 3D' }],
+    });
+    // Nowy projekt stoi na kroku 0 (nic nie zlozone): pokazujemy od razu gotowa bryle.
+    setTimeout(() => play(1), 300);
+    emit(`Skan 3D gotowy: ${S.project.nazwa}, ${r.triangles} trójkątów, ok. ${objetosc} cm³.`);
+    return { triangles: r.triangles, res, objetosc };
+  }
+
   // ---------- podglad ----------
   function createViewer(host, THREE, hooks) {
     const canvas = el('canvas', 'st-canvas');
@@ -1346,6 +1414,116 @@
       const topRow = el('div', 'st-row');
       topRow.append(el('span', 'w-dim', 'Opcjonalnie zdjęcie z góry (prawdziwa szerokość):'), topFile);
       photoForm.append(photoHint, photoRow, topRow);
+
+      // ---------- skan 3D: zdjecia z pliku albo z kamery telefonu ----------
+      const scanBtn = el('button', 'cad-tool on', '🔄 SKAN 3D Z TELEFONU');
+      chips.appendChild(scanBtn);
+      const scanForm = el('div', 'st-photo');
+      scanForm.hidden = true;
+      scanForm.appendChild(el('div', 'w-dim', 'Telefon na statywie (nie rusza się), przedmiot na jednolitym tle, cały w kadrze. Obracaj go o równe kąty (np. 12 zdjęć co 30°) i rób zdjęcie po każdym obrocie. Skalę daje prawdziwa wysokość.'));
+      const scanFiles = el('input');
+      scanFiles.type = 'file';
+      scanFiles.accept = 'image/*';
+      scanFiles.multiple = true;
+      const scanH = el('input', 'inp');
+      scanH.type = 'number';
+      scanH.placeholder = 'wysokość mm';
+      const scanName = el('input', 'inp');
+      scanName.placeholder = 'nazwa, np. kubek';
+      const scanDir = el('select', 'inp');
+      for (const [val, label] of [['1', 'obrót w lewo'], ['-1', 'obrót w prawo']]) {
+        const o = el('option', null, label);
+        o.value = val;
+        scanDir.appendChild(o);
+      }
+      const scanRes = el('select', 'inp');
+      for (const [val, label] of [['48', 'szybko'], ['64', 'normalnie'], ['88', 'dokładnie']]) {
+        const o = el('option', null, label);
+        o.value = val;
+        scanRes.appendChild(o);
+      }
+      scanRes.value = '64';
+      const shots = [];
+      const shotInfo = el('span', 'w-dim', '');
+      const camBtn = el('button', 'btn ghost', 'KAMERA');
+      const snapBtn = el('button', 'btn', 'ZRÓB ZDJĘCIE');
+      snapBtn.hidden = true;
+      const scanGo = el('button', 'btn primary', 'ZESKANUJ');
+      const video = el('video');
+      video.playsInline = true;
+      video.muted = true;
+      video.hidden = true;
+      video.style.cssText = 'max-width:100%;max-height:260px;border-radius:6px;margin-top:6px';
+      let stream = null;
+      const stopCam = () => {
+        stream?.getTracks().forEach((t) => t.stop());
+        stream = null;
+        video.hidden = true;
+        snapBtn.hidden = true;
+        camBtn.textContent = 'KAMERA';
+      };
+      const updateShots = () => {
+        const n = shots.length || scanFiles.files?.length || 0;
+        shotInfo.textContent = n ? `${n} zdjęć${shots.length ? ' z kamery' : ''}` : '';
+      };
+      scanFiles.addEventListener('change', () => {
+        shots.length = 0;
+        updateShots();
+      });
+      camBtn.addEventListener('click', async () => {
+        if (stream) return stopCam();
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
+          video.srcObject = stream;
+          await video.play();
+          video.hidden = false;
+          snapBtn.hidden = false;
+          camBtn.textContent = 'WYŁĄCZ KAMERĘ';
+          shots.length = 0;
+          updateShots();
+        } catch (e) {
+          toast(`Kamera: ${e.message}`);
+        }
+        return undefined;
+      });
+      snapBtn.addEventListener('click', () => {
+        if (!video.videoWidth) return;
+        const cv = document.createElement('canvas');
+        cv.width = video.videoWidth;
+        cv.height = video.videoHeight;
+        cv.getContext('2d').drawImage(video, 0, 0);
+        cv.toBlob((b) => {
+          if (!b) return;
+          shots.push(b);
+          updateShots();
+          navigator.vibrate?.(30);
+        }, 'image/jpeg', 0.9);
+      });
+      scanGo.addEventListener('click', async () => {
+        const blobs = shots.length ? [...shots] : [...(scanFiles.files || [])];
+        scanGo.disabled = true;
+        scanGo.textContent = 'SKANUJĘ...';
+        try {
+          await new Promise((r) => setTimeout(r, 30)); // napis na przycisku zanim przegladarka zajmie sie liczeniem
+          const r = await fromScan({ blobs, wysokosc: scanH.value, nazwa: scanName.value.trim(), kierunek: Number(scanDir.value), dokladnosc: Number(scanRes.value) });
+          toast(`Skan gotowy: ${r.triangles} trójkątów, ok. ${r.objetosc} cm³.`, 'ok');
+          stopCam();
+          scanForm.hidden = true;
+        } catch (e) {
+          toast(e.message || 'Skan nieudany.');
+        }
+        scanGo.disabled = false;
+        scanGo.textContent = 'ZESKANUJ';
+      });
+      const scanRow = el('div', 'st-row');
+      scanRow.append(scanFiles, camBtn, snapBtn, shotInfo);
+      const scanRow2 = el('div', 'st-row');
+      scanRow2.append(scanH, scanName, scanDir, scanRes, scanGo);
+      scanForm.append(scanRow, video, scanRow2);
+      scanBtn.addEventListener('click', () => {
+        scanForm.hidden = !scanForm.hidden;
+        if (scanForm.hidden) stopCam();
+      });
       S.openPhoto = (u, len) => {
         photoForm.hidden = false;
         if (u) photoUrl.value = u;
@@ -1532,7 +1710,7 @@
       });
       side.append(tabs, pane);
       stage.append(left, side);
-      wrap.append(head, chips, photoForm, jobBox, stage);
+      wrap.append(head, chips, photoForm, scanForm, jobBox, stage);
       body.appendChild(wrap);
 
       // Zdarzenia
@@ -1636,13 +1814,15 @@
               better.textContent = 'DOPRACUJ';
             }
           });
+          // Skanu nie przebudowujemy: model zastapilby zmierzona bryle zgadywanymi ksztaltami.
+          if (list.some((p) => p.ksztalt === 'siatka')) better.hidden = true;
           gh.append(el('b', null, `${name} (${list.length})`), eye, only, better);
           pane.appendChild(gh);
           list.forEach((p) => {
             const row = el('div', `st-part${p.id === S.selected ? ' on' : ''}${S.hidden.has(p.id) ? ' off' : ''}`);
             const dot = el('i', 'st-dot');
             dot.style.background = p.kolor;
-            const badge = el('span', `st-src ${p.zrodlo}`, p.skora ? 'zdjęcie' : p.zrodlo === 'plany' ? 'plany' : 'szac.');
+            const badge = el('span', `st-src ${p.zrodlo}`, p.skora ? 'zdjęcie' : p.ksztalt === 'siatka' ? 'skan' : p.zrodlo === 'plany' ? 'plany' : 'szac.');
             row.append(dot, el('span', 'st-name', p.nazwa), el('span', 'w-dim', `k.${p.krok}`), badge);
             row.addEventListener('click', () => select(p.id === S.selected ? null : p.id));
             pane.appendChild(row);
@@ -2348,5 +2528,5 @@
     };
   }
   // Dla Jarvisa i testow.
-  UI.studio = { fromPhoto, design, aiEdit, setProject, play, goToStep, blenderBuild, blenderRefresh, state: S };
+  UI.studio = { fromPhoto, fromScan, design, aiEdit, setProject, play, goToStep, blenderBuild, blenderRefresh, state: S };
 })();
