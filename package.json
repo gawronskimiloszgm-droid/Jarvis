@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "Osobisty asystent AI w stylu J.A.R.V.I.S.",
   "main": "server/index.js",
   "type": "module",
@@ -26,6 +26,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mammoth": "^1.13.0",
+    "mqtt": "5.16.1",
     "msedge-tts": "^2.0.7",
     "nanoid": "^3.3.7",
     "pdf-parse": "^1.1.1",
