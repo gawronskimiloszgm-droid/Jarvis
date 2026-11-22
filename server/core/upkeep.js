@@ -21,6 +21,7 @@ import { runCheck as runProactiveCheck } from '../home/proactive.js';
 import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
 import { maybeRecurring, maybeNudges } from '../extras/life.js';
 import { maybeCoach } from '../extras/coach.js';
+import { maybeHevySync } from '../extras/hevy.js';
 import { watchPrinter } from '../extras/printq.js';
 import { maybeMorningPlan } from '../extras/suggest.js';
 import { maybeLearn } from '../extras/graphmem.js';
@@ -102,6 +103,8 @@ export function startUpkeep() {
       await maybeWeeklyReport();
       await maybeRecurring();
       await maybeNudges();
+      // Hevy przed trenerem: swiezy trening z aplikacji liczy sie juz w dzisiejszych przypomnieniach.
+      await maybeHevySync().catch((e) => console.error('Hevy:', e.message));
       await maybeCoach();
       await watchPrinter();
       await maybeMorningPlan();

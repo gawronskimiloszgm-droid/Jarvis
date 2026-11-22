@@ -64,6 +64,16 @@
     return 'inne';
   }
 
+  // Partie z Hevy (primary_muscle_group szablonu cwiczenia) na partie modulu Trening.
+  const HEVY_MUSCLE = {
+    abdominals: 'brzuch', shoulders: 'barki', biceps: 'biceps', triceps: 'triceps', forearms: 'biceps',
+    quadriceps: 'nogi', hamstrings: 'nogi', calves: 'nogi', glutes: 'nogi', abductors: 'nogi', adductors: 'nogi',
+    lats: 'plecy', upper_back: 'plecy', traps: 'plecy', lower_back: 'plecy', chest: 'klatka', cardio: 'cardio',
+  };
+  const PARTS = ['nogi', 'plecy', 'klatka', 'barki', 'biceps', 'triceps', 'brzuch', 'cardio', 'inne'];
+  /** Partia serii: zapisana przy imporcie (mg), a gdy jej nie ma, z nazwy cwiczenia. */
+  const partOf = (s) => (s && PARTS.includes(s.mg) ? s.mg : muscle(s && s.ex));
+
   /** Klucz cwiczenia: "Wyciskanie na ławce" i "wyciskanie na lawce " to to samo. */
   const exKey = (name) => fold(name).replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -120,7 +130,7 @@
     const out = {};
     for (const s of sets || []) {
       if (!s.day || s.day < from || s.day > todayKey) continue;
-      const p = muscle(s.ex);
+      const p = partOf(s);
       const v = out[p] || { volume: 0, sets: 0 };
       v.volume += (s.kg || 0) * (s.reps || 0);
       v.sets++;
@@ -133,7 +143,7 @@
   function daysSince(sets, todayKey) {
     const last = {};
     for (const s of sets || []) {
-      const p = muscle(s.ex);
+      const p = partOf(s);
       if (!last[p] || s.day > last[p]) last[p] = s.day;
     }
     const out = {};
@@ -299,5 +309,5 @@
     };
   }
 
-  return { neglected, weekReport, oneRepMax, plates, warmup, muscle, exKey, records, isRecord, nextLoad, weekVolume, daysSince, parseSet, PROGRAMS, planDay, rounds, energy, weightTrend, sleepHours, dayIntake, shiftDay, dayDiff };
+  return { HEVY_MUSCLE, PARTS, partOf, neglected, weekReport, oneRepMax, plates, warmup, muscle, exKey, records, isRecord, nextLoad, weekVolume, daysSince, parseSet, PROGRAMS, planDay, rounds, energy, weightTrend, sleepHours, dayIntake, shiftDay, dayDiff };
 });

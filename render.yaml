@@ -24,3 +24,5 @@ services:
         value: mailto:example@example.com
       - key: CRON_SECRET
         sync: false
+      - key: HEVY_API_KEY
+        sync: false

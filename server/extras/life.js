@@ -141,7 +141,13 @@ const SCHEMAS = {
   // Trening i cialo (logika w public/extras/fitkit.js, trasy w fitness.js).
   sets: {
     max: 20000,
-    make: (b) => (str(b.ex, 60) && num(b.reps) > 0 && isDay(b.day) ? { ex: str(b.ex, 60), kg: Math.max(0, Math.min(1000, num(b.kg))), reps: Math.max(1, Math.min(200, Math.round(num(b.reps)))), rpe: Math.max(0, Math.min(10, num(b.rpe))), day: b.day } : null),
+    make: (b) => (str(b.ex, 60) && num(b.reps) > 0 && isDay(b.day)
+      ? {
+        ex: str(b.ex, 60), kg: Math.max(0, Math.min(1000, num(b.kg))), reps: Math.max(1, Math.min(200, Math.round(num(b.reps)))), rpe: Math.max(0, Math.min(10, num(b.rpe))), day: b.day,
+        // Serie z Hevy: zrodlo, id treningu (do aktualizacji i usuwania) i partia z szablonu cwiczenia.
+        ...(b.src === 'hevy' && { src: 'hevy', wid: str(b.wid, 40), ...(str(b.mg, 10) && { mg: str(b.mg, 10) }) }),
+      }
+      : null),
     patch: (b) => ({ ...(b.kg != null && { kg: Math.max(0, Math.min(1000, num(b.kg))) }), ...(b.reps != null && { reps: Math.max(1, Math.min(200, Math.round(num(b.reps)))) }), ...(b.ex != null && { ex: str(b.ex, 60) }) }),
   },
   body: {
