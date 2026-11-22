@@ -68,8 +68,8 @@
       dl.id = `hevy-ex-${Math.random().toString(36).slice(2, 8)}`;
       inp.setAttribute('list', dl.id);
       const weeks = el('select', 'inp');
-      for (const w of [4, 8, 12, 26, 52]) {
-        const o = el('option', null, `${w} tyg.`);
+      for (const w of [4, 8, 12, 26, 52, 0]) {
+        const o = el('option', null, w ? `${w} tyg.` : 'cała historia');
         o.value = String(w);
         weeks.appendChild(o);
       }
@@ -136,7 +136,8 @@
           }
         } else {
           sync.style.display = '';
-          status.appendChild(el('div', 'w-mid', `Hevy${s.user?.name ? `: ${s.user.name}` : ''} · ${s.workouts} treningów${s.lastOk ? ` · sprawdzone ${ago(s.lastOk)}` : ' · jeszcze nie zsynchronizowane'}`));
+          status.appendChild(el('div', 'w-mid', `Hevy${s.user?.name ? `: ${s.user.name}` : ''} · ${s.workouts} treningów${s.first ? ` od ${s.first}` : ''}${s.lastOk ? ` · sprawdzone ${ago(s.lastOk)}` : ' · jeszcze nie zsynchronizowane'}`));
+          if (!s.fullHistory) status.appendChild(el('div', 'w-dim', 'Przy najbliższej synchronizacji Jarvis pobierze całą historię treningów (może to potrwać minutę).'));
           if (s.error) status.appendChild(el('div', 'hint', s.error));
           if (s.webhookPath) {
             // Adres do wklejenia w Hevy (strona klucza API -> webhook): nowy trening opisany od razu, bez czekania 20 minut.

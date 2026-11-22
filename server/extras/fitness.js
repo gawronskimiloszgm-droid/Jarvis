@@ -39,7 +39,7 @@ export function fitProfile(patch) {
 export function logSets({ ex, kg, reps, sets = 1, rpe }) {
   const name = String(ex || '').trim().slice(0, 60);
   if (!name || !(Number(reps) > 0)) return { error: 'podaj cwiczenie i liczbe powtorzen' };
-  const before = lifeList('sets');
+  const before = allSets();
   const record = FitKit.isRecord(before, { ex: name, kg: num(kg), reps: num(reps) });
   const day = warsawDay();
   const n = Math.max(1, Math.min(10, Math.round(num(sets) || 1)));
@@ -62,6 +62,22 @@ export function logSets({ ex, kg, reps, sets = 1, rpe }) {
     przerwa_s: profile.rest,
     klient: { action: 'trening-przerwa', params: { sekundy: profile.rest, cwiczenie: name } },
   };
+}
+
+// Cala historia serii z zewnatrz (archiwum Hevy); bez niej serie z pamieci. Rekordy i podpowiedzi
+// ciezaru licza sie z calej historii, tydzien i dzisiejsze serie z pamieci.
+let historyProvider = null;
+export function setHistoryProvider(fn) {
+  historyProvider = typeof fn === 'function' ? fn : null;
+}
+export function allSets() {
+  try {
+    const h = historyProvider?.();
+    if (Array.isArray(h)) return h;
+  } catch {
+    /* historia jest dodatkiem */
+  }
+  return lifeList('sets');
 }
 
 // Plan dnia z zewnatrz (rutyny z Hevy); bez niego wbudowany program z profilu.
@@ -89,12 +105,13 @@ function repRange(reps, profile) {
 /** Wszystko do panelu i do "jak mi idzie" w jednym miejscu. */
 export function fitSummary(day = warsawDay()) {
   const sets = lifeList('sets');
+  const history = allSets();
   const profile = fitProfile();
   const body = lifeList('body');
   const trend = FitKit.weightTrend(body);
   const weight = trend?.last || 0;
   const energy = FitKit.energy({ ...profile, weight });
-  const recs = FitKit.records(sets);
+  const recs = FitKit.records(history);
   const sleep = lifeList('sleep').filter((s) => s.day > FitKit.shiftDay(day, -7));
   const todayEx = [...new Set(sets.filter((s) => s.day === day).map((s) => s.ex))];
   const trainingDays = [...new Set(sets.map((s) => s.day))].sort();
@@ -104,9 +121,9 @@ export function fitSummary(day = warsawDay()) {
     profile,
     plan,
     today: sets.filter((s) => s.day === day),
-    suggestions: todayEx.map((ex) => ({ ex, ...FitKit.nextLoad(sets, ex, { min: profile.repMin, max: profile.repMax }) })),
+    suggestions: todayEx.map((ex) => ({ ex, ...FitKit.nextLoad(history, ex, { min: profile.repMin, max: profile.repMax }) })),
     // Ile zalozyc na kazde cwiczenie z dzisiejszego dnia planu (z historii, a nie z dzisiejszych serii).
-    planLoads: Object.fromEntries(plan.ex.map(([name, , reps]) => [name, FitKit.nextLoad(sets, name, repRange(reps, profile))])),
+    planLoads: Object.fromEntries(plan.ex.map(([name, , reps]) => [name, FitKit.nextLoad(history, name, repRange(reps, profile))])),
     records: Object.values(recs).sort((a, b) => b.last - a.last).slice(0, 30),
     week: FitKit.weekVolume(sets, day),
     since: FitKit.daysSince(sets, day),
@@ -141,7 +158,7 @@ router.post('/api/fit/plan-done', requireOwner, (req, res) => {
 // Historia do eksportu: arkusz z wszystkimi seriami.
 router.get('/api/fit/export.csv', requireOwner, (req, res) => {
   const rows = [['data', 'cwiczenie', 'partia', 'kg', 'powtorzenia', 'szacowany_1rm']];
-  for (const s of lifeList('sets')) rows.push([s.day, s.ex, FitKit.muscle(s.ex), s.kg, s.reps, FitKit.oneRepMax(s.kg, s.reps)]);
+  for (const s of allSets()) rows.push([s.day, s.ex, FitKit.partOf(s), s.kg, s.reps, FitKit.oneRepMax(s.kg, s.reps)]);
   res.type('text/csv').send(rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'));
 });
 
@@ -197,7 +214,7 @@ export async function runFitTool(name, a = {}) {
       return logSets({ ex: a.cwiczenie, kg: a.kg, reps: a.powtorzenia, sets: a.serie });
     case 'trening_info': {
       const s = fitSummary();
-      const sets = lifeList('sets');
+      const sets = allSets();
       if (a.cwiczenie) {
         const k = FitKit.exKey(a.cwiczenie);
         const mine = sets.filter((x) => FitKit.exKey(x.ex) === k);

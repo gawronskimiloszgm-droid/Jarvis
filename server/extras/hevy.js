@@ -1,15 +1,19 @@
 // Hevy w module Trening: treningi zapisane w aplikacji Hevy trafiaja do tych samych serii co reszta
 // (rekordy, objetosc tygodnia, trener, odprawy), a po kazdym nowym treningu Jarvis opisuje postep:
 // rekordy, porownanie z poprzednia sesja cwiczenia i z poprzednim takim samym treningiem.
-// Synchronizacja: pierwszy raz ostatnie treningi strona po stronie, potem tylko zmiany (/v1/workouts/events).
+// Synchronizacja: pierwszy raz cala historia strona po stronie, potem tylko zmiany (/v1/workouts/events).
+// Cala historia siedzi w osobnym archiwum (wlasny klucz w magazynie, zapis tylko po zmianach), a w glownej
+// pamieci, zapisywanej przy kazdej drobnej zmianie, tylko ostatnie miesiace. Rekordy, postep i porownania
+// licza sie z calego archiwum.
 import crypto from 'node:crypto';
 import express from 'express';
 import { requireOwner } from '../core/auth.js';
 import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
 import * as H from '../connect/hevy.js';
+import { snapshotRead, snapshotWrite } from '../core/store.js';
 import { registerBriefSection } from '../core/briefing.js';
-import { FitKit, setPlanProvider } from './fitness.js';
+import { FitKit, setPlanProvider, setHistoryProvider } from './fitness.js';
 import { lifeAdd, lifeList, logJournal, warsawDay } from './life.js';
 import { isDnd } from './dnd.js';
 
@@ -17,8 +21,9 @@ const router = express.Router();
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const WORK = new Set(['normal', 'failure', 'dropset']);
-const KEEP_WORKOUTS = 250;
-const INITIAL_PAGES = 25; // 250 ostatnich treningow przy pierwszym polaczeniu
+const RECENT_DAYS = 120; // tyle dni serii z Hevy w glownej pamieci (trener, tydzien, dzis)
+const MAX_PAGES = 1000; // 10 000 treningow: bezpiecznik, nie limit
+const MAX_ARCHIVE = 10000;
 const dayOf = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(new Date(ms));
 const fmtKg = (v) => `${Math.round(v * 10) / 10}`.replace('.', ',');
 const fmtInt = (v) => Math.round(v).toLocaleString('pl-PL').replace(/ /g, ' ');
@@ -222,7 +227,8 @@ export function exerciseProgress(sets, query, { weeks = 12, today = warsawDay() 
   const name = sets.find((s) => FitKit.exKey(s.ex) === key)?.ex || query;
   const bodyweight = all.every((s) => s.maxKg === 0);
   const val = (s) => (bodyweight ? s.reps : s.one);
-  if (!win.length) return { ex: name, sessions: 0, lastDay: all.length ? all[all.length - 1].day : null, text: `${name}: brak sesji w ostatnich ${weeks} tygodniach${all.length ? ` (ostatnio ${all[all.length - 1].day})` : ''}.` };
+  const span = weeks >= 5200 ? 'całej historii' : `${weeks} tyg.`;
+  if (!win.length) return { ex: name, sessions: 0, lastDay: all.length ? all[all.length - 1].day : null, text: `${name}: brak sesji w ${weeks >= 5200 ? 'historii' : `ostatnich ${weeks} tygodniach`}${all.length ? ` (ostatnio ${all[all.length - 1].day})` : ''}.` };
   const first = win[0];
   const last = win[win.length - 1];
   const top = win.reduce((a, s) => (val(s) > val(a) ? s : a), win[0]);
@@ -230,8 +236,8 @@ export function exerciseProgress(sets, query, { weeks = 12, today = warsawDay() 
   const pct = val(first) > 0 ? Math.round((change / val(first)) * 100) : null;
   const unit = bodyweight ? ' powt.' : ' kg';
   const text = win.length < 2
-    ? `${name}: jedna sesja w ${weeks} tyg. (${last.day}), ${bodyweight ? `${last.reps} powt.` : `1RM ok. ${fmtKg(last.one)} kg`}.`
-    : `${name}: ${win.length} sesji w ${weeks} tyg., ${bodyweight ? 'powtórzenia' : 'szacowany 1RM'} ${fmtKg(val(first))} → ${fmtKg(val(last))}${unit} (${change > 0 ? '+' : ''}${fmtKg(change)}${unit}${pct != null ? `, ${pct > 0 ? '+' : ''}${pct}%` : ''}). Najlepiej ${top.day}: ${bodyweight ? `${top.reps} powt.` : `${fmtKg(top.maxKg)} kg, 1RM ${fmtKg(top.one)} kg`}.`;
+    ? `${name}: jedna sesja w ${span} (${last.day}), ${bodyweight ? `${last.reps} powt.` : `1RM ok. ${fmtKg(last.one)} kg`}.`
+    : `${name}: ${win.length} sesji w ${span}, ${bodyweight ? 'powtórzenia' : 'szacowany 1RM'} ${fmtKg(val(first))} → ${fmtKg(val(last))}${unit} (${change > 0 ? '+' : ''}${fmtKg(change)}${unit}${pct != null ? `, ${pct > 0 ? '+' : ''}${pct}%` : ''}). Najlepiej ${top.day}: ${bodyweight ? `${top.reps} powt.` : `${fmtKg(top.maxKg)} kg, 1RM ${fmtKg(top.one)} kg`}.`;
   return { ex: name, key, bodyweight, sessions: win.length, first: val(first), last: val(last), change, pct, best: { day: top.day, value: val(top), kg: top.maxKg }, points: win.map((s) => [s.day, Math.round(val(s) * 10) / 10]), text };
 }
 
@@ -265,13 +271,149 @@ export function overallProgress(workouts, sets, today = warsawDay()) {
   return { workouts: now.length, workoutsBefore: prev.length, volume: vNow, volumeBefore: vPrev, avgMinutes: mins(now), growth, text: parts.join(' ') };
 }
 
-// ---------- synchronizacja ----------
+// ---------- archiwum calej historii ----------
 
-function removeWorkout(id) {
+const ARCHIVE = () => process.env.HEVY_ARCHIVE_NAME || 'hevy-archive';
+const TYPE_CODE = { normal: 'n', warmup: 'w', failure: 'f', dropset: 'd' };
+const TYPE_NAME = { n: 'normal', w: 'warmup', f: 'failure', d: 'dropset' };
+const NUM = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
+
+/** Trening w zwartej postaci archiwum: serie jako tablice [typ, kg, powt, rpe, metry, sekundy]. */
+export function packWorkout(w) {
+  const start = Date.parse(w.start_time) || 0;
+  return {
+    i: str(w.id, 40),
+    t: str(w.title, 80) || 'Trening',
+    ...(w.routine_id && { r: str(w.routine_id, 40) }),
+    s: start,
+    e: Math.max(start, Date.parse(w.end_time) || start),
+    x: (w.exercises || []).map((e) => [str(e.title, 60), str(e.exercise_template_id, 40), (e.sets || []).map((s) => {
+      const a = [TYPE_CODE[s.type] || 'n', NUM(s.weight_kg), NUM(s.reps), NUM(s.rpe), NUM(s.distance_meters), NUM(s.duration_seconds)];
+      while (a.length > 1 && a[a.length - 1] == null) a.pop();
+      return a;
+    })]),
+  };
+}
+/** Z powrotem do ksztaltu API Hevy: reszta kodu (opisy, serie) pracuje na nim. */
+export function unpackWorkout(p) {
+  return {
+    id: p.i,
+    title: p.t,
+    routine_id: p.r || null,
+    start_time: new Date(p.s).toISOString(),
+    end_time: new Date(p.e).toISOString(),
+    exercises: (p.x || []).map(([title, tid, sets], index) => ({
+      index, title, exercise_template_id: tid,
+      sets: (sets || []).map((a, k) => ({ index: k, type: TYPE_NAME[a[0]] || 'normal', weight_kg: a[1] ?? null, reps: a[2] ?? null, rpe: a[3] ?? null, distance_meters: a[4] ?? null, duration_seconds: a[5] ?? null })),
+    })),
+  };
+}
+
+let archive = null; // Map id -> trening w postaci archiwum
+let archiveLoading = null;
+let archiveDirty = false;
+let derived = null; // { sets, summaries } liczone z archiwum, kasowane przy kazdej zmianie
+
+/** Odczyt archiwum z magazynu. Gdy sie nie uda, nic nie zapisujemy: pusty stan nadpisalby historie. */
+export function loadArchive() {
+  if (archive) return Promise.resolve(archive);
+  if (!archiveLoading) {
+    archiveLoading = snapshotRead(ARCHIVE())
+      .then((a) => {
+        archive = new Map((Array.isArray(a?.workouts) ? a.workouts : []).filter((p) => p?.i).map((p) => [p.i, p]));
+        migrateOld();
+        return archive;
+      })
+      .finally(() => (archiveLoading = null));
+  }
+  return archiveLoading;
+}
+export const archiveReady = () => Boolean(archive);
+
+/** Testy: zapomnij archiwum w pamieci procesu. */
+export function _forgetArchive() {
+  archive = null;
+  archiveLoading = null;
+  archiveDirty = false;
+  derived = null;
+}
+
+function touch() {
+  archiveDirty = true;
+  derived = null;
+}
+function archivePut(w) {
+  const p = packWorkout(w);
+  if (!p.i || !p.s) return null;
+  archive.set(p.i, p);
+  touch();
+  return p;
+}
+function archiveDel(id) {
+  if (archive.delete(id)) touch();
+}
+
+async function saveArchive() {
+  if (!archive || !archiveDirty) return;
+  const list = [...archive.values()].sort((a, b) => a.s - b.s);
+  // Bezpiecznik rozmiaru: najstarsze odpadaja dopiero przy 10 000 treningow.
+  for (const old of list.splice(0, Math.max(0, list.length - MAX_ARCHIVE))) archive.delete(old.i);
+  await snapshotWrite(ARCHIVE(), { v: 1, savedAt: Date.now(), workouts: list });
+  archiveDirty = false;
+}
+
+/** Dane z wersji sprzed archiwum (treningi i serie w glownej pamieci) przechodza do archiwum. */
+function migrateOld() {
+  const st = state();
+  const sets = lifeList('sets').filter((s) => s.src === 'hevy' && s.wid);
+  for (const cw of st.workouts) {
+    if (!cw?.id || archive.has(cw.id)) continue;
+    const mine = sets.filter((s) => s.wid === cw.id);
+    if (!mine.length && !cw.ex?.length) continue;
+    const exercises = [];
+    for (const s of mine) {
+      let e = exercises.find((x) => x.title === s.ex);
+      if (!e) {
+        e = { title: s.ex, exercise_template_id: cw.ex?.find((x) => x.t === s.ex)?.tid || '', sets: [] };
+        exercises.push(e);
+      }
+      e.sets.push({ type: 'normal', weight_kg: s.kg, reps: s.reps, rpe: s.rpe || null });
+    }
+    archivePut({ id: cw.id, title: cw.title, routine_id: cw.routine || null, start_time: new Date(cw.start).toISOString(), end_time: new Date(cw.end).toISOString(), exercises });
+  }
+}
+
+function derive() {
+  if (derived) return derived;
+  const st = state();
+  const list = [...archive.values()].sort((a, b) => a.s - b.s).map(unpackWorkout);
+  derived = { summaries: list.map(compactWorkout), sets: list.flatMap((w) => workoutSets(w, st.templates)) };
+  return derived;
+}
+/** Wszystkie treningi (podsumowania) od najstarszego: z archiwum, a zanim sie wczyta, z pamieci. */
+export const allWorkouts = () => (archive ? derive().summaries : state().workouts);
+/** Cala historia serii: z Hevy z archiwum plus serie zapisane w Jarvisie. */
+export function historySets() {
+  if (!archive) return lifeList('sets');
+  return [...lifeList('sets').filter((s) => s.src !== 'hevy'), ...derive().sets];
+}
+setHistoryProvider(() => (archive ? historySets() : null));
+
+/** Glowna pamiec: serie i podsumowania z Hevy tylko z ostatnich miesiecy, odtworzone z archiwum. */
+function rebuildRecent() {
   const d = memory.load();
   const st = state();
-  st.workouts = st.workouts.filter((w) => w.id !== id);
-  if (d.life?.sets) d.life.sets = d.life.sets.filter((s) => s.wid !== id);
+  const from = FitKit.shiftDay(warsawDay(), -RECENT_DAYS);
+  const { summaries, sets } = derive();
+  if (d.life?.sets) d.life.sets = d.life.sets.filter((s) => s.src !== 'hevy');
+  for (const s of sets) {
+    if (s.day < from) continue;
+    const item = lifeAdd('sets', s);
+    if (item) item.at = s.at; // czas z treningu, nie z chwili importu: rekordy licza sie po kolei
+  }
+  st.workouts = summaries.filter((w) => w.day >= from);
+  st.count = summaries.length;
+  st.first = summaries.length ? summaries[0].day : null;
 }
 
 // Trening wczytany wczesniej z CSV i ten sam trening z API: zostaje wersja z API (ma rutyne i szablony).
@@ -279,33 +421,27 @@ const SAME_START_MS = 3 * 60000;
 const fromCsv = (id) => String(id).startsWith('csv-');
 
 function addWorkout(w) {
-  const st = state();
-  removeWorkout(w.id);
   if (!fromCsv(w.id)) {
     const start = Date.parse(w.start_time) || 0;
-    for (const old of st.workouts.filter((x) => fromCsv(x.id) && Math.abs(x.start - start) < SAME_START_MS)) removeWorkout(old.id);
+    for (const old of [...archive.values()].filter((x) => fromCsv(x.i) && Math.abs(x.s - start) < SAME_START_MS)) archiveDel(old.i);
   }
-  const cw = compactWorkout(w);
-  for (const s of workoutSets(w, st.templates)) {
-    const item = lifeAdd('sets', s);
-    if (item) item.at = s.at; // czas z treningu, nie z chwili importu: rekordy licza sie po kolei
-  }
-  st.workouts.push(cw);
-  return cw;
+  return archivePut(w);
 }
 
 /** Opis treningu z historia sprzed niego i poprzednim treningiem z tej samej rutyny albo o tym samym tytule. */
 export function describeStored(cw) {
-  const st = state();
-  const history = lifeList('sets').filter((s) => s.wid !== cw.id && (s.at || 0) < cw.start);
-  const previous = [...st.workouts].filter((w) => w.id !== cw.id && w.start < cw.start && ((cw.routine && w.routine === cw.routine) || w.title === cw.title)).sort((x, y) => y.start - x.start)[0] || null;
+  const history = historySets().filter((s) => s.wid !== cw.id && (s.at || 0) < cw.start);
+  const previous = [...allWorkouts()].filter((w) => w.id !== cw.id && w.start < cw.start && ((cw.routine && w.routine === cw.routine) || w.title === cw.title)).sort((x, y) => y.start - x.start)[0] || null;
   return describeWorkout(cw, history, previous);
 }
+const summaryOf = (id) => allWorkouts().find((w) => w.id === id);
 
 async function syncTemplates(workouts) {
   const st = state();
   const ids = [...new Set(workouts.flatMap((w) => (w.exercises || []).map((e) => e.exercise_template_id)).filter((id) => id && !st.templates[id]))];
-  for (const id of ids.slice(0, 40)) {
+  let fetched = 0;
+  for (const id of ids.slice(0, 150)) {
+    fetched++;
     try {
       const t = await H.exerciseTemplate(id);
       st.templates[id] = { t: str(t?.title, 60), mg: FitKit.HEVY_MUSCLE[t?.primary_muscle_group] || 'inne' };
@@ -314,9 +450,8 @@ async function syncTemplates(workouts) {
       else break; // limit albo siec: reszta w nastepnej synchronizacji
     }
   }
-  // Serie zapisane zanim znalismy szablon dostaja partie teraz.
-  const byTitle = new Map(Object.values(st.templates).filter((t) => t.t && t.mg).map((t) => [t.t, t.mg]));
-  for (const s of lifeList('sets')) if (s.src === 'hevy' && !s.mg && byTitle.has(s.ex)) s.mg = byTitle.get(s.ex);
+  derived = null; // partie z nowych szablonow
+  return fetched;
 }
 
 async function syncBody(initial) {
@@ -325,7 +460,7 @@ async function syncBody(initial) {
   st.bodyAt = Date.now();
   let added = 0;
   const have = new Set(lifeList('body').map((b) => b.day));
-  for (let page = 1; page <= (initial ? 5 : 1); page++) {
+  for (let page = 1; page <= (initial ? 200 : 1); page++) {
     let r;
     try {
       r = await H.bodyPage(page);
@@ -505,27 +640,29 @@ export function parseHevyCsv(text) {
 }
 
 /** Wczytanie eksportu: nowe treningi dochodza, juz znane (ten sam poczatek) zostaja bez zmian. */
-export function importCsv(text) {
+export async function importCsv(text) {
   const list = parseHevyCsv(text);
   if (!list.length) throw new Error('W pliku nie ma treningów.');
+  await loadArchive();
   const st = state();
+  const starts = [...archive.values()].map((p) => [p.i, p.s]);
   const added = [];
   for (const w of list) {
     const start = Date.parse(w.start_time);
-    if (st.workouts.some((x) => x.id === w.id || Math.abs(x.start - start) < SAME_START_MS)) continue;
-    added.push(addWorkout(w));
-  }
-  st.workouts.sort((a, b) => a.start - b.start);
-  if (st.workouts.length > KEEP_WORKOUTS) {
-    for (const old of st.workouts.slice(0, st.workouts.length - KEEP_WORKOUTS)) removeWorkout(old.id);
+    if (starts.some(([i, s]) => i === w.id || Math.abs(s - start) < SAME_START_MS)) continue;
+    if (addWorkout(w)) added.push(w.id);
   }
   st.csvAt = Date.now();
+  if (added.length) {
+    rebuildRecent();
+    await saveArchive();
+  }
   // Najnowszy nowy trening z ostatnich 2 dni dostaje opis w dzienniku, jak po synchronizacji.
-  const fresh = added.filter((w) => Date.now() - w.end < 48 * 3600000).pop();
+  const fresh = added.map(summaryOf).filter((w) => w && Date.now() - w.end < 48 * 3600000).pop();
   const desc = fresh ? describeStored(fresh).text : '';
   if (desc) logJournal('auto', `Hevy: ${desc}`, 'trening');
   memory.save(memory.load());
-  return { ok: true, inFile: list.length, added: added.length, skipped: list.length - added.length, total: st.workouts.length, opis: desc };
+  return { ok: true, inFile: list.length, added: added.length, skipped: list.length - added.length, total: archive.size, opis: desc };
 }
 
 let running = null;
@@ -560,8 +697,21 @@ const sameToken = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buff
 
 async function doSync(notify) {
   const st = state();
+  const fail = (e) => {
+    st.error = e.message;
+    st.errorStatus = e.status || 0;
+    st.errorAt = Date.now();
+    memory.save(memory.load());
+    return { ok: false, error: e.message };
+  };
+  try {
+    await loadArchive();
+  } catch (e) {
+    return fail(new Error(`Nie mogę odczytać archiwum treningów: ${e.message}`));
+  }
   const startedAt = new Date().toISOString();
-  const initial = !st.lastSync;
+  // Cala historia przy pierwszym polaczeniu, a takze raz po aktualizacji z wersji, ktora brala tylko 250 ostatnich.
+  const full = !st.fullHistory;
   const changed = [];
   const deleted = [];
   try {
@@ -569,51 +719,53 @@ async function doSync(notify) {
       const u = await H.userInfo().catch(() => null);
       if (u) st.user = { name: str(u.name, 60), username: str(u.username, 60), pro: Boolean(u.is_pro), unit: u.weight_unit === 'lbs' ? 'lbs' : 'kg' };
     }
-    for (let page = 1; page <= (initial ? INITIAL_PAGES : 30); page++) {
-      const r = initial ? await H.workoutsPage(page) : await H.eventsPage(st.lastSync, page);
-      if (initial) changed.push(...(r?.workouts || []));
+    for (let page = 1; page <= (full ? MAX_PAGES : 30); page++) {
+      const r = full ? await H.workoutsPage(page) : await H.eventsPage(st.lastSync, page);
+      if (full) changed.push(...(r?.workouts || []));
       else for (const ev of r?.events || []) ev.type === 'deleted' ? deleted.push(ev.id) : ev.workout && changed.push(ev.workout);
       if (page >= (r?.page_count || 1)) break;
     }
   } catch (e) {
-    st.error = e.message;
-    st.errorStatus = e.status || 0;
-    st.errorAt = Date.now();
-    memory.save(memory.load());
-    return { ok: false, error: e.message };
+    return fail(e);
   }
   // Zdarzenia przychodza od najnowszych: pierwsze wystapienie treningu to jego aktualna wersja.
   const latest = new Map();
   for (const w of changed) if (w?.id && !latest.has(w.id)) latest.set(w.id, w);
   for (const id of deleted) if (!latest.has(id)) latest.set(id, null);
-  await syncTemplates([...latest.values()].filter(Boolean));
-  const known = new Set(st.workouts.map((w) => w.id));
+  // Szablony (partie miesni) najpierw dla najnowszych: przy dlugiej historii reszta dojdzie w kolejnych synchronizacjach.
+  const newTemplates = await syncTemplates([...latest.values()].filter(Boolean));
+  const known = new Set(archive.keys());
   const added = [];
   let updated = 0;
   let removed = 0;
-  const ordered = [...latest.entries()].sort(([, a], [, b]) => (Date.parse(a?.start_time) || 0) - (Date.parse(b?.start_time) || 0));
-  for (const [id, w] of ordered) {
+  for (const [id, w] of latest) {
     if (!w) {
       if (known.has(id)) removed++;
-      removeWorkout(id);
+      archiveDel(id);
       continue;
     }
-    const cw = addWorkout(w);
+    if (!addWorkout(w)) continue;
     if (known.has(id)) updated++;
-    else added.push(cw);
+    else added.push(id);
   }
-  st.workouts.sort((a, b) => a.start - b.start);
-  if (st.workouts.length > KEEP_WORKOUTS) st.workouts = st.workouts.slice(-KEEP_WORKOUTS);
-  const weights = await syncBody(initial);
-  await syncRoutines(initial);
+  if (full) st.fullHistory = true;
+  if (archiveDirty || full || newTemplates) rebuildRecent();
+  try {
+    await saveArchive();
+  } catch (e) {
+    return fail(new Error(`Nie udało się zapisać archiwum treningów: ${e.message}`));
+  }
+  const weights = await syncBody(full);
+  await syncRoutines(full);
   st.lastSync = startedAt;
   st.lastOk = Date.now();
   st.error = '';
   st.errorStatus = 0;
   const notes = [];
-  // Po pierwszym polaczeniu nie zasypujemy telefonu historia: opisujemy tylko swieze treningi.
-  if (!initial) {
-    for (const cw of added.filter((w) => Date.now() - w.end < 48 * 3600000)) {
+  // Przy pobieraniu calej historii nie zasypujemy telefonu: opisujemy tylko swieze treningi ze zmian.
+  if (!full) {
+    const fresh = added.map(summaryOf).filter((w) => w && Date.now() - w.end < 48 * 3600000).sort((a, b) => a.start - b.start);
+    for (const cw of fresh) {
       const desc = describeStored(cw);
       notes.push(desc.text);
       st.lastDescribed = cw.id;
@@ -624,11 +776,13 @@ async function doSync(notify) {
     }
   }
   memory.save(memory.load());
-  return { ok: true, initial, added: added.length, updated, removed, weights, total: st.workouts.length, notes };
+  return { ok: true, initial: full, added: added.length, updated, removed, weights, total: archive.size, notes };
 }
 
 /** Z petli utrzymania: co 20 minut, po odrzuconym kluczu dopiero po 6 godzinach. */
 export async function maybeHevySync(now = Date.now()) {
+  // Archiwum w pamieci procesu tez wtedy, gdy Hevy rozlaczone (np. historia z CSV): rekordy z calej historii.
+  if (!archive) await loadArchive().catch(() => {});
   if (!H.isConfigured()) return null;
   const st = state();
   if (now - (st.lastTry || 0) < 20 * 60000) return null;
@@ -648,8 +802,10 @@ export function hevyStatus() {
     lastSync: st.lastSync || null,
     lastOk: st.lastOk || null,
     error: st.error || '',
-    workouts: st.workouts.length,
+    workouts: archive ? archive.size : st.count || st.workouts.length,
+    first: archive ? allWorkouts()[0]?.day || null : st.first || null,
     last: st.workouts.length ? st.workouts[st.workouts.length - 1].day : null,
+    fullHistory: Boolean(st.fullHistory),
     webhookPath: H.isConfigured() && webhookToken() ? `/api/hevy/webhook/${webhookToken()}` : '',
     webhookAt: st.webhookAt || null,
   };
@@ -662,6 +818,7 @@ registerBriefSection(async (kind) => {
   const today = warsawDay();
   const w = [...st.workouts].reverse().find((x) => x.day === today);
   if (!w) return '';
+  await loadArchive().catch(() => {});
   const d = describeStored(w);
   return `Trening w Hevy: ${d.title}, ${d.sets} serii${d.prs.length ? `, rekordy: ${d.prs.slice(0, 2).map((p) => p.ex).join(', ')}` : ''}.`;
 });
@@ -674,7 +831,12 @@ function origin(req) {
 }
 const redirectUri = (req) => `${origin(req)}/api/hevy/oauth/callback`;
 
-router.get('/api/hevy/status', requireOwner, (req, res) => res.json({ ...hevyStatus(), redirectUri: redirectUri(req) }));
+// Trasy, ktore licza z historii, najpierw wczytuja archiwum (po restarcie serwera jest tylko w magazynie).
+const withArchive = (fn) => async (req, res) => {
+  await loadArchive().catch(() => {});
+  return fn(req, res);
+};
+router.get('/api/hevy/status', requireOwner, withArchive((req, res) => res.json({ ...hevyStatus(), redirectUri: redirectUri(req) })));
 router.get('/api/hevy/auth-url', requireOwner, (req, res) => {
   if (!H.oauthConfigured()) return res.status(400).json({ error: 'Brak HEVY_CLIENT_ID i HEVY_CLIENT_SECRET w ustawieniach serwera.' });
   res.json({ url: H.authUrl(redirectUri(req)), redirectUri: redirectUri(req) });
@@ -699,11 +861,11 @@ router.post('/api/hevy/disconnect', requireOwner, (req, res) => {
   H.disconnect();
   res.json(hevyStatus());
 });
-router.post('/api/hevy/import', requireOwner, (req, res) => {
+router.post('/api/hevy/import', requireOwner, async (req, res) => {
   const csv = String(req.body?.csv || '');
   if (!csv) return res.status(400).json({ error: 'Brak pliku CSV.' });
   try {
-    res.json(importCsv(csv));
+    res.json(await importCsv(csv));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -722,21 +884,22 @@ router.post('/api/hevy/webhook/:token', (req, res) => {
   state().webhookAt = Date.now();
   setTimeout(() => hevySync().catch((e) => console.error('Hevy webhook:', e.message)), 1500);
 });
-router.get('/api/hevy/workouts', requireOwner, (req, res) => {
+router.get('/api/hevy/workouts', requireOwner, withArchive((req, res) => {
   const n = Math.max(1, Math.min(30, Math.round(num(req.query.limit) || 10)));
-  res.json({ workouts: [...state().workouts].reverse().slice(0, n).map((w) => describeStored(w)) });
-});
-router.get('/api/hevy/progress', requireOwner, (req, res) => {
-  const weeks = Math.max(1, Math.min(104, Math.round(num(req.query.weeks) || 12)));
-  const sets = lifeList('sets');
-  if (req.query.ex) return res.json(exerciseProgress(sets, String(req.query.ex), { weeks }) || { error: 'Nie znam takiego ćwiczenia w historii.' });
-  res.json(overallProgress(state().workouts, sets));
-});
-router.get('/api/hevy/exercises', requireOwner, (req, res) => {
+  res.json({ workouts: [...allWorkouts()].reverse().slice(0, n).map((w) => describeStored(w)) });
+}));
+// tygodnie 0 = cala historia
+const weeksOf = (v, d = 12) => (Number(v) === 0 ? 5200 : Math.max(1, Math.min(5200, Math.round(num(v) || d))));
+router.get('/api/hevy/progress', requireOwner, withArchive((req, res) => {
+  const sets = historySets();
+  if (req.query.ex) return res.json(exerciseProgress(sets, String(req.query.ex), { weeks: weeksOf(req.query.weeks) }) || { error: 'Nie znam takiego ćwiczenia w historii.' });
+  res.json(overallProgress(allWorkouts(), sets));
+}));
+router.get('/api/hevy/exercises', requireOwner, withArchive((req, res) => {
   const count = new Map();
-  for (const s of lifeList('sets')) count.set(s.ex, (count.get(s.ex) || 0) + 1);
-  res.json({ exercises: [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 80).map(([ex, n]) => ({ ex, sets: n })) });
-});
+  for (const s of historySets()) count.set(s.ex, (count.get(s.ex) || 0) + 1);
+  res.json({ exercises: [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 150).map(([ex, n]) => ({ ex, sets: n })) });
+}));
 
 // ---------- glos ----------
 export const HEVY_TOOLS = [
@@ -747,7 +910,7 @@ export const HEVY_TOOLS = [
   },
   {
     name: 'hevy_postep',
-    description: 'Postep na silowni z Hevy i modulu Trening: dla cwiczenia (po polsku lub angielsku) zmiana szacowanego 1RM w ostatnich tygodniach, bez cwiczenia ogolny bilans 4 tygodni.',
+    description: 'Postep na silowni z calej historii Hevy i modulu Trening: dla cwiczenia (po polsku lub angielsku) zmiana szacowanego 1RM w ostatnich tygodniach (tygodnie: 0 = od pierwszego treningu), bez cwiczenia ogolny bilans 4 tygodni i bilans calej historii.',
     parameters: { type: 'object', properties: { cwiczenie: { type: 'string' }, tygodnie: { type: 'number' } } },
   },
   {
@@ -765,21 +928,23 @@ export async function runHevyTool(name, a = {}) {
     if (!r.ok) return { error: r.error };
     return { nowe: r.added, zmienione: r.updated, usuniete: r.removed, opis: r.notes[0] || (r.added ? 'zapisane' : 'brak nowych treningów') };
   }
+  await loadArchive().catch(() => {});
   if (name === 'hevy_trening') {
-    const st = state();
-    if (!st.workouts.length) return { error: H.isConfigured() ? 'brak treningów z Hevy (jeszcze nie zsynchronizowane?)' : 'Hevy niepołączone: połącz konto w module Trening (panel Hevy) albo wczytaj eksport CSV z aplikacji.' };
-    const i = Math.max(0, Math.min(st.workouts.length - 1, Math.round(num(a.ktory))));
-    const d = describeStored(st.workouts[st.workouts.length - 1 - i]);
+    const all = allWorkouts();
+    if (!all.length) return { error: H.isConfigured() ? 'brak treningów z Hevy (jeszcze nie zsynchronizowane?)' : 'Hevy niepołączone: połącz konto w module Trening (panel Hevy) albo wczytaj eksport CSV z aplikacji.' };
+    const i = Math.max(0, Math.min(all.length - 1, Math.round(num(a.ktory))));
+    const d = describeStored(all[all.length - 1 - i]);
     return { opis: d.text, dzien: d.day, minut: d.minutes, serii: d.sets, objetosc_kg: d.volume, zmiana_objetosci_proc: d.volumeChange, rekordy: d.prs.map((p) => `${p.ex} ${p.kg} kg × ${p.reps}`) };
   }
   if (name === 'hevy_postep') {
-    const sets = lifeList('sets');
+    const sets = historySets();
     if (a.cwiczenie) {
-      const p = exerciseProgress(sets, a.cwiczenie, { weeks: Math.max(1, Math.min(104, Math.round(num(a.tygodnie) || 12))) });
-      return p ? { opis: p.text, sesji: p.sessions, zmiana: p.change, zmiana_proc: p.pct } : { error: `nie znam ćwiczenia "${a.cwiczenie}" w historii` };
+      const p = exerciseProgress(sets, a.cwiczenie, { weeks: weeksOf(a.tygodnie) });
+      return p ? { opis: p.text, sesji: p.sessions, zmiana: p.change, zmiana_proc: p.pct, najlepiej: p.best } : { error: `nie znam ćwiczenia "${a.cwiczenie}" w historii` };
     }
-    const o = overallProgress(state().workouts, sets);
-    return { opis: o.text, treningi_4_tyg: o.workouts, wczesniej: o.workoutsBefore };
+    const all = allWorkouts();
+    const o = overallProgress(all, sets);
+    return { opis: o.text, treningi_4_tyg: o.workouts, wczesniej: o.workoutsBefore, wszystkich_treningow: all.length, pierwszy_trening: all[0]?.day || null };
   }
   return undefined;
 }

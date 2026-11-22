@@ -5,7 +5,7 @@ import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
 import * as player from '../connect/spotifyPlayer.js';
 import { registerBriefSection } from '../core/briefing.js';
-import { FitKit, fitProfile, fitSummary } from './fitness.js';
+import { FitKit, fitProfile, fitSummary, allSets } from './fitness.js';
 import { lifeList, logJournal, warsawDay } from './life.js';
 import { isDnd } from './dnd.js';
 
@@ -38,7 +38,8 @@ registerBriefSection(async (kind) => coachBriefLine(kind));
 
 /** Tekst podsumowania tygodnia (glos, push w niedziele). */
 export function coachWeekText(day = warsawDay()) {
-  const r = FitKit.weekReport({ sets: lifeList('sets'), body: lifeList('body'), sleep: lifeList('sleep') }, day);
+  // Rekordy tygodnia wzgledem calej historii, nie tylko ostatnich miesiecy w pamieci.
+  const r = FitKit.weekReport({ sets: allSets(), body: lifeList('body'), sleep: lifeList('sleep') }, day);
   const p = fitProfile();
   const bits = [`treningi: ${r.days}/${p.perWeek || 3}`, `${r.sets} serii`, `${r.volume} kg objętości`];
   if (r.prs.length) bits.push(`rekordy: ${r.prs.slice(0, 3).join(', ')}`);

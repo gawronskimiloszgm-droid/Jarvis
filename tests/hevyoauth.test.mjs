@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 delete process.env.HEVY_API_KEY;
 process.env.HEVY_CLIENT_ID = 'klient';
 process.env.HEVY_CLIENT_SECRET = 'sekret';
+process.env.HEVY_ARCHIVE_NAME = 'test-hevyoauth';
 const memory = await import('../server/memory/memory.js');
+const { snapshotDelete } = await import('../server/core/store.js');
 const H = await import('../server/connect/hevy.js');
 const hevy = await import('../server/extras/hevy.js');
 const { lifeList } = await import('../server/extras/life.js');
@@ -14,7 +16,8 @@ const before = JSON.parse(JSON.stringify(memory.load()));
 memory.load().life = {};
 delete memory.load().hevy;
 delete memory.load().hevyAuth;
-after(() => {
+after(async () => {
+  await snapshotDelete(process.env.HEVY_ARCHIVE_NAME);
   memory.save(before);
   delete process.env.HEVY_CLIENT_ID;
   delete process.env.HEVY_CLIENT_SECRET;
@@ -46,21 +49,21 @@ const CSV = [
   `"Push, ciężki","${fmt(t2)}","${fmt(t2 + 3000000)}","","Treadmill","","","0","normal","","","2.5","900",""`,
 ].join('\r\n');
 
-test('eksport CSV: treningi, rozgrzewka pominieta, opis najnowszego, drugi import nic nie dubluje', () => {
+test('eksport CSV: treningi, rozgrzewka pominieta, opis najnowszego, drugi import nic nie dubluje', async () => {
   const list = hevy.parseHevyCsv(CSV);
   assert.equal(list.length, 2);
   assert.equal(list[0].title, 'Push, ciężki');
   assert.equal(list[0].exercises[0].sets.length, 3);
   assert.equal(list[1].exercises[1].sets[0].distance_meters, 2500);
-  const r = hevy.importCsv(CSV);
+  const r = await hevy.importCsv(CSV);
   assert.deepEqual([r.inFile, r.added, r.skipped], [2, 2, 0]);
   assert.match(r.opis, /Rekordy: Bench Press \(Barbell\) 85 kg × 8 \(było 80 kg\)/);
   assert.match(r.opis, /Cardio: Treadmill 2,5 km 15 min/);
   assert.equal(lifeList('sets').length, 3, 'bez serii rozgrzewkowej i bez cardio');
   assert.equal(lifeList('sets').find((s) => s.ex === 'Bench Press (Barbell)').mg, undefined);
-  const again = hevy.importCsv(CSV);
+  const again = await hevy.importCsv(CSV);
   assert.deepEqual([again.added, again.skipped], [0, 2]);
-  assert.throws(() => hevy.importCsv('a,b\n1,2'), /eksport treningów z Hevy/);
+  await assert.rejects(hevy.importCsv('a,b\n1,2'), /eksport treningów z Hevy/);
 });
 
 test('OAuth: zgoda, wymiana kodu, zapytania z tokenem, odswiezenie po 401, trening z API zastepuje ten z CSV', async () => {

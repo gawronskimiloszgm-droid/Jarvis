@@ -2,7 +2,9 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.HEVY_API_KEY = 'testowy-klucz';
+process.env.HEVY_ARCHIVE_NAME = 'test-hevy';
 const memory = await import('../server/memory/memory.js');
+const { snapshotDelete } = await import('../server/core/store.js');
 const hevy = await import('../server/extras/hevy.js');
 const { lifeList, lifeAdd, warsawDay } = await import('../server/extras/life.js');
 const { FitKit } = await import('../server/extras/fitness.js');
@@ -11,7 +13,8 @@ const { runLifeTool, LIFE_TOOL_NAMES } = await import('../server/extras/lifevoic
 const before = JSON.parse(JSON.stringify(memory.load()));
 memory.load().life = {};
 delete memory.load().hevy;
-after(() => {
+after(async () => {
+  await snapshotDelete(process.env.HEVY_ARCHIVE_NAME);
   memory.save(before);
   delete process.env.HEVY_API_KEY;
 });
@@ -189,4 +192,37 @@ test('rutyny z Hevy: plan dnia to rutyna po ostatnio zrobionej, z ciezarami z hi
   assert.deepEqual(s.plan.ex, [['Pull Up', 3, '8'], ['Plank', 1, '60 s']]);
   assert.ok(s.planLoads['Pull Up'], 'podpowiedz z historii podciagania');
   assert.equal(hevy.nextRoutine([], []), null);
+});
+
+test('cala historia: ponad 250 treningow, stare tylko w archiwum, rekordy i postep z calosci, archiwum po restarcie', async () => {
+  const { fitSummary } = await import('../server/extras/fitness.js');
+  // 300 starych treningow (od ok. 2,5 roku temu) i jeden martwy ciag 180 kg sprzed 800 dni.
+  const old = Array.from({ length: 300 }, (_, i) => workout(`old${i}`, 900 - i * 2.5, 'Legs', [['Squat (Barbell)', 'S1', [[60 + i * 0.25, 5]]]]));
+  old.push(workout('dl', 800, 'Pull', [['Deadlift (Barbell)', 'D1', [[180, 3]]]]));
+  server.workouts = [...server.workouts, ...old];
+  server.events = [];
+  memory.load().hevy.fullHistory = false; // jak po aktualizacji z wersji z limitem 250
+  const r = await hevy.hevySync();
+  assert.equal(r.ok, true);
+  assert.ok(calls.some((c) => c.startsWith('/v1/workouts?page=31&')), 'stron dalej niz 25');
+  const st = hevy.hevyStatus();
+  assert.ok(st.workouts >= 301, `w archiwum ${st.workouts}`);
+  assert.equal(st.fullHistory, true);
+  assert.ok(st.first <= warsawDay(-899));
+  const recentFrom = FitKit.shiftDay(warsawDay(), -120);
+  assert.ok(lifeList('sets').every((s) => s.day >= recentFrom), 'w glownej pamieci tylko ostatnie miesiace');
+  assert.ok(memory.load().hevy.workouts.every((w) => w.day >= recentFrom));
+  // Rekordy i postep z calej historii.
+  const rec = fitSummary().records.find((x) => x.ex === 'Deadlift (Barbell)');
+  assert.equal(rec.maxKg, 180);
+  const p = hevy.exerciseProgress(hevy.historySets(), 'squat', { weeks: 5200 });
+  assert.ok(p.sessions >= 300, `sesji ${p.sessions}`);
+  assert.ok(p.change > 0);
+  // Restart: archiwum wraca z magazynu, nie z pamieci procesu.
+  hevy._forgetArchive();
+  assert.equal(hevy.archiveReady(), false);
+  await hevy.loadArchive();
+  assert.equal(hevy.hevyStatus().workouts, st.workouts);
+  const last = await runLifeTool('hevy_postep', {});
+  assert.ok(last.wszystkich_treningow >= 301);
 });
