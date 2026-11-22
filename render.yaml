@@ -26,3 +26,7 @@ services:
         sync: false
       - key: HEVY_API_KEY
         sync: false
+      - key: HEVY_CLIENT_ID
+        sync: false
+      - key: HEVY_CLIENT_SECRET
+        sync: false

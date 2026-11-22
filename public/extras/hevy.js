@@ -85,6 +85,26 @@
         window.dispatchEvent(new CustomEvent('jarvis:fit'));
         load();
       });
+      // Eksport z aplikacji Hevy dziala bez Pro i bez zadnych kluczy.
+      const csvFile = el('input');
+      csvFile.type = 'file';
+      csvFile.accept = '.csv,text/csv,text/comma-separated-values';
+      csvFile.addEventListener('change', async () => {
+        const f = csvFile.files?.[0];
+        if (!f) return;
+        try {
+          if (f.size > 7 * 1024 * 1024) throw new Error('Plik jest za duży (ponad 7 MB).');
+          const r = await api('/api/hevy/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: await f.text() }) });
+          toast(`Hevy CSV: ${r.added} nowych treningów${r.skipped ? `, ${r.skipped} już było` : ''}`, 'ok');
+          window.dispatchEvent(new CustomEvent('jarvis:fit'));
+          load();
+        } catch (e) {
+          toast(e.message);
+        }
+        csvFile.value = '';
+      });
+      const csvBox = el('div');
+      csvBox.append(el('div', 'sub', 'Eksport z aplikacji (bez Pro):'), el('div', 'w-dim', 'W Hevy: Profil → ⚙ Ustawienia → Eksport i import danych → Eksportuj treningi. Plik CSV wybierz tutaj (na telefonie prosto z Pobranych). Kolejne eksporty dokładają tylko nowe treningi.'), row(csvFile));
       body.append(status, row(sync), overall, el('div', 'sub', 'Ostatnie treningi:'), list, el('div', 'sub', 'Postęp ćwiczenia:'), row(inp, dl, weeks, button('POKAŻ', show)), prog);
 
       async function load() {
@@ -92,8 +112,28 @@
         status.innerHTML = '';
         if (!s.configured) {
           sync.style.display = 'none';
-          status.appendChild(el('div', 'w-mid', 'Hevy niepodłączone. Jak podłączyć:'));
-          for (const t of ['1. Zaloguj się na developers.hevy.com → API key & webhooks (wymaga Hevy Pro) i wygeneruj klucz.', '2. Na Render: usługa Jarvisa → Environment → dodaj HEVY_API_KEY z tym kluczem i zapisz (serwer sam się zrestartuje).', '3. Wróć tutaj: Jarvis pobierze ostatnie treningi i potem co 20 minut sprawdza nowe. Klucza nie wklejaj do czatu.']) status.appendChild(el('div', 'w-dim', t));
+          if (s.oauth) {
+            // Aplikacja ustawiona na serwerze: zostalo zalogowac sie kontem Hevy.
+            status.appendChild(el('div', 'w-mid', `Hevy niepołączone${s.workouts ? ` · ${s.workouts} treningów z pliku` : ''}.`));
+            status.appendChild(row(button('POŁĄCZ Z HEVY', async () => {
+              const r = await api('/api/hevy/auth-url');
+              location.href = r.url;
+            }, 'btn primary'), el('span', 'w-dim', 'zalogujesz się kontem Hevy i wrócisz tutaj')));
+          } else {
+            status.appendChild(el('div', 'w-mid', `Hevy bez połączenia${s.workouts ? ` · ${s.workouts} treningów z pliku` : ''}. Połączenie bez Hevy Pro (raz, ok. 5 minut):`));
+            const steps = [
+              '1. Na developers.hevy.com zaloguj się kontem Hevy → OAuth app → utwórz aplikację (np. „Jarvis”).',
+              '2. Zakresy: read-workout, read-routine, read-exercise, read-body-measurement, read-profile. Adres przekierowania (redirect URI) wklej ten niżej.',
+              '3. Na Render: usługa Jarvisa → Environment → HEVY_CLIENT_ID i HEVY_CLIENT_SECRET z tej aplikacji, zapisz. Sekretu nie wklejaj do czatu.',
+              '4. Wróć tutaj i kliknij POŁĄCZ Z HEVY. Z kluczem Pro wystarczy samo HEVY_API_KEY.',
+            ];
+            for (const t of steps) status.appendChild(el('div', 'w-dim', t));
+            const uri = s.redirectUri || `${location.origin}/api/hevy/oauth/callback`;
+            status.appendChild(row(el('code', 'w-mid', uri), button('KOPIUJ', async () => {
+              await navigator.clipboard.writeText(uri);
+              toast('Skopiowano adres przekierowania.', 'ok');
+            }, 'btn ghost')));
+          }
         } else {
           sync.style.display = '';
           status.appendChild(el('div', 'w-mid', `Hevy${s.user?.name ? `: ${s.user.name}` : ''} · ${s.workouts} treningów${s.lastOk ? ` · sprawdzone ${ago(s.lastOk)}` : ' · jeszcze nie zsynchronizowane'}`));
@@ -103,11 +143,20 @@
             const url = `${location.origin}${s.webhookPath}`;
             const copy = button(s.webhookAt ? 'WEBHOOK DZIAŁA · KOPIUJ ADRES' : 'KOPIUJ ADRES WEBHOOKA', async () => {
               await navigator.clipboard.writeText(url);
-              toast('Skopiowano. Wklej w Hevy: developers.hevy.com → API key & webhooks.', 'ok');
+              toast(`Skopiowano. Wklej w Hevy: developers.hevy.com → ${s.mode === 'oauth' ? 'OAuth app → webhook URL' : 'API key & webhooks'}.`, 'ok');
             }, 'btn ghost');
             status.appendChild(row(copy, el('span', 'w-dim', s.webhookAt ? `ostatni sygnał ${ago(s.webhookAt)}` : 'natychmiastowy opis po zapisaniu treningu')));
           }
+          if (s.mode === 'oauth') {
+            status.appendChild(row(button('ROZŁĄCZ HEVY', async () => {
+              if (!window.confirm('Rozłączyć konto Hevy? Pobrane treningi zostają.')) return;
+              await api('/api/hevy/disconnect', { method: 'POST' });
+              load();
+            }, 'btn ghost')));
+          }
         }
+        status.appendChild(csvBox);
+        if (s.csvAt && !s.configured) status.appendChild(el('div', 'w-dim', `Ostatni plik wczytany ${ago(s.csvAt)}.`));
         if (!s.workouts) {
           overall.textContent = '';
           list.innerHTML = '';

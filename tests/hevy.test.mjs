@@ -134,7 +134,7 @@ test('narzedzia glosowe i blad klucza', async () => {
 test('bez klucza nic nie wysyla', async () => {
   delete process.env.HEVY_API_KEY;
   assert.equal(await hevy.maybeHevySync(), null);
-  assert.match((await runLifeTool('hevy_synchronizuj', {})).error, /HEVY_API_KEY/);
+  assert.match((await runLifeTool('hevy_synchronizuj', {})).error, /połącz konto/);
   process.env.HEVY_API_KEY = 'testowy-klucz';
 });
 

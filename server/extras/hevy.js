@@ -274,9 +274,17 @@ function removeWorkout(id) {
   if (d.life?.sets) d.life.sets = d.life.sets.filter((s) => s.wid !== id);
 }
 
+// Trening wczytany wczesniej z CSV i ten sam trening z API: zostaje wersja z API (ma rutyne i szablony).
+const SAME_START_MS = 3 * 60000;
+const fromCsv = (id) => String(id).startsWith('csv-');
+
 function addWorkout(w) {
   const st = state();
   removeWorkout(w.id);
+  if (!fromCsv(w.id)) {
+    const start = Date.parse(w.start_time) || 0;
+    for (const old of st.workouts.filter((x) => fromCsv(x.id) && Math.abs(x.start - start) < SAME_START_MS)) removeWorkout(old.id);
+  }
   const cw = compactWorkout(w);
   for (const s of workoutSets(w, st.templates)) {
     const item = lifeAdd('sets', s);
@@ -392,6 +400,134 @@ setPlanProvider(() => {
   return nextRoutine(st.routines, st.workouts);
 });
 
+// ---------- eksport CSV z aplikacji Hevy (bez Pro: Profil -> Ustawienia -> Eksport danych) ----------
+
+/** Wiersze CSV z polami w cudzyslowach, przecinkami i nowymi liniami w srodku. */
+export function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const t = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (quoted) {
+      if (c === '"' && t[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',' || c === ';') {
+      row.push(cell);
+      cell = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && t[i + 1] === '\n') i++;
+      row.push(cell);
+      if (row.some((x) => x !== '')) rows.push(row);
+      row = [];
+      cell = '';
+    } else cell += c;
+  }
+  row.push(cell);
+  if (row.some((x) => x !== '')) rows.push(row);
+  return rows;
+}
+
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11, sty: 0, lut: 1, kwi: 3, maj: 4, cze: 5, lip: 6, sie: 7, wrz: 8, paz: 9, lis: 10, gru: 11 };
+/** Czas z eksportu ("28 Feb 2024, 18:09", "Feb 28, 2024 6:09 PM" albo ISO) jako ms; godzina w czasie warszawskim. */
+export function parseHevyTime(v) {
+  const s = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return Date.parse(s) || 0;
+  const m = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  let y;
+  let mo;
+  let d;
+  let a = /(\d{1,2})\s+([a-z]{3})[a-z]*\.?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(am|pm)?/.exec(m);
+  if (a) [, d, mo, y] = a;
+  else {
+    a = /([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(am|pm)?/.exec(m);
+    if (!a) {
+      const iso = /^(\d{4})-(\d{2})-(\d{2})[ t](\d{1,2}):(\d{2})/.exec(m);
+      if (!iso) return 0;
+      a = [null, null, null, iso[1], iso[4], iso[5], null];
+      [y, mo, d] = [iso[1], Number(iso[2]) - 1, iso[3]];
+    } else [, mo, d, y] = a;
+  }
+  const month = typeof mo === 'number' ? mo : MONTHS[mo];
+  if (month == null) return 0;
+  let h = Number(a[4]);
+  if (a[6] === 'pm' && h < 12) h += 12;
+  if (a[6] === 'am' && h === 12) h = 0;
+  // Najpierw jakby to byl UTC, potem przesuniecie o roznice Warszawy w tej chwili (zima +1, lato +2).
+  const guess = Date.UTC(Number(y), month, Number(d), h, Number(a[5]));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(guess)).map((p) => [p.type, p.value]));
+  const shown = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+  return guess - (shown - guess);
+}
+
+/** Eksport CSV z Hevy -> treningi w ksztalcie API (jeden wiersz to jedna seria). */
+export function parseHevyCsv(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error('Plik jest pusty albo to nie jest eksport z Hevy.');
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (...names) => names.map((n) => head.indexOf(n)).find((i) => i >= 0) ?? -1;
+  const c = {
+    title: col('title', 'workout_name'), start: col('start_time', 'date'), end: col('end_time'), ex: col('exercise_title', 'exercise_name'),
+    type: col('set_type'), kg: col('weight_kg'), lbs: col('weight_lbs'), reps: col('reps'), km: col('distance_km'), mi: col('distance_miles'), sec: col('duration_seconds'), rpe: col('rpe'),
+  };
+  if (c.start < 0 || c.ex < 0) throw new Error('To nie wygląda na eksport treningów z Hevy (brak kolumn start_time i exercise_title).');
+  const cell = (r, i) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+  const n = (v) => (v === '' ? null : Number(String(v).replace(',', '.')));
+  const byKey = new Map();
+  for (const r of rows.slice(1)) {
+    const startRaw = cell(r, c.start);
+    const start = parseHevyTime(startRaw);
+    const exTitle = cell(r, c.ex);
+    if (!start || !exTitle) continue;
+    const title = cell(r, c.title) || 'Trening';
+    const key = `${title}|${startRaw}`;
+    if (!byKey.has(key)) {
+      const end = parseHevyTime(cell(r, c.end)) || start;
+      byKey.set(key, { id: `csv-${crypto.createHash('sha1').update(key).digest('hex').slice(0, 16)}`, title, routine_id: null, start_time: new Date(start).toISOString(), end_time: new Date(Math.max(end, start)).toISOString(), exercises: [] });
+    }
+    const w = byKey.get(key);
+    let e = w.exercises.find((x) => x.title === exTitle);
+    if (!e) {
+      e = { index: w.exercises.length, title: exTitle, exercise_template_id: '', sets: [] };
+      w.exercises.push(e);
+    }
+    const kg = c.kg >= 0 ? n(cell(r, c.kg)) : c.lbs >= 0 && n(cell(r, c.lbs)) != null ? Math.round(n(cell(r, c.lbs)) * 0.45359237 * 10) / 10 : null;
+    const meters = c.km >= 0 && n(cell(r, c.km)) != null ? n(cell(r, c.km)) * 1000 : c.mi >= 0 && n(cell(r, c.mi)) != null ? n(cell(r, c.mi)) * 1609.34 : null;
+    e.sets.push({ index: e.sets.length, type: cell(r, c.type) || 'normal', weight_kg: kg, reps: n(cell(r, c.reps)), distance_meters: meters, duration_seconds: n(cell(r, c.sec)), rpe: n(cell(r, c.rpe)) });
+  }
+  return [...byKey.values()].sort((a, b) => Date.parse(a.start_time) - Date.parse(b.start_time));
+}
+
+/** Wczytanie eksportu: nowe treningi dochodza, juz znane (ten sam poczatek) zostaja bez zmian. */
+export function importCsv(text) {
+  const list = parseHevyCsv(text);
+  if (!list.length) throw new Error('W pliku nie ma treningów.');
+  const st = state();
+  const added = [];
+  for (const w of list) {
+    const start = Date.parse(w.start_time);
+    if (st.workouts.some((x) => x.id === w.id || Math.abs(x.start - start) < SAME_START_MS)) continue;
+    added.push(addWorkout(w));
+  }
+  st.workouts.sort((a, b) => a.start - b.start);
+  if (st.workouts.length > KEEP_WORKOUTS) {
+    for (const old of st.workouts.slice(0, st.workouts.length - KEEP_WORKOUTS)) removeWorkout(old.id);
+  }
+  st.csvAt = Date.now();
+  // Najnowszy nowy trening z ostatnich 2 dni dostaje opis w dzienniku, jak po synchronizacji.
+  const fresh = added.filter((w) => Date.now() - w.end < 48 * 3600000).pop();
+  const desc = fresh ? describeStored(fresh).text : '';
+  if (desc) logJournal('auto', `Hevy: ${desc}`, 'trening');
+  memory.save(memory.load());
+  return { ok: true, inFile: list.length, added: added.length, skipped: list.length - added.length, total: st.workouts.length, opis: desc };
+}
+
 let running = null;
 let again = false;
 
@@ -417,7 +553,7 @@ export function hevySync({ notify = true } = {}) {
  * kluczu API). Bez wlasnego sekretu wyprowadzony z klucza Hevy, wiec zmienia sie razem z nim.
  */
 export function webhookToken() {
-  const base = process.env.HEVY_WEBHOOK_SECRET || process.env.HEVY_API_KEY || '';
+  const base = process.env.HEVY_WEBHOOK_SECRET || process.env.HEVY_API_KEY || process.env.HEVY_CLIENT_SECRET || '';
   return base ? crypto.createHmac('sha256', base).update('jarvis-hevy-webhook').digest('hex').slice(0, 32) : '';
 }
 const sameToken = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -505,13 +641,16 @@ export function hevyStatus() {
   const st = state();
   return {
     configured: H.isConfigured(),
+    mode: H.mode(),
+    oauth: H.oauthConfigured(),
+    csvAt: st.csvAt || null,
     user: st.user || null,
     lastSync: st.lastSync || null,
     lastOk: st.lastOk || null,
     error: st.error || '',
     workouts: st.workouts.length,
     last: st.workouts.length ? st.workouts[st.workouts.length - 1].day : null,
-    webhookPath: H.isConfigured() ? `/api/hevy/webhook/${webhookToken()}` : '',
+    webhookPath: H.isConfigured() && webhookToken() ? `/api/hevy/webhook/${webhookToken()}` : '',
     webhookAt: st.webhookAt || null,
   };
 }
@@ -528,9 +667,49 @@ registerBriefSection(async (kind) => {
 });
 
 // ---------- trasy ----------
-router.get('/api/hevy/status', requireOwner, (req, res) => res.json(hevyStatus()));
+function origin(req) {
+  const host = req.get('host') || 'localhost';
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  return `${proto.split(',')[0]}://${host}`;
+}
+const redirectUri = (req) => `${origin(req)}/api/hevy/oauth/callback`;
+
+router.get('/api/hevy/status', requireOwner, (req, res) => res.json({ ...hevyStatus(), redirectUri: redirectUri(req) }));
+router.get('/api/hevy/auth-url', requireOwner, (req, res) => {
+  if (!H.oauthConfigured()) return res.status(400).json({ error: 'Brak HEVY_CLIENT_ID i HEVY_CLIENT_SECRET w ustawieniach serwera.' });
+  res.json({ url: H.authUrl(redirectUri(req)), redirectUri: redirectUri(req) });
+});
+// Hevy przekierowuje tu przegladarke bez naszych naglowkow: bezpieczenstwo daje jednorazowy state
+// wydany tylko wlascicielowi przez /api/hevy/auth-url.
+router.get('/api/hevy/oauth/callback', async (req, res) => {
+  const page = (title, msg) => res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#05090b;color:#cdeef7;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:20px"><h2>${title}</h2><p>${String(msg).replace(/[<>&]/g, '')}</p></div></body>`);
+  const { code, state: st, error } = req.query;
+  if (error) return page('Hevy', error === 'access_denied' ? 'Odmówiono dostępu.' : `Hevy zwrócił błąd: ${error}`);
+  if (!code || !st) return page('Hevy', 'Brak kodu logowania.');
+  try {
+    await H.exchangeCode(String(code), String(st));
+    delete state().user;
+    hevySync().catch((e) => console.error('Hevy po polaczeniu:', e.message));
+    page('Hevy połączone', 'Możesz zamknąć to okno i wrócić do Jarvisa: treningi właśnie się pobierają.');
+  } catch (e) {
+    page('Nie udało się połączyć', e.message);
+  }
+});
+router.post('/api/hevy/disconnect', requireOwner, (req, res) => {
+  H.disconnect();
+  res.json(hevyStatus());
+});
+router.post('/api/hevy/import', requireOwner, (req, res) => {
+  const csv = String(req.body?.csv || '');
+  if (!csv) return res.status(400).json({ error: 'Brak pliku CSV.' });
+  try {
+    res.json(importCsv(csv));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 router.post('/api/hevy/sync', requireOwner, async (req, res) => {
-  if (!H.isConfigured()) return res.status(400).json({ error: 'Brak HEVY_API_KEY w ustawieniach serwera.' });
+  if (!H.isConfigured()) return res.status(400).json({ error: 'Hevy niepołączone: połącz konto w module Trening (panel Hevy) albo wczytaj eksport CSV z aplikacji.' });
   const r = await hevySync();
   res.status(r.ok ? 200 : 502).json(r);
 });
@@ -581,14 +760,14 @@ export const HEVY_VOICE_PROMPT = '- Hevy: hevy_trening (jak mi poszedl trening, 
 
 export async function runHevyTool(name, a = {}) {
   if (name === 'hevy_synchronizuj') {
-    if (!H.isConfigured()) return { error: 'Hevy niepodłączone: ustaw HEVY_API_KEY w ustawieniach serwera (klucz z developers.hevy.com/api-key).' };
+    if (!H.isConfigured()) return { error: 'Hevy niepołączone: połącz konto w module Trening (panel Hevy) albo wczytaj eksport CSV z aplikacji.' };
     const r = await hevySync();
     if (!r.ok) return { error: r.error };
     return { nowe: r.added, zmienione: r.updated, usuniete: r.removed, opis: r.notes[0] || (r.added ? 'zapisane' : 'brak nowych treningów') };
   }
   if (name === 'hevy_trening') {
     const st = state();
-    if (!st.workouts.length) return { error: H.isConfigured() ? 'brak treningów z Hevy (jeszcze nie zsynchronizowane?)' : 'Hevy niepodłączone: ustaw HEVY_API_KEY' };
+    if (!st.workouts.length) return { error: H.isConfigured() ? 'brak treningów z Hevy (jeszcze nie zsynchronizowane?)' : 'Hevy niepołączone: połącz konto w module Trening (panel Hevy) albo wczytaj eksport CSV z aplikacji.' };
     const i = Math.max(0, Math.min(st.workouts.length - 1, Math.round(num(a.ktory))));
     const d = describeStored(st.workouts[st.workouts.length - 1 - i]);
     return { opis: d.text, dzien: d.day, minut: d.minutes, serii: d.sets, objetosc_kg: d.volume, zmiana_objetosci_proc: d.volumeChange, rekordy: d.prs.map((p) => `${p.ex} ${p.kg} kg × ${p.reps}`) };
