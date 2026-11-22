@@ -64,6 +64,28 @@ export function logSets({ ex, kg, reps, sets = 1, rpe }) {
   };
 }
 
+// Plan dnia z zewnatrz (rutyny z Hevy); bez niego wbudowany program z profilu.
+let planProvider = null;
+export function setPlanProvider(fn) {
+  planProvider = typeof fn === 'function' ? fn : null;
+}
+function todayPlan(profile) {
+  try {
+    const p = planProvider?.();
+    if (p && Array.isArray(p.ex) && p.ex.length) return p;
+  } catch {
+    /* zewnetrzny plan jest dodatkiem */
+  }
+  return FitKit.planDay(profile.program, profile.done);
+}
+// Zakres powtorzen z planu ("8-12"), a gdy go nie ma, z profilu.
+function repRange(reps, profile) {
+  const m = /^(\d+)\s*-\s*(\d+)$/.exec(String(reps || ''));
+  if (m) return { min: Number(m[1]), max: Math.max(Number(m[1]), Number(m[2])) };
+  if (/^\d+$/.test(String(reps || ''))) return { min: Number(reps), max: Number(reps) };
+  return { min: profile.repMin, max: profile.repMax };
+}
+
 /** Wszystko do panelu i do "jak mi idzie" w jednym miejscu. */
 export function fitSummary(day = warsawDay()) {
   const sets = lifeList('sets');
@@ -76,14 +98,15 @@ export function fitSummary(day = warsawDay()) {
   const sleep = lifeList('sleep').filter((s) => s.day > FitKit.shiftDay(day, -7));
   const todayEx = [...new Set(sets.filter((s) => s.day === day).map((s) => s.ex))];
   const trainingDays = [...new Set(sets.map((s) => s.day))].sort();
+  const plan = todayPlan(profile);
   return {
     day,
     profile,
-    plan: FitKit.planDay(profile.program, profile.done),
+    plan,
     today: sets.filter((s) => s.day === day),
     suggestions: todayEx.map((ex) => ({ ex, ...FitKit.nextLoad(sets, ex, { min: profile.repMin, max: profile.repMax }) })),
     // Ile zalozyc na kazde cwiczenie z dzisiejszego dnia planu (z historii, a nie z dzisiejszych serii).
-    planLoads: Object.fromEntries(FitKit.planDay(profile.program, profile.done).ex.map(([name]) => [name, FitKit.nextLoad(sets, name, { min: profile.repMin, max: profile.repMax })])),
+    planLoads: Object.fromEntries(plan.ex.map(([name, , reps]) => [name, FitKit.nextLoad(sets, name, repRange(reps, profile))])),
     records: Object.values(recs).sort((a, b) => b.last - a.last).slice(0, 30),
     week: FitKit.weekVolume(sets, day),
     since: FitKit.daysSince(sets, day),

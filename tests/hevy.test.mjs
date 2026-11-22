@@ -45,6 +45,7 @@ globalThis.fetch = async (url, opts) => {
     const id = u.pathname.split('/').pop();
     return TEMPLATES[id] ? json({ id, title: id, primary_muscle_group: TEMPLATES[id] }) : json({}, 404);
   }
+  if (u.pathname === '/v1/routines') return json({ page: 1, page_count: 1, routines: server.routines || [] });
   if (u.pathname === '/v1/body_measurements') return json({ page: 1, page_count: 1, body_measurements: server.body });
   return json({}, 404);
 };
@@ -169,4 +170,23 @@ test('webhook: zly token 404, dobry od razu 200 i pobiera zmiany przez API', asy
   } finally {
     srv.close();
   }
+});
+
+test('rutyny z Hevy: plan dnia to rutyna po ostatnio zrobionej, z ciezarami z historii', async () => {
+  const { fitSummary } = await import('../server/extras/fitness.js');
+  server.routines = [
+    { id: 'r1', title: 'Push', folder_id: 7, exercises: [{ title: 'Bench Press (Barbell)', sets: [{ type: 'warmup', reps: 10 }, { type: 'normal', rep_range: { start: 6, end: 10 } }, { type: 'normal', rep_range: { start: 6, end: 10 } }] }] },
+    { id: 'r2', title: 'Pull', folder_id: 7, exercises: [{ title: 'Pull Up', sets: [{ type: 'normal', reps: 8 }, { type: 'normal', reps: 8 }, { type: 'normal', reps: 8 }] }, { title: 'Plank', sets: [{ type: 'normal', duration_seconds: 60 }] }] },
+  ];
+  server.events = [];
+  memory.load().hevy.routinesAt = 0;
+  assert.equal((await hevy.hevySync()).ok, true);
+  assert.deepEqual(memory.load().hevy.routines[0].ex, [['Bench Press (Barbell)', 2, '6-10']]);
+  // Ostatni trening z rutyna r1 to Push (w3 i w9 maja routine r1), wiec dzis Pull.
+  const s = fitSummary();
+  assert.equal(s.plan.program, 'Hevy');
+  assert.equal(s.plan.name, 'Pull');
+  assert.deepEqual(s.plan.ex, [['Pull Up', 3, '8'], ['Plank', 1, '60 s']]);
+  assert.ok(s.planLoads['Pull Up'], 'podpowiedz z historii podciagania');
+  assert.equal(hevy.nextRoutine([], []), null);
 });

@@ -9,7 +9,7 @@ import * as memory from '../memory/memory.js';
 import * as push from '../connect/push.js';
 import * as H from '../connect/hevy.js';
 import { registerBriefSection } from '../core/briefing.js';
-import { FitKit } from './fitness.js';
+import { FitKit, setPlanProvider } from './fitness.js';
 import { lifeAdd, lifeList, logJournal, warsawDay } from './life.js';
 import { isDnd } from './dnd.js';
 
@@ -335,6 +335,63 @@ async function syncBody(initial) {
   return added;
 }
 
+/** Rutyna z Hevy w krotkiej postaci: cwiczenia z liczba serii, zakresem powtorzen i ciezarem. */
+export function compactRoutine(r) {
+  return {
+    id: str(r.id, 40),
+    title: str(r.title, 80) || 'Rutyna',
+    folder: r.folder_id ?? null,
+    ex: (r.exercises || []).map((e) => {
+      const work = (e.sets || []).filter((s) => (s.type || 'normal') !== 'warmup');
+      const rr = work.find((s) => s.rep_range && s.rep_range.start)?.rep_range;
+      const reps = rr ? (rr.end && rr.end !== rr.start ? `${rr.start}-${rr.end}` : `${rr.start}`) : work.find((s) => s.reps)?.reps ? `${work.find((s) => s.reps).reps}` : work.find((s) => s.duration_seconds) ? `${Math.round(work.find((s) => s.duration_seconds).duration_seconds)} s` : '';
+      return [str(e.title, 60), work.length || (e.sets || []).length, reps];
+    }).filter((e) => e[0]),
+  };
+}
+
+/**
+ * Nastepna rutyna: po tej z ostatniego treningu, w tym samym folderze i w kolejnosci z Hevy.
+ * Bez treningu z rutyna pierwsza z listy. Zwraca plan w ksztalcie FitKit.planDay albo null.
+ */
+export function nextRoutine(routines, workouts) {
+  if (!routines?.length) return null;
+  const byId = new Map(routines.map((r) => [r.id, r]));
+  const last = [...(workouts || [])].reverse().find((w) => w.routine && byId.has(w.routine));
+  let pick = routines[0];
+  if (last) {
+    const done = byId.get(last.routine);
+    const folder = routines.filter((r) => r.folder === done.folder);
+    pick = folder[(folder.indexOf(done) + 1) % folder.length];
+  }
+  if (!pick.ex.length) return null;
+  return { program: 'Hevy', name: pick.title, index: routines.indexOf(pick), ex: pick.ex, hevy: pick.id };
+}
+
+async function syncRoutines(initial) {
+  const st = state();
+  if (!initial && Date.now() - (st.routinesAt || 0) < 6 * 3600000) return;
+  st.routinesAt = Date.now();
+  const list = [];
+  try {
+    for (let page = 1; page <= 5; page++) {
+      const r = await H.routinesPage(page);
+      list.push(...(r?.routines || []).map(compactRoutine));
+      if (page >= (r?.page_count || 1)) break;
+    }
+    st.routines = list.slice(0, 40);
+  } catch {
+    /* rutyny sa dodatkiem: zostaja poprzednie */
+  }
+}
+
+// Plan dnia w module Trening, odprawie i "zaczynam trening" bierze sie z rutyn Hevy, gdy sa.
+setPlanProvider(() => {
+  if (!H.isConfigured()) return null;
+  const st = state();
+  return nextRoutine(st.routines, st.workouts);
+});
+
 let running = null;
 let again = false;
 
@@ -412,6 +469,7 @@ async function doSync(notify) {
   st.workouts.sort((a, b) => a.start - b.start);
   if (st.workouts.length > KEEP_WORKOUTS) st.workouts = st.workouts.slice(-KEEP_WORKOUTS);
   const weights = await syncBody(initial);
+  await syncRoutines(initial);
   st.lastSync = startedAt;
   st.lastOk = Date.now();
   st.error = '';
