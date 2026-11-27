@@ -12,6 +12,10 @@ export const SAFE_ACTIONS = new Set([
   'kursor-jarvisa',
   'duze-pliki',
   'dyski',
+  'gry-lista',
+  'gry-aktualizacje',
+  'gry-instaluj',
+  'gry-uruchom',
   'otworz-pobrane',
   'przypnij-okno',
   'lista-akcji',
@@ -97,7 +101,7 @@ export const READ_ONLY = new Set([
   'blender-postep',
   'lista-procesow', 'lista-okien', 'lista-elementow', 'lista-plikow', 'czytaj-plik', 'wczytaj-plik-pc',
   'szukaj-plikow', 'skan-bezpieczenstwa', 'skan-autostartu', 'polaczenia-sieciowe', 'defender-status',
-  'zrzut-i-opisz', 'duze-pliki', 'dyski', 'lista-akcji', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'zapisz-kopie', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
+  'zrzut-i-opisz', 'duze-pliki', 'dyski', 'gry-lista', 'lista-akcji', 'schowek-odczyt', 'schowek-historia', 'zadania-lista', 'telemetria', 'czas-pracy', 'bateria', 'proces-dziala', 'zrzut-maly', 'zaznacz-ekran', 'ostatnie-pliki', 'zapisz-kopie', 'aktywne-okno', 'stan-gry', 'lokalny-tts', 'wlacz-edith', 'wlacz-jarvis'
 ]);
 
 const MODES = ['podglad', 'pytaj', 'zaufany'];

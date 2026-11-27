@@ -511,6 +511,11 @@ const ALL_TOOLS = [
     parameters: { type: 'object', properties: { otworz: { type: 'boolean' } } },
   },
   {
+    name: 'gry',
+    description: 'Gry na komputerze (Steam i Epic): akcja "lista" (co jest zainstalowane, ile zajmuje, ile miejsca w bibliotekach), "aktualizacje" (ktore gry czekaja na aktualizacje; otworz=true pokazuje kolejke pobierania Steama, gdy uzytkownik chce je zaczac), "zainstaluj" (gra ze Steama po nazwie, np. "cs2": otwiera okno instalacji Steama), "uruchom" (zainstalowana gra po nazwie).',
+    parameters: { type: 'object', properties: { akcja: { type: 'string', enum: ['lista', 'aktualizacje', 'zainstaluj', 'uruchom'] }, nazwa: { type: 'string' }, otworz: { type: 'boolean' } }, required: ['akcja'] },
+  },
+  {
     name: 'otworz_aplikacje',
     description: 'Otworz/uruchom DOWOLNA aplikacje na komputerze po nazwie (np. "notepad", "calc", "steam", "obs") - nie tylko te z listy steruj_urzadzeniem.',
     parameters: {
@@ -1405,6 +1410,23 @@ export async function attachVoiceRelay(clientWs, coords, isOwner = false, wantCl
                     uwaga: 'niczego nie usuwam; uzytkownik decyduje sam',
                   };
                   if (call.args?.otworz) safeSend(JSON.stringify({ type: 'deviceAction', action: 'otworz-pobrane' }));
+                }
+              } else if (call.name === 'gry') {
+                const a = call.args || {};
+                const action = { lista: 'gry-lista', aktualizacje: 'gry-aktualizacje', zainstaluj: 'gry-instaluj', uruchom: 'gry-uruchom' }[a.akcja];
+                if (!action) result = { error: 'nieznana akcja' };
+                else if (['zainstaluj', 'uruchom'].includes(a.akcja) && !a.nazwa) result = { error: 'podaj nazwe gry' };
+                else {
+                  const reply = await requestFromClient({ type: 'fileAction', action, params: { nazwa: String(a.nazwa || ''), otworz: Boolean(a.otworz) } }, 25000);
+                  if (!reply) result = { error: 'to dziala tylko w aplikacji na komputerze' };
+                  else if (action === 'gry-lista' && reply.ok) {
+                    result = {
+                      steam: reply.steam.installed ? reply.steam.games.filter((g) => !g.tool).map((g) => `${g.name} ${g.sizeGb} GB${g.state !== 'ok' ? ` (${g.state})` : ''}`) : 'brak Steama',
+                      biblioteki_steam: reply.steam.libraries.map((l) => `${l.path}: ${l.freeGb} GB wolne`),
+                      epic: reply.epic.map((g) => `${g.name} ${g.sizeGb} GB (${g.location})`),
+                      ...(reply.duplicates.length && { zdublowane: reply.duplicates.map((d) => `${d.name}: ${d.copies.length} kopie, najnowsza w ${d.keep}, starsza (${d.remove.join(', ')}) zajmuje ok. ${d.extraGb} GB`) }),
+                    };
+                  } else result = reply.ok ? reply : { error: reply.error };
                 }
               } else if (call.name === 'otworz_aplikacje') {
                 const { nazwa } = call.args || {};

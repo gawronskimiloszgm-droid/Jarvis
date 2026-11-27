@@ -15,6 +15,7 @@ const mediaSession = require('./mediaSession');
 const agentCursor = require('./agentCursor');
 const { webTarget } = require('./webUrl');
 const pcPlus = require('./pcPlus');
+const games = require('./games');
 
 function runWindowsCommand(cmd) {
   return new Promise((resolve) => {
@@ -156,6 +157,11 @@ const ACTIONS = {
   },
   // Porzadki: tylko odczyt. Usuwanie zostaje decyzja uzytkownika w Eksploratorze.
   'duze-pliki': async () => ({ ok: true, ...(await pcPlus.bigFiles()) }),
+  // Gry: Steam i Epic (games.js). Instalacje i aktualizacje zatwierdza sie w oknie Steama.
+  'gry-lista': async () => games.overview(),
+  'gry-aktualizacje': async (p) => games.updates({ otworz: Boolean(p?.otworz) }, { openExternal: (u) => shell.openExternal(u) }),
+  'gry-instaluj': async (p) => games.install({ nazwa: String(p?.nazwa || ''), appid: p?.appid }, { openExternal: (u) => shell.openExternal(u) }),
+  'gry-uruchom': async (p) => games.launch({ nazwa: String(p?.nazwa || '') }, { openExternal: (u) => shell.openExternal(u) }),
   dyski: async () => ({ ok: true, dyski: await pcPlus.disks() }),
   'otworz-pobrane': async () => {
     const err = await shell.openPath(pcPlus.downloadsDir());

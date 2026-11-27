@@ -190,5 +190,53 @@
     },
   };
 
-  UI.extend('machine', { pc_tidy: tidy, pc_breaks: breaks, pc_diag: diag });
+  // ================= GRY (Steam i Epic) =================
+  const gamesPanel = {
+    title: 'GRY: STEAM I EPIC',
+    glyph: '🎮',
+    wide: true,
+    build(body) {
+      body.innerHTML = '';
+      if (needDesktop(body)) return;
+      const out = el('div');
+      const name = el('input', 'inp');
+      name.placeholder = 'gra, np. cs2, portal 2';
+      name.style.flex = '1 1 200px';
+      const act = (action, okText) => async () => {
+        if (!name.value.trim()) throw new Error('Wpisz nazwę gry.');
+        const r = await run(action, { nazwa: name.value.trim() });
+        if (!r.ok) throw new Error(r.error || 'Nie udało się.');
+        toast(r.juz_zainstalowana ? `${r.gra} już jest zainstalowana${r.sklep ? ` (${r.sklep})` : ''}.` : `${okText}: ${r.gra}${r.polecana_biblioteka ? ` · polecany dysk ${r.polecana_biblioteka}` : ''}`, 'ok');
+      };
+      body.append(out, row(name, button('ZAINSTALUJ (STEAM)', act('gry-instaluj', 'Okno instalacji Steama')), button('URUCHOM', act('gry-uruchom', 'Uruchamiam'), 'btn ghost')));
+      async function load() {
+        out.innerHTML = '';
+        out.appendChild(el('div', 'w-dim', 'Sprawdzam biblioteki...'));
+        const r = await run('gry-lista');
+        out.innerHTML = '';
+        if (!r?.ok) return out.appendChild(el('div', 'hint', r?.error || 'Zaktualizuj aplikację desktopową.'));
+        const st = r.steam;
+        if (st.installed) {
+          out.appendChild(el('div', 'w-mid', `Steam${st.running ? ' (działa)' : ' (wyłączony)'} · ${st.libraries.map((l) => `${l.path}: ${l.freeGb} GB wolne`).join(' · ')}`));
+          const pending = st.games.filter((g) => g.state !== 'ok');
+          for (const g of st.games.filter((x) => !x.tool)) out.appendChild(el('div', g.state === 'ok' ? 'w-dim' : 'w-mid', `${g.name} · ${g.sizeGb} GB${g.state !== 'ok' ? ` · ${g.state}${g.toDownloadGb ? `, do pobrania ${g.toDownloadGb} GB` : ''}` : ''}`));
+          if (pending.length) {
+            out.appendChild(row(button(`POKAŻ KOLEJKĘ AKTUALIZACJI (${pending.length})`, async () => {
+              await run('gry-aktualizacje', { otworz: true });
+              toast('Steam pokazuje kolejkę pobierania.', 'ok');
+            })));
+          }
+        } else out.appendChild(el('div', 'w-dim', 'Steam nie jest zainstalowany.'));
+        if (r.epic.length) {
+          out.appendChild(el('div', 'sub', 'Epic Games (aktualizacje sprawdza launcher Epic):'));
+          for (const g of r.epic) out.appendChild(el('div', 'w-dim', `${g.name} ${g.version} · ${g.sizeGb} GB · ${g.location}`));
+        }
+        for (const d of r.duplicates || []) out.appendChild(el('div', 'hint', `${d.name} jest zainstalowana ${d.copies.length} razy: ${d.copies.join('; ')}. Najnowsza jest w ${d.keep}; usunięcie starszej (${d.remove.join(', ')}) zwolni ok. ${d.extraGb} GB. Usuń ją w launcherze, Jarvis niczego nie kasuje.`));
+        out.appendChild(row(button('ODŚWIEŻ', load, 'btn ghost')));
+      }
+      load().catch((e) => (out.textContent = e.message));
+    },
+  };
+
+  UI.extend('machine', { pc_tidy: tidy, pc_breaks: breaks, pc_diag: diag, pc_games: gamesPanel });
 })();
