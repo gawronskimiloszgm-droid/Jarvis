@@ -7,6 +7,8 @@ const { initUpdater } = require('./updater');
 const shell = require('./shell');
 const scheduler = require('./scheduler');
 const voiceServer = require('./voiceServer');
+const talkKey = require('./talkKey');
+const settings = require('./settings');
 
 let mainWindow = null;
 
@@ -26,7 +28,7 @@ const WAKE_MAX_CRASHES = 3;
 // jezyk > Mowa) - bez niego skrypt konczy sie od razu bledem, wiec po kilku
 // szybkich awariach z rzedu przestajemy probowac zamiast zapetlac sie w kolko.
 function startWakeWordListener(win) {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32' || wakeProc || !settings.get('wakeWord')) return;
   try {
     wakeProc = spawn('powershell.exe', [
       '-NoProfile',
@@ -62,7 +64,7 @@ function startWakeWordListener(win) {
         );
         return;
       }
-      if (!quitting && win && !win.isDestroyed()) {
+      if (!quitting && win && !win.isDestroyed() && settings.get('wakeWord')) {
         setTimeout(() => startWakeWordListener(win), 2000);
       }
     });
@@ -84,6 +86,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js'),
+      // Rozmowa toczy sie takze przy schowanym oknie (prawy Enter): bez dlawienia w tle.
+      backgroundThrottling: false,
     },
   });
 
@@ -120,8 +124,44 @@ if (!gotLock) {
   app.on('second-instance', () => shell.showWindow());
 }
 
+// Start z autostartu (--hidden): bez okna; w cichym trybie strona nie wita sie sama.
+const launchedHidden = process.argv.includes('--hidden');
+ipcMain.on('jarvis-launch-info', (e) => {
+  e.returnValue = { hidden: launchedHidden, silent: Boolean(settings.get('silent')) };
+});
+// Strona zglasza poczatek i koniec rozmowy: wskaznik "Jarvis slucha" na ekranie.
+ipcMain.on('jarvis-live-state', (e, on) => talkKey.setLive(Boolean(on)));
+
+function sendCommand(cmd) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jarvis-command', cmd);
+}
+function applyTalkKey() {
+  if (settings.get('talkKey')) {
+    talkKey.start({
+      onDown: () => sendCommand({ type: 'talk-key', phase: 'down' }),
+      onUp: (heldMs) => sendCommand({ type: 'talk-key', phase: 'up', heldMs }),
+    });
+  } else talkKey.stop();
+}
+function applyWakeWord() {
+  if (settings.get('wakeWord')) startWakeWordListener(mainWindow);
+  else if (wakeProc) {
+    try {
+      wakeProc.kill();
+    } catch {
+      /* juz zamkniety */
+    }
+    wakeProc = null;
+  }
+}
+
 app.whenReady().then(() => {
   if (!gotLock) return;
+  // Przejscie na cichy tryb: autostart wlaczamy raz, potem decyduje uzytkownik (menu zasobnika).
+  if (!settings.get('bootMigrated')) {
+    settings.set('autostart', true);
+    settings.set('bootMigrated', true);
+  }
   // Zezwalaj automatycznie na kamere/mikrofon/powiadomienia dla wlasnej aplikacji
   // (to Twoje wlasne okno, nie obca strona - nie ma powodu pytac za kazdym razem).
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -149,7 +189,10 @@ app.whenReady().then(() => {
       quitting = true;
       app.quit();
     },
+    onTalkKey: applyTalkKey,
+    onWakeWord: applyWakeWord,
   });
+  applyTalkKey();
   scheduler.init(
     (name, params, options) => runAction(name, params, options),
     (title, body) => {
@@ -172,6 +215,7 @@ app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   quitting = true;
   voiceServer.stop();
+  talkKey.dispose();
   shell.dispose();
   if (wakeProc) {
     try { wakeProc.kill(); } catch (e) { /* noop */ }

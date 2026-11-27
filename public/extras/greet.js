@@ -24,6 +24,8 @@
   };
 
   async function greet(kind, minGapMs) {
+    // Cichy tryb aplikacji desktopowej: Jarvis odzywa sie dopiero po prawym Enterze.
+    if (D()?.launchInfo?.silent) return;
     if (!isOwner() || get(ON, '1') !== '1') return;
     if (Date.now() - Number(get(KEY, '0')) < minGapMs) return;
     put(KEY, String(Date.now()));

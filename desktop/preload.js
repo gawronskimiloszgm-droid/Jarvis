@@ -21,4 +21,8 @@ contextBridge.exposeInMainWorld('jarvisDesktop', {
   overlayState: () => ipcRenderer.invoke('jarvis-overlay-state'),
   overlaySet: (patch) => ipcRenderer.invoke('jarvis-overlay-set', patch),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
+  // Jak wystartowala aplikacja: { hidden, silent } (cichy tryb: strona nie wita sie sama).
+  launchInfo: ipcRenderer.sendSync('jarvis-launch-info'),
+  // Poczatek i koniec rozmowy: wskaznik na ekranie, gdy okno jest schowane.
+  setLiveState: (on) => ipcRenderer.send('jarvis-live-state', Boolean(on)),
 });

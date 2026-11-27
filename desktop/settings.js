@@ -13,6 +13,11 @@ const DEFAULTS = {
   gameMode: true, // tryb gry: wykrywanie gier i cisza na czas grania
   worktime: true, // licznik czasu pracy (tylko nazwy programow) - patrz insights.js
   autostart: false,
+  // Cichy tryb: start z Windowsem bez okna, bez powitan i bez stalego nasluchu; rozmowe wlacza prawy Enter.
+  silent: true,
+  talkKey: true, // prawy Enter (klawiatura numeryczna) wlacza i konczy rozmowe - patrz talkKey.js
+  wakeWord: false, // slowo "Jarvis" przez rozpoznawanie mowy Windows (mikrofon stale nasluchuje)
+  bootMigrated: false, // jednorazowe wlaczenie autostartu przy przejsciu na cichy tryb
   hotkey: 'CommandOrControl+Alt+J',
   haUrl: '', // Home Assistant w sieci domowej
   haToken: '',

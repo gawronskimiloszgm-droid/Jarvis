@@ -151,6 +151,30 @@ function buildMenu() {
       },
     },
     {
+      label: 'Prawy Enter: rozmowa z Jarvisem',
+      type: 'checkbox',
+      checked: Boolean(settings.get('talkKey')),
+      click: (item) => {
+        settings.set('talkKey', item.checked);
+        onTalkKey();
+      },
+    },
+    {
+      label: 'Cichy tryb (bez powitań, start bez okna)',
+      type: 'checkbox',
+      checked: Boolean(settings.get('silent')),
+      click: (item) => settings.set('silent', item.checked),
+    },
+    {
+      label: 'Słowo „Jarvis” (mikrofon stale nasłuchuje)',
+      type: 'checkbox',
+      checked: Boolean(settings.get('wakeWord')),
+      click: (item) => {
+        settings.set('wakeWord', item.checked);
+        onWakeWord();
+      },
+    },
+    {
       label: 'Historia schowka (lokalnie)',
       type: 'checkbox',
       checked: Boolean(settings.get('clipboardHistory')),
@@ -161,9 +185,14 @@ function buildMenu() {
   ]);
 }
 
-function init({ getWindow, quit }) {
+let onTalkKey = () => {};
+let onWakeWord = () => {};
+
+function init({ getWindow, quit, onTalkKey: talk, onWakeWord: wake }) {
   getWin = getWindow;
   if (quit) quitApp = quit;
+  if (talk) onTalkKey = talk;
+  if (wake) onWakeWord = wake;
 
   tray = new Tray(trayIcon());
   tray.setToolTip('J.A.R.V.I.S.');
@@ -191,6 +220,8 @@ function init({ getWindow, quit }) {
     const v = settings.set(key, value);
     if (key === 'autostart') applyAutostart();
     if (key === 'hotkey') registerHotkey();
+    if (key === 'talkKey') onTalkKey();
+    if (key === 'wakeWord') onWakeWord();
     refresh();
     return v;
   });

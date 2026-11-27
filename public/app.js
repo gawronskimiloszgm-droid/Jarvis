@@ -3633,6 +3633,7 @@ async function liveStart() {
   if (edithOpen()) return;
   wakeStop();
   store.live = true;
+  window.jarvisDesktop?.setLiveState?.(true);
   $('#micBtn')?.classList.add('on');
   const ml = $('#micLabel');
   if (ml) ml.textContent = 'SLUCHAM';
@@ -3646,6 +3647,7 @@ async function liveStart() {
     // wrocic, skoro nie ma juz przycisku startu.
     store.wantLive = false;
     store.live = false;
+    window.jarvisDesktop?.setLiveState?.(false);
     $('#micBtn')?.classList.remove('on');
   const ml2 = $('#micLabel');
   if (ml2) ml2.textContent = 'NASLUCH';
@@ -3774,6 +3776,7 @@ async function liveStart() {
 function liveStop() {
   if (store.live) window.SFX?.play('micOff');
   store.live = false;
+  window.jarvisDesktop?.setLiveState?.(false);
   $('#micBtn')?.classList.remove('on');
   const ml2 = $('#micLabel');
   if (ml2) ml2.textContent = 'NASLUCH';
@@ -4263,9 +4266,12 @@ async function boot() {
     checkBubbleLaunch();
     // Rozmowa startuje sama razem z aplikacja - bez szukania przycisku.
     // Jesli przegladarka nie ma jeszcze zgody na mikrofon, liveStart sam
-    // to zglosi i uzytkownik przyzna ja raz.
-    store.wantLive = true;
-    liveStart();
+    // to zglosi i uzytkownik przyzna ja raz. Wyjatek: cichy tryb aplikacji
+    // desktopowej, w ktorym Jarvis czeka na prawy Enter.
+    if (!window.jarvisDesktop?.launchInfo?.silent) {
+      store.wantLive = true;
+      liveStart();
+    }
   }
 }
 
@@ -4349,6 +4355,32 @@ if (isNativeShell() && window.Capacitor.Plugins.WakeWord) {
 if (window.jarvisDesktop?.onWakeWord) {
   window.jarvisDesktop.onWakeWord(() => {
     if (!store.live) liveStart();
+  });
+}
+// Prawy Enter w aplikacji desktopowej (talkKey.js): krotkie nacisniecie zaczyna albo konczy rozmowe,
+// przytrzymanie dziala jak krotkofalowka (mowisz, puszczasz i rozmowa sie konczy).
+if (window.jarvisDesktop?.onCommand) {
+  let startedByKey = false;
+  window.jarvisDesktop.onCommand((c) => {
+    if (c?.type !== 'talk-key') return;
+    if (c.phase === 'down') {
+      if (store.live) {
+        startedByKey = false;
+        store.wantLive = false;
+        liveStop();
+      } else {
+        startedByKey = true;
+        store.wantLive = true; // zerwane polaczenie wznawia sie samo, jak przy przycisku
+        liveStart();
+      }
+    } else if (c.phase === 'up') {
+      // Przytrzymanie: koniec po puszczeniu (cicho, bez komunikatu "Wyciszony").
+      if (startedByKey && Number(c.heldMs) > 700 && store.live) {
+        store.wantLive = false;
+        liveStop();
+      }
+      startedByKey = false;
+    }
   });
 }
 
