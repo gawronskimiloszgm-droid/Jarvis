@@ -23,6 +23,7 @@ import fitness from './fitness.js';
 import hevy from './hevy.js';
 import kawa from './kawa.js';
 import earth from './earth.js';
+import night from './night.js';
 import printq from './printq.js';
 import suggest from './suggest.js';
 import graphmem from './graphmem.js';
@@ -31,5 +32,5 @@ import backupplus from './backupplus.js';
 import studio from './studio.js';
 import bundle from './bundle.js';
 
-export const extraRouters = [fitness, hevy, kawa, earth, printq, system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam, backupplus, studio, bundle];
+export const extraRouters = [fitness, hevy, kawa, earth, night, printq, system, documents, audit, agent, approvals, textops, voiceux, macros, mailtriage, insights, remote, profiles, music, greeting, visionplus, agentlearn, life, suggest, graphmem, phonecam, backupplus, studio, bundle];
 export { SERVER_VERSION, MIN_DESKTOP_VERSION };

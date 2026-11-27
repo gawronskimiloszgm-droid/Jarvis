@@ -1,4 +1,4 @@
-const CACHE = 'jarvis-shell-v6';
+const CACHE = 'jarvis-shell-v7';
 const SHELL = ['/', '/style.css', '/app.js', '/live-audio-processor.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -44,6 +44,8 @@ self.addEventListener('push', (event) => {
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
       tag: payload.tag,
+      renotify: Boolean(payload.tag && payload.renotify),
+      vibrate: Array.isArray(payload.vibrate) ? payload.vibrate.slice(0, 30) : undefined,
       requireInteraction: Boolean(payload.requireInteraction),
       actions: payload.actions || [],
       data: payload.data || {},
@@ -61,10 +63,16 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(fetch(url).catch(() => {}));
     return;
   }
+  // Adres w danych powiadomienia (np. "/?call=morning" dla porannego telefonu), tylko z tej domeny.
+  const target = typeof d.url === 'string' && d.url.startsWith('/') && !d.url.startsWith('//') ? d.url : '/';
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clients) => {
-      if (clients.length > 0) return clients[0].focus();
-      return self.clients.openWindow('/');
+      if (clients.length > 0) {
+        const c = clients[0];
+        if (target !== '/') c.postMessage({ type: 'jarvis-open', url: target });
+        return c.focus();
+      }
+      return self.clients.openWindow(target);
     })
   );
 });

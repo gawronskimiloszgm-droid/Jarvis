@@ -28,7 +28,11 @@ export async function ensureTriage() {
 }
 
 async function triage(limit) {
-  const messages = await gmailClient.listRecentInboxMessages(limit);
+  return classifyMessages(await gmailClient.listRecentInboxMessages(limit));
+}
+
+/** Kategoria, streszczenie, podpowiedz i nastroj nadawcy dla listy maili (tez dla pracy nocnej). */
+export async function classifyMessages(messages) {
   if (!messages.length) return [];
   const result = await withModel((m) =>
     ai.models.generateContent({
@@ -38,7 +42,8 @@ async function triage(limit) {
         '- kategoria: "pilny" (wymaga reakcji dzis), "odpowiedz" (ktos czeka na odpowiedz, ale nie pilne), ' +
         '"info" (do wiadomosci: rachunki, potwierdzenia, newslettery wartosciowe), "spam" (reklamy, zbedne),\n' +
         '- streszczenie: JEDNO zdanie po polsku,\n' +
-        '- akcja: krotka podpowiedz co zrobic (np. "odpisz do piatku", "zaplac rachunek", "ignoruj"). ' +
+        '- akcja: krotka podpowiedz co zrobic (np. "odpisz do piatku", "zaplac rachunek", "ignoruj"),\n' +
+        '- nastroj: "zdenerwowany" tylko gdy nadawca jest wyraznie zly, rozczarowany albo ponagla z pretensja, inaczej "neutralny". ' +
         'Zachowaj pole id.\n\n' +
         JSON.stringify(messages.map((x) => ({ id: x.id, subject: x.subject, from: x.from, snippet: x.snippet }))),
       config: {
@@ -52,6 +57,7 @@ async function triage(limit) {
               kategoria: { type: Type.STRING, enum: ['pilny', 'odpowiedz', 'info', 'spam'] },
               streszczenie: { type: Type.STRING },
               akcja: { type: Type.STRING },
+              nastroj: { type: Type.STRING, enum: ['neutralny', 'zdenerwowany'] },
             },
             required: ['id', 'kategoria', 'streszczenie', 'akcja'],
           },
@@ -67,6 +73,7 @@ async function triage(limit) {
       kategoria: byId[x.id]?.kategoria || 'info',
       streszczenie: byId[x.id]?.streszczenie || x.snippet,
       akcja: byId[x.id]?.akcja || '',
+      nastroj: byId[x.id]?.nastroj === 'zdenerwowany' ? 'zdenerwowany' : 'neutralny',
     }))
     .sort((a, b) => order[a.kategoria] - order[b.kategoria]);
 }
@@ -84,22 +91,27 @@ router.get('/api/triage/mail', requireOwner, async (req, res) => {
   }
 });
 
+/** Szkic odpowiedzi do wgladu (niczego nie wysyla). */
+export async function draftReply(item, instructions = '') {
+  const result = await withModel((m) =>
+    ai.models.generateContent({
+      model: m,
+      contents:
+        'Napisz PO POLSKU krotka, uprzejma odpowiedz na ponizszego maila. To tylko szkic do wgladu.\n' +
+        `Temat: ${item.subject}\nOd: ${item.from}\n` +
+        (instructions ? `Wskazowki uzytkownika: ${instructions}\n` : '') +
+        `Fragment maila: ${item.snippet}\n\nZwroc sam tekst odpowiedzi.`,
+    })
+  );
+  return { draft: result.text.trim(), to: item.from, subject: /^re:/i.test(item.subject) ? item.subject : `Re: ${item.subject}`, threadId: item.threadId };
+}
+
 router.post('/api/triage/mail/draft', requireOwner, async (req, res) => {
   const item = cache.items.find((x) => x.id === req.body?.id);
   if (!item) return res.status(404).json({ error: 'Nie ma tego maila w ostatnim przegladzie - odswiez liste.' });
   const instructions = String(req.body?.instructions || '').slice(0, 500);
   try {
-    const result = await withModel((m) =>
-      ai.models.generateContent({
-        model: m,
-        contents:
-          'Napisz PO POLSKU krotka, uprzejma odpowiedz na ponizszego maila. To tylko szkic do wgladu.\n' +
-          `Temat: ${item.subject}\nOd: ${item.from}\n` +
-          (instructions ? `Wskazowki uzytkownika: ${instructions}\n` : '') +
-          `Fragment maila: ${item.snippet}\n\nZwroc sam tekst odpowiedzi.`,
-      })
-    );
-    res.json({ draft: result.text.trim(), to: item.from, subject: /^re:/i.test(item.subject) ? item.subject : `Re: ${item.subject}`, threadId: item.threadId });
+    res.json(await draftReply(item, instructions));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

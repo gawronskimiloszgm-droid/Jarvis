@@ -22,6 +22,7 @@ import { maybeDailyReport, maybeWeeklyReport } from '../security/edith.js';
 import { maybeRecurring, maybeNudges } from '../extras/life.js';
 import { maybeCoach } from '../extras/coach.js';
 import { maybeHevySync } from '../extras/hevy.js';
+import { fireIfDue as wakeCallIfDue, schedule as scheduleWakeCall } from '../extras/night.js';
 import { watchPrinter } from '../extras/printq.js';
 import { maybeMorningPlan } from '../extras/suggest.js';
 import { maybeLearn } from '../extras/graphmem.js';
@@ -105,6 +106,9 @@ export function startUpkeep() {
       await maybeNudges();
       // Hevy przed trenerem: swiezy trening z aplikacji liczy sie juz w dzisiejszych przypomnieniach.
       await maybeHevySync().catch((e) => console.error('Hevy:', e.message));
+      // Poranny telefon: zapas, gdyby zegar w procesie przepadl (restart Rendera), i odswiezenie planu.
+      await wakeCallIfDue().catch((e) => console.error('Poranny telefon:', e.message));
+      scheduleWakeCall();
       await maybeCoach();
       await watchPrinter();
       await maybeMorningPlan();

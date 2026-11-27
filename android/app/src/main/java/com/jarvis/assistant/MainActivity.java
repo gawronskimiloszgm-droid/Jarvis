@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(WakeWordPlugin.class);
         registerPlugin(BubblePlugin.class);
         registerPlugin(AppControlPlugin.class);
+        registerPlugin(CallAlarmPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
